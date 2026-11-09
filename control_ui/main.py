@@ -35,6 +35,12 @@ def home():
     return Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 
 
+@app.get("/camera", response_class=HTMLResponse)
+def camera_page():
+    """Browser-local overhead camera preview; does not touch robot serial."""
+    return Path(__file__).with_name("camera.html").read_text(encoding="utf-8")
+
+
 @app.get("/api/ports")
 def ports():
     return service.ports()
