@@ -97,6 +97,12 @@ def gripper(req: GripperMove):
     return invoke(service.gripper_step, req.delta)
 
 
+@app.post("/api/home/factory-reset")
+def factory_reset():
+    """Explicit official multi-joint init; requires preflight and UI confirmation."""
+    return invoke(service.factory_reset)
+
+
 @app.post("/api/home/save")
 def home_save():
     return invoke(service.home_save)
