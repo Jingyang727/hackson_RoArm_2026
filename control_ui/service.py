@@ -78,9 +78,18 @@ class ArmService:
                 self.armed_until = 0
                 raise
             if self.pending:
-                actual = current_degrees(result)[self.pending["joint"]]
-                if abs(actual - self.pending["target_deg"]) <= ARRIVAL_TOLERANCE:
-                    self.pending = None
+                angles = current_degrees(result)
+                if self.pending.get("kind") == "factory":
+                    # T=100 is a multi-joint firmware reset, not a single joint jog.
+                    targets = FACTORY_DEGREES
+                    if all(abs(angles[j] - targets[j]) <= ARRIVAL_TOLERANCE for j in targets):
+                        self.pending = None
+                        if self.last_command:
+                            self.last_command["status"] = "factory_home_confirmed"
+                else:
+                    actual = angles[self.pending["joint"]]
+                    if abs(actual - self.pending["target_deg"]) <= ARRIVAL_TOLERANCE:
+                        self.pending = None
             return result
 
     def health(self):
@@ -157,6 +166,43 @@ class ArmService:
         with self.lock:
             status = self._preflight(6)
             return self._send_move(plan_gripper_step(status, delta))
+
+    def factory_reset(self):
+        """Explicit firmware T=100 reset, never a silent automatic command.
+
+        This moves all joints, potentially along an unsafe trajectory. Requires the
+        full six-joint allowlist, an active manual session, a cleared workspace
+        confirmed by the operator in the UI, and no other in-flight command.
+        """
+        with self.lock:
+            if not self.motion_enabled or self.arm is None:
+                raise UnsafeMotion("机械臂未连接或运动模式未开启")
+            if set(JOINTS) - self.allowed_joints:
+                raise UnsafeMotion("官方复位需要明确授权全部六个关节")
+            if time.monotonic() >= self.armed_until:
+                self.armed_until = 0
+                raise UnsafeMotion("运动授权已过期，请重新确认")
+            if time.monotonic() - self.last_motion_at < MIN_GAP_SECONDS:
+                raise UnsafeMotion("动作间隔过短")
+            feedback = self.status()
+            if self.pending is not None:
+                raise UnsafeMotion("上一动作尚未确认完成，不允许复位")
+            current_degrees(feedback)  # Refuse when joint feedback is incomplete.
+            if any(feedback.get(key) != 1 for key in
+                   ("torswitchB", "torswitchS", "torswitchE",
+                    "torswitchT", "torswitchR", "torswitchG")):
+                raise UnsafeMotion("一个或多个关节扭矩状态未确认，不能执行整臂复位")
+            self.arm.send({"T": 100})
+            self.last_motion_at = time.monotonic()
+            self.pending = {"kind": "factory", "target": "official_init"}
+            self.last_command = {
+                "status": "factory_reset_sent_unverified",
+                "command": {"T": 100},
+                "sent_at": time.time(),
+            }
+            # Firmware may block on T=100; movement is not yet confirmed.
+            return {"message": "已发送官方 T=100，等待六个关节状态确认；注意运动空间",
+                    "status": "sent_not_verified"}
 
     def home_save(self):
         with self.lock:
