@@ -87,6 +87,12 @@ def disarm():
     return service.disarm()
 
 
+@app.post("/api/recover")
+def recover(req: Unlock):
+    """Recover from a latched motion fault after manual safety check."""
+    return invoke(service.recover_fault, req.declaration)
+
+
 @app.post("/api/step")
 def step(req: Step):
     return invoke(service.step, req.joint, req.delta)
