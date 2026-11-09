@@ -134,13 +134,16 @@ class RobotCalibration:
             self._session(token)
             if any((r["grid"] == [col, row] and r["id"] != point_id) for r in self.records.values()):
                 raise CalibrationError("每个标定点必须是不同的棋盘角点")
-            health = arm_service.health()
-            if not health["connected"] or health["pending"] or health["fault"]:
-                raise CalibrationError("机械臂未连接，或仍有待完成动作/异常")
-            # Only read motor feedback. Never generate any motion command.
-            first = arm_service.status()
-            sleep_fn(0.65)
-            second = arm_service.status()
+            # Hold the serial owner's lock for the entire stable sample pair,
+            # preventing a concurrent jog or torque transition mid-measurement.
+            with arm_service.lock:
+                health = arm_service.health()
+                if not health["connected"] or health["pending"] or health["fault"]:
+                    raise CalibrationError("机械臂未连接，或仍有待完成动作/异常")
+                # Only read motor feedback. Never generate any motion command.
+                first = arm_service.status()
+                sleep_fn(0.65)
+                second = arm_service.status()
             abc = np.stack((_robot_xyz(first), _robot_xyz(second)))
             delta = float(np.linalg.norm(abc[1] - abc[0]))
             from .safety import current_degrees
