@@ -234,6 +234,12 @@ def health():
     return service.health()
 
 
+@app.post("/api/auto-connect")
+def auto_connect():
+    """Safe serial status connection, shared between the dashboard and calibration UI."""
+    return service.auto_connect()
+
+
 @app.post("/api/connect")
 def connect(req: Connect):
     return {"status": invoke(service.connect, req.port)}
