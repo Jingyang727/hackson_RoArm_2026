@@ -91,7 +91,12 @@ pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
 </section>
 <section class="panel wide">
 <div class="flex between"><h2>复位 / 返回待机姿态</h2><button id="saveHome" disabled>保存当前位置为我的复位点</button></div>
-<div class="tip">官方 T=100 会驱动所有关节一起返回出厂初始位。本页面不直接调用 T=100，而是让你预览目标，并自行选择每个关节最多 5° 的逐段回位，防止发生不可预期的大幅回中。即使是单关节移动，也仍须确保运动范围无障碍。</div>
+<div class="tip">现在有两种操作：按下方按钮直接调用官方 T=100 回初始位；或者预览每个关节差值，手动分段回位。两种方式都不保证避障，复位前务必清空工作空间。</div>
+<div class="warn" style="margin-top:14px">
+<strong>官方一键复位（危险动作）</strong>
+<div class="tip">执行微雪官方 T=100：所有关节同时移动到出厂初始姿态。需已解锁、授权六关节、上一动作结束，并确认整个扫掠空间没有障碍物。不会避障，谨慎使用。</div>
+<div class="flex" style="margin-top:10px"><button id="factoryReset" disabled>恢复官方初始姿态（T=100）</button></div>
+</div>
 <div class="flex" style="margin:12px 0">
 <label for="homeKind">复位目标</label>
 <select id="homeKind"><option value="saved">我的安全复位点</option><option value="factory">官方初始姿态</option></select>
@@ -158,6 +163,7 @@ function paintPermission(){
  $("unlock").disabled=!health?.connected||!health?.motion_enabled||busy;
  $("lock").disabled=!health?.motion_enabled||busy;
  $("saveHome").disabled=!health?.connected||busy;
+ $("factoryReset").disabled=!(available&&health.allowed_joints?.length===6);
  $("mode").textContent=health?.motion_enabled
   ?(health?.armed?"已解锁 "+health.arm_seconds_left+"秒"+(health.pending?" · 等待动作到位":""):"手动模式已启用 · 当前锁定")
   :"默认只读 · 终端开启手动模式";
@@ -239,6 +245,13 @@ $("unlock").onclick=()=>{
  safeAction(async()=>{const r=await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});notify("已授权 "+r.expires_in_seconds+" 秒；可选单步动作")});
 };
 $("lock").onclick=()=>safeAction(async()=>{const r=await api("/api/disarm","POST",{});notify(r.notice)});
+$("factoryReset").onclick=()=>{
+ if(!confirm("警告：官方 T=100 会同时驱动六个关节回初始位，软件无法避障。\n确认已清空整个机械臂扫掠范围、检查设备并保持能切断电源？"))return;
+ safeAction(async()=>{
+   const r=await api("/api/home/factory-reset","POST",{});
+   notify(r.message);
+ });
+};
 $("saveHome").onclick=()=>{
  if(!confirm("确定保存此时所有六个关节的实际反馈角度为自定义复位姿态吗？\n请确认这确实是安全的待机位置。"))return;
  safeAction(async()=>{await api("/api/home/save","POST",{});notify("自定义安全复位姿态已保存到这台 Mac 的 ~/.evoarm/home_pose.json");await preview()});
