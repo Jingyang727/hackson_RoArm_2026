@@ -362,7 +362,11 @@ $("homeKind").onchange=()=>safeAction(preview);
   if(busy)return;
   busy=true;
   try{health=await api("/api/health");await refreshStatus()}
-  catch(e){notify("状态轮询失败："+e.message)}
+  catch(e){
+    // A failed status fetch must not leave a stale green "connected" indicator.
+    notify("状态轮询失败："+e.message);
+    health={connected:false,fault:{message:"状态读取失败："+e.message}};
+  }
   finally{busy=false;paintPermission();paintConnection()}
  },2000);
 })();
