@@ -87,6 +87,7 @@ pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
 <button class="primary" data-gripper="open" id="gripperOpen" disabled>张开夹爪 ◀</button>
 <button data-gripper="close" id="gripperClose" disabled>夹紧夹爪 ▶</button>
 </div>
+<div id="gripperHint" class="tip" style="margin-top:8px">等待角度反馈</div>
 </section>
 <section class="panel wide">
 <div class="flex between"><h2>复位 / 返回待机姿态</h2><button id="saveHome" disabled>保存当前位置为我的复位点</button></div>
@@ -132,6 +133,25 @@ async function refreshStatus(){
  if(j.id===6)$("gripperValue").textContent=typeof value==="number"?(value*180/Math.PI).toFixed(1)+"°":"无反馈";
  }
 }
+function gripperDirectionAllowed(direction){
+ const radians=latest?.g;
+ if(typeof radians!=="number"||!Number.isFinite(radians))return false;
+ const current=radians*180/Math.PI;
+ const target=current+direction*Number($("gripperStep").value);
+ const recovered=current>180&&target<current||current<65&&target>current||current>=65&&current<=180;
+ return current>=63&&current<=182&&recovered&&target>=65&&target<=180;
+}
+function gripperFeedbackMessage(){
+ const radians=latest?.g;if(typeof radians!=="number"||!Number.isFinite(radians))return "等待夹爪角度反馈";
+ const current=radians*180/Math.PI;
+ if(current>180&&current<=182)return "夹爪略高于180°："+current.toFixed(1)+"°。允许向张开方向恢复，不允许继续夹紧。";
+ if(current<65&&current>=63)return "夹爪略低于65°："+current.toFixed(1)+"°。允许向夹紧方向恢复，不允许继续张开。";
+ if(current>182||current<63)return "夹爪角度偏差过大，请检查零位和状态；已锁定该控制。";
+ const step=Number($("gripperStep").value);
+ if(current+step>180)return "当前夹爪接近闭合上限；夹紧"+step+"°会超限，可改小步长。";
+ if(current-step<65)return "当前夹爪接近张开下限；张开"+step+"°会超限，可改小步长。";
+ return "当前在训练范围内；每次单步完成后等待反馈。";
+}
 function paintPermission(){
  const armed=Boolean(health?.armed)&&!busy;
  const available=armed&&!health?.pending;
@@ -144,8 +164,10 @@ function paintPermission(){
  document.querySelectorAll("[data-jog]").forEach(button=>{
   button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
  });
+ $("gripperHint").textContent=gripperFeedbackMessage();
  document.querySelectorAll("[data-gripper]").forEach(button=>{
-  button.disabled=!(available&&health.allowed_joints?.includes(6));
+  const direction=button.dataset.gripper==="open"?-1:1;
+  button.disabled=!(available&&health.allowed_joints?.includes(6)&&gripperDirectionAllowed(direction));
  });
  document.querySelectorAll("[data-home-step]").forEach(button=>{
   button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
@@ -231,6 +253,7 @@ for(const [buttonId, direction] of [["gripperOpen",-1],["gripperClose",1]]){
   });
  };
 }
+$("gripperStep").onchange=paintPermission;
 $("previewHome").onclick=()=>safeAction(preview);
 $("homeKind").onchange=()=>safeAction(preview);
 (async()=>{
