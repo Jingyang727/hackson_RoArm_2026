@@ -104,9 +104,10 @@ class RobotCalibration:
         self.session_id = None
         self.square_mm = None
         self.image_size = None
+        self.corners_px = None
         self.records = {}
 
-    def start(self, square_mm, image_size):
+    def start(self, square_mm, image_size, corners_px=None):
         value = _finite_number(square_mm, "单格边长")
         if not (0.1 <= value <= 200):
             raise CalibrationError("棋盘单格边长需在0.1～200mm之间")
@@ -114,10 +115,24 @@ class RobotCalibration:
             raise CalibrationError("图像尺寸无效")
         if not (240 <= min(image_size) and max(image_size) <= 4096):
             raise CalibrationError("图像尺寸超出范围")
+        if corners_px is not None:
+            if (not isinstance(corners_px, list) or len(corners_px) != 54 or
+                any(not isinstance(p, list) or len(p) != 2 for p in corners_px)):
+                raise CalibrationError("棋盘角点必须包含54组像素坐标")
+            validated_corners = []
+            for p in corners_px:
+                x = _finite_number(p[0], "角点X")
+                y = _finite_number(p[1], "角点Y")
+                if not 0 <= x < image_size[0] or not 0 <= y < image_size[1]:
+                    raise CalibrationError("有棋盘角点位于图像边界之外")
+                validated_corners.append([round(x,2),round(y,2)])
+        else:
+            validated_corners = None
         with self.lock:
             self.session_id = uuid.uuid4().hex
             self.square_mm = value
             self.image_size = image_size.copy()
+            self.corners_px = validated_corners
             self.records = {}
             return self.summary()
 
@@ -194,6 +209,7 @@ class RobotCalibration:
                 "session_id": self.session_id,
                 "square_mm": self.square_mm,
                 "image_size": self.image_size,
+                "corners_saved": self.corners_px is not None,
                 "records": records,
                 "next_id": next((p for p in EXPECTED_POINT_IDS if p not in self.records), None),
                 "ready": False,
@@ -230,6 +246,7 @@ class RobotCalibration:
             data = {
                 "version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
                 "square_mm": self.square_mm, "image_size": self.image_size,
+                "corners_px": self.corners_px,
                 "fit": result["fit"], "records": result["records"],
                 "note": "Planar board XY->robot XY only; Z, TCP and collisions uncalibrated",
             }
