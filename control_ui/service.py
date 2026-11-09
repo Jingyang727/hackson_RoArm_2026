@@ -31,6 +31,10 @@ CART_CONFIRM_TIMEOUT_S = 65.0
 CART_ARRIVAL_TOLERANCE_MM = 6.0
 CART_SETTLED_OFFSET_MAX_MM = 10.0
 RECOVERY_SAMPLE_GAP_S = 0.75
+# Send T=210 once. Retry only read-only T=105 status verification.
+TORQUE_VERIFY_ATTEMPTS = 3
+TORQUE_VERIFY_TIMEOUT_S = 3.5
+TORQUE_VERIFY_PAUSE_S = 0.35
 STABLE_POSITION_TOLERANCE_DEG = 0.6
 
 
@@ -47,6 +51,7 @@ class ArmService:
         # Teach mode never auto-enables. Keep a fail-closed flag after releasing torque.
         self.teach_active = False
         self.last_torque_status = None
+        self.last_torque_result = None
 
     @property
     def teach_enabled(self):
@@ -87,6 +92,7 @@ class ArmService:
             self.pending = self.last_command = None  # Keep a latched fault across reconnects.
             flags = [result.get("torswitch" + k) for k in "BSETRG"]
             self.last_torque_status = flags
+            self.last_torque_result = None
             self.teach_active = not all(v == 1 for v in flags)
             return result
 
@@ -278,6 +284,7 @@ class ArmService:
                 "teach_enabled": self.teach_enabled,
                 "teach_active": self.teach_active,
                 "torque_status": self.last_torque_status,
+                "torque_last_result": self.last_torque_result,
                 "allowed_joints": sorted(self.allowed_joints) if self.motion_enabled else [],
                 "armed": bool(self.arm and self.motion_enabled and remaining > 0),
                 "arm_seconds_left": remaining,
@@ -310,10 +317,10 @@ class ArmService:
             return {"armed": True, "expires_in_seconds": SESSION_SECONDS}
 
     def set_torque(self, enabled, declaration):
-        """Optional manual teaching. T=210 affects ALL servos and may cause gravity drop.
+        """Explicit T=210 all-servo transition; never retry the actuation itself.
 
-        Never called from calibration capture; only an explicit, opt-in UI button.
-        Re-engagement is not a safe/automatic way to hold an arbitrary hand pose.
+        T=1051 can time out immediately after T=210 even if the servo switch
+        succeeded. Retrying status reads is safe; replaying T=210 is not.
         """
         with self.lock:
             if type(enabled) is not bool:
@@ -325,41 +332,100 @@ class ArmService:
             if self.pending is not None:
                 raise UnsafeMotion("动作未确认完成，不能切换扭矩")
             if self.fault and not enabled:
-                raise UnsafeMotion("有运动异常时，不能释放扭矩")
+                raise UnsafeMotion("有运动异常时不能释放扭矩")
             required = ("已托住机械臂并确认重新锁定" if enabled
                         else "已托住机械臂并确认释放全部关节")
             if declaration != required:
-                raise UnsafeMotion("请确认已经托住机械臂、避免失重下垂与突然转动")
+                raise UnsafeMotion("请先确认托住机械臂、避免重力下垂与突然转动")
             before = self.arm.status()
             flags = [before.get("torswitch" + k) for k in "BSETRG"]
-            if not all(x in (0, 1) for x in flags):
+            if any(v not in (0, 1) for v in flags):
                 raise UnsafeMotion("扭矩反馈不完整，拒绝切换")
-            if not enabled and not all(x == 1 for x in flags):
-                raise UnsafeMotion("部分关节已经释放扭矩，请检查状态后再操作")
+            if not enabled and any(v != 1 for v in flags):
+                raise UnsafeMotion("一个或多个关节已释放；请读取实际状态，勿重复释放")
+            self.last_torque_status = flags
             self.armed_until = 0
-            # Fail closed if transmission or follow-up feedback fails.
-            if not enabled:
-                self.teach_active = True
-            self.arm.send({"T": 210, "cmd": 1 if enabled else 0})
-            time.sleep(0.3)
-            confirmed = self.arm.status()
-            current = [confirmed.get("torswitch" + k) for k in "BSETRG"]
-            self.last_torque_status = current
-            verified = all(x == (1 if enabled else 0) for x in current)
-            if enabled and verified:
-                self.teach_active = False
-            if not verified:
-                self.teach_active = True
-            return {
-                "verified": verified,
-                "torque_enabled": enabled if verified else None,
-                "torque_state": current,
+            target = 1 if enabled else 0
+            if all(v == target for v in flags):
+                # An explicit re-lock may arrive after the earlier response
+                # timed out, while the physical servos are already locked.
+                self.teach_active = not enabled
+                result = {
+                    "verified": True, "torque_enabled": enabled,
+                    "torque_state": flags, "command_sent": False,
+                    "verification_attempts": 0,
+                    "message": ("六关节已经全部锁定，无需重复发送扭矩指令"
+                                if enabled else "六关节已经全部释放，无需重复发送指令"),
+                }
+                self.last_torque_result = result
+                return result
+            self.teach_active = True  # fail closed before sending
+            try:
+                self.arm.send({"T": 210, "cmd": target})
+            except Exception as exc:
+                # Transport may fail after some bytes were written. We cannot
+                # assume the command was not received. Never auto-reissue it.
+                self.last_torque_status = None
+                result = {
+                    "verified": False, "torque_enabled": None,
+                    "torque_state": None, "command_sent": False,
+                    "verification_attempts": 0,
+                    "message": (
+                        f"指令发送异常：{exc}；可能已生效。保持托住机械臂，"
+                        "请点击“读取实际扭矩状态”；当前禁止运动，不会自动重发"
+                    ),
+                }
+                self.last_torque_result = result
+                return result
+            current = None
+            last_error = None
+            attempts = 0
+            for attempt in range(TORQUE_VERIFY_ATTEMPTS):
+                if attempt:
+                    time.sleep(TORQUE_VERIFY_PAUSE_S)
+                attempts = attempt + 1
+                try:
+                    observed = self.arm.status(timeout=TORQUE_VERIFY_TIMEOUT_S)
+                except Exception as exc:
+                    last_error = str(exc)
+                    continue
+                values = [observed.get("torswitch" + k) for k in "BSETRG"]
+                if any(v not in (0, 1) for v in values):
+                    last_error = "扭矩反馈不完整"
+                    continue
+                current = values
+                self.last_torque_status = values
+                if all(v == target for v in values):
+                    self.teach_active = not enabled
+                    result = {
+                        "verified": True, "torque_enabled": enabled,
+                        "torque_state": values, "command_sent": True,
+                        "verification_attempts": attempts,
+                        "message": ("六关节扭矩已锁定；运动仍需重新手动授权"
+                                    if enabled else
+                                    "六关节扭矩已释放；请持续托住大臂，避免下垂"),
+                    }
+                    self.last_torque_result = result
+                    return result
+                last_error = "尚未全部达到目标扭矩状态"
+            # Do not report failure of actuation: only verification failed.
+            # Never expose stale pre-command feedback as the latest state.
+            self.teach_active = True
+            if current is None:
+                self.last_torque_status = None
+            result = {
+                "verified": False, "torque_enabled": None,
+                "torque_state": current, "command_sent": True,
+                "verification_attempts": attempts,
                 "message": (
-                    ("全部关节扭矩已锁定，手动移动前需重新确认运动权限" if enabled
-                     else "全部关节扭矩已释放，务必持续托住大臂，避免下垂")
-                    if verified else "扭矩指令已发送但未确认状态；保持机械臂支撑，暂不发送运动指令"
+                    f"T=210仅发送一次，但{attempts}次状态读取仍未确认"
+                    + (f"（最近反馈错误：{last_error}）" if last_error else "")
+                    + "。指令可能已经生效！请托住机械臂，点击“读取实际扭矩状态”。"
+                    "当前禁止新的运动指令，不会自动重发扭矩指令"
                 ),
             }
+            self.last_torque_result = result
+            return result
 
     def disarm(self):
         # Intentionally does not claim to stop a command already sent.
