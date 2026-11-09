@@ -76,6 +76,29 @@ class ServiceSafetyTests(unittest.TestCase):
             with self.assertRaises(UnsafeMotion):
                 service.step(1, 3)
 
+    def test_gripper_api_recovers_from_180_point_9_without_overclosing(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.arm.feedback["g"] = math.radians(180.9)
+            service.unlock_once("已检查设备并清空运动区域")
+            result = service.gripper_step(-15)
+            self.assertAlmostEqual(result["to_deg"], 165.9, places=1)
+            self.assertEqual(service.arm.commands[0]["T"], 106)
+            self.assertIn("cmd", service.arm.commands[0])
+            self.assertAlmostEqual(service.arm.commands[0]["cmd"], math.radians(165.9), places=4)
+            self.assertEqual(len(service.arm.commands), 1)
+
+    def test_gripper_api_refuses_further_overclose(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.arm.feedback["g"] = math.radians(180.9)
+            service.unlock_once("已检查设备并清空运动区域")
+            with self.assertRaises(UnsafeMotion):
+                service.gripper_step(15)
+            self.assertEqual(service.arm.commands, [])
+
     def test_save_and_recall_user_home_in_single_bounded_step(self):
         with tempfile.TemporaryDirectory() as td:
             with patch("control_ui.home_pose.pose_file", return_value=Path(td) / "home.json"):
