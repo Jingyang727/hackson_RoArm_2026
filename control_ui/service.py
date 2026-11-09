@@ -8,7 +8,7 @@ from evoarm.serial_arm import RoArmSerial
 from .home_pose import save_pose, load_pose
 from .safety import (
     JOINTS, JOG_STEPS, FACTORY_DEGREES, UnsafeMotion,
-    current_degrees, checked_home_pose, plan_single_step, plan_home_step,
+    current_degrees, checked_home_pose, plan_single_step, plan_gripper_step, plan_home_step,
 )
 
 SESSION_SECONDS = 120
@@ -151,6 +151,12 @@ class ArmService:
         with self.lock:
             status = self._preflight(joint)
             return self._send_move(plan_single_step(status, joint, delta))
+
+    def gripper_step(self, delta):
+        """Move gripper by a bounded angle. Uses official T=106 radians command."""
+        with self.lock:
+            status = self._preflight(6)
+            return self._send_move(plan_gripper_step(status, delta))
 
     def home_save(self):
         with self.lock:
