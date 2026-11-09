@@ -108,6 +108,12 @@ class MotionStateTests(unittest.TestCase):
             self.assertIsNotNone(svc.fault)
             self.assertEqual(svc.arm.commands, [])
 
+    def test_disconnect_does_not_erase_unresolved_fault(self):
+        svc = ArmService()
+        svc.fault = {"code": "motion_not_confirmed", "message": "需要检查"}
+        svc.disconnect()
+        self.assertEqual(svc.health()["fault"]["code"], "motion_not_confirmed")
+
     def test_missing_serial_feedback_latches_fault(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}), \
              patch("control_ui.service.MIN_GAP_SECONDS", 0.0):
