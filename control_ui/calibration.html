@@ -5,24 +5,36 @@
 <title>EvoArm · 机械臂坐标标定</title>
 <style>
 :root{font:14px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#0e1829;color:#e7effa}
-*{box-sizing:border-box}body{max-width:1130px;margin:20px auto;padding:0 16px}h1{font-size:25px;margin:0 0 8px}h2{font-size:17px;margin:0 0 10px}
+*{box-sizing:border-box}body{max-width:1680px;margin:12px auto;padding:0 12px}h1{font-size:25px;margin:0 0 8px}h2{font-size:17px;margin:0 0 10px}
 a{color:#85d4ed}p{line-height:1.65}small,.muted{color:#a7b8ca}
-main{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-top:16px}
+main{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(350px,1fr);align-items:start;gap:14px;margin-top:12px}
 .panel{background:#1a293e;border:1px solid #3d4e66;padding:16px;border-radius:13px}
 .wide{grid-column:1/-1}
 button,select,input{font:inherit;padding:9px;border:1px solid #607494;border-radius:8px;background:#283a55;color:#eaf0fa}
 button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}input[type=number]{width:95px}
 .primary{background:#186f5c;border-color:#278c75}.danger{background:#512d35;border-color:#996069}
 .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0}
-#frame{background:#0b1320;border-radius:10px;width:100%;display:block;max-height:64vh;object-fit:contain}
-#overlay{background:#0b1320;border-radius:10px;width:100%;display:none;cursor:crosshair;touch-action:manipulation}
+#view{position:relative;width:100%;aspect-ratio:16/9;background:#0b1320;border:1px solid #53657b;border-radius:10px;overflow:hidden}
+#frame{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:contain}
+#overlay{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:manipulation;pointer-events:none}
+#overlay.ready{pointer-events:auto}
+#zoom{display:block;width:100%;aspect-ratio:5/3;border:1px solid #5c6d82;border-radius:9px;background:#071321}
+#zoomNote{font-size:12px;color:#b7c5d7;padding:7px 0}
+.sticky-panel{position:sticky;top:10px}
+.point{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.point .point-description{flex:1;min-width:170px;line-height:1.6}
+.point .point-actions{display:flex;gap:6px;flex-wrap:wrap}
+.point .record{background:#186f5c;border-color:#278c75;font-weight:700}
+#setupState{margin:8px 0;font-weight:650}
+#capture{font-weight:700}
+#statusLine{font-size:13px;line-height:1.7;white-space:pre-wrap}
 .notice{border:1px solid #455a72;background:#27364c;border-radius:9px;padding:11px;line-height:1.65}
 .warning{border:1px solid #986b5e;background:#432f31;border-radius:9px;padding:11px;margin-top:10px;line-height:1.7}
-.point{padding:9px 0;border-top:1px solid #364b61;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.point{padding:10px 5px;border-top:1px solid #364b61}
 .point.active{background:#263953}.point button{font-size:12px}
 .ok{color:#7de0ae}.soft{color:#edc37c}.bad{color:#ffaaa9}
 pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
-@media(max-width:800px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
+@media(max-width:950px){main{grid-template-columns:minmax(0,1fr)}.wide{grid-column:auto}.sticky-panel{position:static}}
 </style>
 </head>
 <body>
@@ -31,19 +43,19 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <p class="muted">4 个拟合点 + 1 个独立验证点。先人工把夹爪中心对准棋盘角点，再读取机械臂末端 XYZ。此页面<strong>不发送任何抓取、XYZ 移动或复位指令</strong>。</p>
 <div class="warning">先移走黄色球和其它障碍物，固定棋盘格、摄像头、底座。对准时让夹爪或指示尖端保持在标记上方，避免触碰桌面。记录过程中固定工具姿态与高度，防止夹爪中心和机器人末端坐标不一致。只有扭矩“释放/锁定”按钮会发送 T=210，请先托住大臂。</div>
 <main>
-<section class="panel">
-<h2>① 拍摄并识别棋盘格</h2>
+<section class="panel sticky-panel">
+<h2>① 实时俯视大画面 · 标定角点持续显示</h2>
 <div class="row">
 <label for="device">摄像头</label><select id="device"></select>
 <button id="cameraStart">打开相机</button><button id="cameraStop" disabled>关闭相机</button>
 </div>
 <div class="row"><label for="square">单格实测边长 mm</label><input id="square" type="number" value="24" min="0.1" max="200" step="0.1"/>
-<button id="analyze" disabled>冻结画面并识别54角点</button></div>
+<button id="analyze" disabled>识别角点并开始标定</button></div>
 <small>24mm 是根据你上次检测结果推得的输入值，请用尺核对。固定好相机和棋盘后，不要再移动二者。</small>
-<video id="frame" autoplay playsinline muted></video>
-<canvas id="overlay"></canvas>
-<div id="viewMessage" class="notice">打开相机后点击识别。会在冻结图片上标注5个推荐角点，点击其他绿色角点可为当前步骤改选。</div>
-<div class="row"><button id="begin" class="primary" disabled>开始一次新的标定（清空旧记录）</button></div>
+<div id="view"><video id="frame" autoplay playsinline muted></video><canvas id="overlay" aria-label="实时画面上的角点标记"></canvas></div>
+<div id="viewMessage" class="notice">先打开摄像头，再点击「识别角点并开始标定」。之后视频会继续实时播放，P1～V1 五个标记留在画面上。</div>
+<div class="row"><button id="begin" class="primary" disabled>重新开始标定（清空已记录的点）</button></div>
+<div class="muted">叠加标记取自首次识别的位置。若摄像头或棋盘格移动，必须重新识别并标定。</div>
 </section>
 <section class="panel">
 <h2>② 连接机械臂并对准角点</h2>
@@ -57,14 +69,19 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <button id="torqueOn" disabled>重新锁定全部扭矩</button></div>
 <div id="torqueInfo" class="muted">默认禁用。只有用 EVOARM_ENABLE_TEACH=1 启动时才开放。</div>
 </div>
-<h2 style="margin-top:16px">③ 对准后逐点记录</h2>
+<h2 style="margin-top:16px">③ 当前角点实时放大</h2>
+<canvas id="zoom" width="600" height="360" aria-label="当前标定角点的实时放大预览"></canvas>
+<div id="zoomNote">识别后实时放大当前角点。红色十字是目标角点，并非视觉跟踪到的夹爪。</div>
+<div id="setupState" class="notice">打开相机 → 识别角点并自动开始会话 → 连接机械臂。</div>
+<h2 style="margin-top:16px">④ 对准后直接记录</h2>
 <div id="targets"></div>
 <div id="selected" class="notice">请先识别棋盘格并开始标定。</div>
-<div class="row"><button id="capture" class="primary" disabled>记录所选角点的机械臂 XYZ</button></div>
+<div class="row"><button id="capture" class="primary" disabled>记录当前选中点的 XYZ</button></div>
+<div id="statusLine" class="muted">点击各点旁边的绿色「记录 XYZ」即可。</div>
 <div class="muted">每次记录会连续读取两组真实反馈，检查机械臂是否静止。仅记录当前关节姿态和坐标，不会移动机械臂。要修正某一点，重新选择它再记录即可。</div>
 </section>
 <section class="panel wide">
-<h2>④ 查看标定验收结果</h2>
+<h2>⑤ 标定验收结果</h2>
 <div id="result" class="notice">至少需要4个分散的拟合点和1个独立验证点才能验收。</div>
 <div class="row"><button id="save" class="primary" disabled>保存已通过验收的二维XY标定</button></div>
 <div class="muted">即使验收通过，也<strong>只有桌面棋盘XY到机械臂XY的映射</strong>。工具中心点（TCP）、夹爪姿态、球体高度、桌面Z和路径避障都还未标定，暂不执行自动抓球。</div>
@@ -78,6 +95,8 @@ const TARGETS=[
  {id:"V1",col:4,row:2}
 ];
 let stream=null,vision=null,shot=null,session=null,chosen="P1",summary=null,health=null,busy=false;
+let raf=0;
+const modifiedPoints=new Set();
 async function api(url,method="GET",payload){
  const options={method,headers:{"Content-Type":"application/json"}};
  if(payload!==undefined)options.body=JSON.stringify(payload);
@@ -94,8 +113,8 @@ function render(){
  const ready=Boolean(vision?.checkerboard?.detected)&&Boolean(shot);
  $("begin").disabled=busy||!ready;
  $("analyze").disabled=busy||!stream;
- $("capture").disabled=busy||!session||!health?.connected;
- $("save").disabled=busy||!summary?.ready;
+ $("capture").disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+ $("save").disabled=busy||!summary?.ready||modifiedPoints.size>0;
  $("cameraStart").disabled=busy||Boolean(stream);
  $("cameraStop").disabled=busy||!stream;
  $("torqueOff").disabled=busy||!health?.connected||!health?.teach_enabled||health?.teach_active;
@@ -108,17 +127,34 @@ function render(){
   const item=document.createElement("div");item.className="point"+(chosen===t.id?" active":"");
   const info=document.createElement("div");
   const saved=recordById(t.id);
+  info.className="point-description";
   info.textContent=t.id+" · 格点 ("+t.col+", "+t.row+") · "+
-     (t.id==="V1"?"独立验收":"拟合")+" · "+(saved?"已记录 ✓":"尚未记录");
-  const b=document.createElement("button");b.textContent=chosen===t.id?"当前选中":"选择 / 重测";
-  b.disabled=busy;b.onclick=()=>{chosen=t.id;render();drawOverlay()};
-  item.append(info,b);$("targets").append(item);
+    (t.id==="V1"?"独立验收":"拟合")+
+    (modifiedPoints.has(t.id)?" · 角点改变，必须重录":
+      saved?" · XYZ "+saved.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ")+" mm ✓":" · 未记录");
+  const actions=document.createElement("div");actions.className="point-actions";
+  const b=document.createElement("button");b.textContent=chosen===t.id?"当前点":"定位 "+t.id;
+  b.disabled=busy;b.onclick=()=>{chosen=t.id;render();drawOverlay();drawZoomFrame()};
+  const record=document.createElement("button");record.className="record";
+  record.textContent=saved&&!modifiedPoints.has(t.id)?"重新记录 "+t.id:"记录 "+t.id+" XYZ";
+  record.disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+  record.title=record.disabled?"请先识别棋盘格并连接机械臂，确保没有未完成动作":"读取当前机械臂末端XYZ";
+  record.onclick=()=>capturePoint(t.id);
+  actions.append(b,record);item.append(info,actions);$("targets").append(item);
  }
  const t=TARGETS.find(x=>x.id===chosen);
- $("selected").textContent="当前 "+t.id+"：请把夹爪两指中心（或固定指示尖端）人工对准绿色棋盘角点 "+
+ $("selected").textContent="当前 "+t.id+"：请把夹爪两指中心（或固定指示尖端）人工对准红色高亮角点 "+
    "("+t.col+","+t.row+"), 棋盘毫米坐标 ("+
    (t.col*Number($("square").value)).toFixed(1)+","+
    (t.row*Number($("square").value)).toFixed(1)+")，保持静止后记录。";
+ const setup=!vision?.checkerboard?.detected?"第1步：启动相机并识别角点（会自动开始标定会话）":
+  !session?"请先点击重新开始标定":
+  !health?.connected?"第2步：选择串口并连接机械臂":
+  health?.fault?"机械臂存在动作异常，请先在控制台复核":
+  health?.pending?"等待上一动作到位后才能记录":
+  "已就绪：对准红色目标，点击 "+chosen+" 行的绿色「记录 XYZ」";
+ $("setupState").textContent=setup;
+ $("statusLine").textContent=setup;
  if(summary){
   const fit=summary.fit;
   let msg="已记录 "+summary.records.length+"/5 点。"+summary.message;
@@ -128,6 +164,7 @@ function render(){
    msg+="\n矩阵 R="+JSON.stringify(fit.matrix_2x2)+
     "；平移 t="+JSON.stringify(fit.offset_mm)+" mm；det="+fit.determinant;
    msg+="\n标记状态："+(summary.ready?"二维XY标定验收通过（仍禁止自动运动）":"未通过最终验收");
+   if(modifiedPoints.size)msg+="\n有角点改变但未重录："+[...modifiedPoints].join(", ");
   }
   $("result").textContent=msg;
  }
