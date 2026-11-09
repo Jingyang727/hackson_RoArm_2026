@@ -102,7 +102,7 @@ test("torque release button opens in-page confirmation and sends nothing early",
   page.el("torqueOff").onclick();
   assert.equal(page.el("torquePrompt").hidden,false);
   assert.match(page.el("torqueActionFeedback").textContent,/释放所有关节/);
-  assert.match(page.el("torqueMessage").textContent,/尚未发送/);
+  assert.match(page.el("torqueMessage").textContent,/尚未发送|还没有发送/);
   assert.equal(page.torquePosts(),0);
   page.el("torqueAcknowledged").checked=true;
   page.el("torqueAcknowledged").onchange();
