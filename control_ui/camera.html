@@ -64,16 +64,29 @@ async function startCamera(){
   if(!navigator.mediaDevices?.getUserMedia)throw Error("浏览器无法访问摄像头；请从 http://127.0.0.1:8765/camera 打开");
   stopCamera();
   const id=$("devices").value;
-  const video={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}};
+  // Prefer true 1920x1080 capture (not browser-side image upscaling).
+  const video={width:{exact:1920},height:{exact:1080},frameRate:{ideal:30}};
   if(id)video.deviceId={exact:id};
-  stream=await navigator.mediaDevices.getUserMedia({video,audio:false});
+  let fallback=false;
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video,audio:false});
+  }catch(err){
+    // Keep preview usable on webcams that do not expose 1080p in this browser.
+    if(err.name!=="OverconstrainedError" && err.name!=="NotFoundError")throw err;
+    const lower={width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}};
+    if(id)lower.deviceId={exact:id};
+    stream=await navigator.mediaDevices.getUserMedia({video:lower,audio:false});
+    fallback=true;
+  }
   const element=$("video");element.srcObject=stream;
   await element.play();
   $("stop").disabled=false;$("shot").disabled=false;$("start").disabled=true;
   const selected=stream.getVideoTracks()[0];
   await listCameras(selected.getSettings().deviceId||id);
-  note("预览中 · "+element.videoWidth+"×"+element.videoHeight+
-       " · "+(selected.getSettings().frameRate||"未知")+" FPS（设备报告值）");
+  const actual=element.videoWidth+"×"+element.videoHeight;
+  note("预览中 · 实际 "+actual+
+       " · "+(selected.getSettings().frameRate||"未知")+" FPS（设备报告值）"+
+       (fallback||actual!=="1920×1080"?"；当前未获得1080p，可能是设备/浏览器模式限制":"；已启用1080p采集"));
 }
 $("start").onclick=async()=>{try{await startCamera()}catch(e){stopCamera();note("打开摄像头失败："+e.message+"。检查系统隐私权限或其他软件占用。")}};
 $("stop").onclick=()=>{stopCamera();note("摄像头已关闭")};
