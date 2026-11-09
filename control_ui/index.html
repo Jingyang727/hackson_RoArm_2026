@@ -72,8 +72,21 @@ pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
 <div class="flex"><label for="stepSize">单次步进</label>
 <select id="stepSize"><option value="1">1° 精调</option><option value="3">3°</option><option value="5" selected>5° 推荐</option><option value="10">10° 大步进</option></select></div>
 </div>
-<div class="tip">每次点击只执行一个角度目标指令（官方 T=121），不采用 G+ / G- 式持续旋转。根据反馈限制下一条指令叠加；反向控制时先观察真实运动方向。</div>
+<div class="tip">解锁时确认一次后，120秒内点击单步按钮即可直接发送；无需每次重复弹窗。除夹爪专用指令 T=106 外，各关节使用 T=121。上一动作未确认到位时禁止叠加。</div>
 <div id="joints"></div>
+</section>
+<section class="panel wide">
+<h2>夹爪专用控制</h2>
+<div class="tip">使用微雪专用 T=106 指令。角度变小为张开，角度变大为夹紧；当前角度略超出 180°（例如 180.9°）时，只允许朝正常范围恢复。超出较多时停止并检查反馈。</div>
+<div class="flex" style="margin:14px 0">
+<strong>当前夹爪角度：</strong><strong class="num" id="gripperValue">--</strong>
+<label for="gripperStep" style="margin-left:8px">单步幅度</label>
+<select id="gripperStep"><option value="5">5° 微调</option><option value="15" selected>15° 明显动作</option><option value="30">30° 大幅调节</option></select>
+</div>
+<div class="flex">
+<button class="primary" data-gripper="open" id="gripperOpen" disabled>张开夹爪 ◀</button>
+<button data-gripper="close" id="gripperClose" disabled>夹紧夹爪 ▶</button>
+</div>
 </section>
 <section class="panel wide">
 <div class="flex between"><h2>复位 / 返回待机姿态</h2><button id="saveHome" disabled>保存当前位置为我的复位点</button></div>
@@ -116,6 +129,7 @@ async function refreshStatus(){
  const value=latest[j.field];
  const el=$("j"+j.id);
  if(el)el.textContent=typeof value==="number"?(value*180/Math.PI).toFixed(1)+"°":"无反馈";
+ if(j.id===6)$("gripperValue").textContent=typeof value==="number"?(value*180/Math.PI).toFixed(1)+"°":"无反馈";
  }
 }
 function paintPermission(){
@@ -129,6 +143,9 @@ function paintPermission(){
   :"默认只读 · 终端开启手动模式";
  document.querySelectorAll("[data-jog]").forEach(button=>{
   button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
+ });
+ document.querySelectorAll("[data-gripper]").forEach(button=>{
+  button.disabled=!(available&&health.allowed_joints?.includes(6));
  });
  document.querySelectorAll("[data-home-step]").forEach(button=>{
   button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
@@ -150,7 +167,6 @@ function drawJoints(){
   button.dataset.jog="1";button.dataset.joint=String(j.id);
   button.textContent=sign<0?"− 减少":"＋ 增加";
   button.onclick=()=>{const delta=sign*Number($("stepSize").value);
-   if(!confirm(j.label+"："+(delta>0?"+":"")+delta+"°\n请确认机械臂将要运动的区域已经清空。"))return;
    safeAction(async()=>{const result=await api("/api/step","POST",{joint:j.id,delta});notify("已发送 "+j.label+" 目标 "+result.to_deg+"°。请观察运动方向与反馈。");await refreshStatus()});
   };
   controls.append(button);
@@ -177,7 +193,6 @@ async function preview(){
   const btn=document.createElement("button");btn.dataset.homeStep="1";btn.dataset.joint=row.joint;
   btn.textContent="回位一步 ≤5°";btn.disabled=true;
   btn.onclick=()=>{
-   if(!confirm("将 "+row.label+" 向"+kind+"复位点移动不超过5°。请目视检查回位路径和电源开关。"))return;
    safeAction(async()=>{const result=await api("/api/home/step","POST",{kind,joint:row.joint});
       notify(row.label+" 已发送目标 "+result.to_deg+"°；正在等待真实位置反馈");
       await refreshStatus();await preview();
@@ -206,6 +221,16 @@ $("saveHome").onclick=()=>{
  if(!confirm("确定保存此时所有六个关节的实际反馈角度为自定义复位姿态吗？\n请确认这确实是安全的待机位置。"))return;
  safeAction(async()=>{await api("/api/home/save","POST",{});notify("自定义安全复位姿态已保存到这台 Mac 的 ~/.evoarm/home_pose.json");await preview()});
 };
+for(const [buttonId, direction] of [["gripperOpen",-1],["gripperClose",1]]){
+ $(buttonId).onclick=()=>{
+  const delta=direction*Number($("gripperStep").value);
+  safeAction(async()=>{
+   const result=await api("/api/gripper","POST",{delta});
+   notify((direction<0?"张开":"夹紧")+"夹爪：已发送目标 "+result.to_deg+"°，等待角度反馈");
+   await refreshStatus();
+  });
+ };
+}
 $("previewHome").onclick=()=>safeAction(preview);
 $("homeKind").onchange=()=>safeAction(preview);
 (async()=>{
