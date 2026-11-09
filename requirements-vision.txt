@@ -1,0 +1,3 @@
+# Browser camera preview uses WebRTC/getUserMedia and needs no OpenCV.
+# Install this only for snapshot analysis and chessboard/ball detection.
+opencv-python-headless>=4.10,<5
