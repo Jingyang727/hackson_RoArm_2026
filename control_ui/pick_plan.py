@@ -174,20 +174,27 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
           "spd": 100, "acc": 10, "reason": reason,
           "requires_operator_confirm": True,
         })
+    def vertical(last_stage, x, y, from_z, to_z, grip, reason):
+        # Even slow Cartesian goals can travel unpredictably if far apart.
+        segments = max(1, math.ceil(abs(to_z-from_z)/20.0))
+        for segment in range(1,segments+1):
+            z=from_z+(to_z-from_z)*segment/segments
+            stage=last_stage if segment==segments else last_stage+"_part"+str(segment)
+            go(stage,x,y,z,grip,reason)
     # Initial travel to ball cannot be inferred safe without a manually taught
     # safe start; do NOT move from arbitrary current position to high-Z.
     go("hover_ball", ball_xy[0],ball_xy[1],zhigh,open_g,"从已确认的高位安全姿态移动到球上方")
     hand("open_before_pick",open_g,"确认夹爪张开")
-    go("descend_pick",ball_xy[0],ball_xy[1],profile["grip_z_mm"],open_g,"在球上方垂直下降到示教抓取高度")
+    vertical("descend_pick",ball_xy[0],ball_xy[1],zhigh,profile["grip_z_mm"],open_g,"在球上方小步垂直下降到示教抓取高度")
     hand("close_ball",closed_g,"夹住泡沫球；角度不能证明已夹住")
-    go("lift_ball",ball_xy[0],ball_xy[1],zhigh,closed_g,"垂直抬升并目视核验球是否随动")
+    vertical("lift_ball",ball_xy[0],ball_xy[1],profile["grip_z_mm"],zhigh,closed_g,"垂直分段抬升并目视核验球是否随动")
     number_segments = max(1, math.ceil(float(np.linalg.norm(place_xy - ball_xy))/step_xy_mm))
     for i in range(1,number_segments+1):
         pos=ball_xy + (place_xy-ball_xy)*(i/number_segments)
         go(f"travel_{i:02d}",pos[0],pos[1],zhigh,closed_g,"高位水平转运，分段控制")
-    go("descend_place",place_xy[0],place_xy[1],profile["place_z_mm"],closed_g,"下降到示教放置高度")
+    vertical("descend_place",place_xy[0],place_xy[1],zhigh,profile["place_z_mm"],closed_g,"分段下降到示教放置高度")
     hand("release_ball",open_g,"松开球，观察是否落在指定位置")
-    go("retreat",place_xy[0],place_xy[1],zhigh,open_g,"垂直撤离")
+    vertical("retreat",place_xy[0],place_xy[1],profile["place_z_mm"],zhigh,open_g,"分段垂直撤离")
     return {
       "ball_board_mm": [round(v,2) for v in board_xy],
       "ball_robot_xy_mm": [round(float(v),2) for v in ball_xy],
