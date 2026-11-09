@@ -43,12 +43,14 @@ button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}input[type=
 pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:950px){main{grid-template-columns:minmax(0,1fr)}.wide{grid-column:auto}.sticky-panel{position:static}}
 </style>
+<link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
-<div class="row"><a href="/">控制台</a><span class="muted">/</span><a href="/camera">俯视相机</a><span class="muted">/</span><strong>机械臂坐标标定</strong><span class="muted">/</span><a href="/pick">黄色球抓取示教</a></div>
+<div class="topbar"><nav class="nav-links"><a href="/">控制台</a><a href="/camera">俯视相机</a><strong>XY 标定</strong><a href="/pick">抓放示教</a></nav><span id="connectionChip" class="connection-chip offline">正在连接</span></div>
+<div id="connectionToast" class="connection-toast" hidden role="alert"></div>
 <h1>棋盘格 → RoArm-M3 坐标标定</h1>
 <p class="muted">4 个拟合点 + 1 个独立验证点。先人工把夹爪中心对准棋盘角点，再读取机械臂末端 XYZ。此页面<strong>不发送任何抓取、XYZ 移动或复位指令</strong>。</p>
-<div class="warning">先移走黄色球和其它障碍物，固定棋盘格、摄像头、底座。对准时让夹爪或指示尖端保持在标记上方，避免触碰桌面。记录过程中固定工具姿态与高度，防止夹爪中心和机器人末端坐标不一致。只有扭矩“释放/锁定”按钮会发送 T=210，请先托住大臂。</div>
+<details class="safety-details"><summary>标定说明与安全注意事项</summary><p class="muted">标定时需固定相机、棋盘和底座，末端不接触桌面。5点保持工具姿态和高度一致。扭矩释放后所有关节失去主动保持力，操作时必须托住大臂。</p></details>
 <main>
 <section class="panel sticky-panel">
 <h2>① 实时俯视大画面 · 标定角点持续显示</h2>
@@ -65,22 +67,23 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="muted">叠加标记取自首次识别的位置。若摄像头或棋盘格移动，必须重新识别并标定。</div>
 </section>
 <section class="panel controls-panel">
-<h2>② 连接机械臂并对准角点</h2>
-<div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">连接</button><button id="refreshXYZ" type="button">刷新当前 XYZ</button></div>
+<h2>② 机械臂状态与标定点</h2>
+<details class="connection-settings"><summary>连接设置 · 仅断线时展开</summary><div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">重新连接</button></div></details>
+<div class="row"><button id="refreshXYZ" type="button">更新末端 XYZ</button></div>
 <div id="armInfo" class="notice">尚未读取机械臂状态。</div>
 <div class="row"><button id="captureTop" class="primary" disabled style="font-size:16px;font-weight:750;padding:12px 18px">记录当前 P1 的 XYZ</button><span class="muted">对准后立即记录；每个点下方也有独立记录按钮</span></div>
-<p class="muted">优先使用 <a href="/" target="_blank" rel="noopener">原有手动控制 UI</a> 微步进到目标上方。两页共用一个后端串口连接，不要启动两个服务。</p>
-<h2 style="margin-top:16px">③ 当前角点实时放大</h2>
+<p class="muted">手动微调可打开 <a href="/" target="_blank" rel="noopener">关节控制台</a>。两个页面共享同一串口连接。</p>
+<h2 style="margin-top:16px">实时对准 · 局部放大</h2>
 <canvas id="zoom" width="600" height="360" aria-label="当前标定角点的实时放大预览"></canvas>
 <div id="zoomNote">识别后实时放大当前角点。红色十字是目标角点，并非视觉跟踪到的夹爪。</div>
 <div id="setupState" class="notice">打开相机 → 识别角点并自动开始会话 → 连接机械臂。</div>
-<h2 style="margin-top:16px">④ 对准后直接记录</h2>
+<h2 style="margin-top:16px">标定点 · 选择并记录</h2>
 <div id="targets"></div>
 <div id="selected" class="notice">请先识别棋盘格并开始标定。</div>
 <div class="row"><button id="capture" class="primary" disabled>记录当前选中点的 XYZ</button></div>
 <div id="statusLine" class="muted">点击各点旁边的绿色「记录 XYZ」即可。</div>
 <div class="muted">每次记录会连续读取两组真实反馈，检查机械臂是否静止。仅记录当前关节姿态和坐标，不会移动机械臂。要修正某一点，重新选择它再记录即可。</div>
-<h2 style="margin-top:16px">可选 · 扭矩示教</h2>
+<h2 style="margin-top:16px">手动示教</h2>
 <div class="warning" id="torqueCard">
 <strong>可选：手动示教 / 释放扭矩</strong>
 <div class="muted">释放的是<strong>全部六个关节</strong>，肩肘可能因重力瞬间下垂。先双手托住机械臂，清空下方空间；不要拉扯线缆。上锁可能带来意外动作，重新锁定时也要托住。</div>
@@ -100,7 +103,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 </div>
 </section>
 <section class="panel wide">
-<h2>⑤ 标定验收结果</h2>
+<h2>标定结果</h2>
 <div id="result" class="notice">至少需要4个分散的拟合点和1个独立验证点才能验收。</div>
 <div class="row"><button id="save" class="primary" disabled>保存已通过验收的二维XY标定</button></div>
 <div class="muted">即使验收通过，也<strong>只有桌面棋盘XY到机械臂XY的映射</strong>。工具中心点（TCP）、夹爪姿态、球体高度、桌面Z和路径避障都还未标定，暂不执行自动抓球。</div>
@@ -116,6 +119,7 @@ const TARGETS=[
 let stream=null,vision=null,shot=null,session=null,chosen="P1",summary=null,health=null,busy=false;
 let raf=0;
 const modifiedPoints=new Set();
+let cameraAutoTried=false;
 async function api(url,method="GET",payload){
  const options={method,headers:{"Content-Type":"application/json"}};
  if(payload!==undefined)options.body=JSON.stringify(payload);
@@ -123,12 +127,24 @@ async function api(url,method="GET",payload){
  if(!response.ok)throw Error(data.detail||"HTTP "+response.status);return data;
 }
 function say(msg){$("viewMessage").textContent=msg}
+function paintConnection(){
+ const chip=$("connectionChip"),toast=$("connectionToast");
+ if(health?.connected&&!health?.fault){
+  chip.textContent="已连接 · "+(health.port||"RoArm");
+  chip.classList.remove("offline");toast.hidden=true;
+ }else{
+  chip.textContent=health?.fault?"连接异常":"设备未连接";
+  chip.classList.add("offline");toast.hidden=false;
+  toast.textContent="机械臂连接提醒："+(health?.fault?.message||"USB 未连接；需要时展开连接设置");
+ }
+}
 function setBusy(value){busy=value;render()}
 async function doAction(fn){if(busy)return;setBusy(true);
  try{await fn()}catch(e){say("操作失败："+e.message);$("result").textContent="操作失败："+e.message}
  finally{setBusy(false)}}
 function recordById(id){return summary?.records?.find(x=>x.id===id)}
 function render(){
+ paintConnection();
  const ready=Boolean(vision?.checkerboard?.detected)&&Boolean(shot);
  $("begin").disabled=busy||!ready;
  $("analyze").disabled=busy||!stream;
@@ -466,10 +482,26 @@ $("save").onclick=()=>doAction(async()=>{
 });
 $("square").onchange=()=>{if(session){say("棋盘单格尺寸变更后必须重新识别角点并开始标定，原记录不可沿用。");session=null;summary=null;vision=null;modifiedPoints.clear();drawOverlay()}render()};
 window.addEventListener("pagehide",stopCamera);
-(async()=>{try{await cameras();const ports=await api("/api/ports");
+(async()=>{try{
+ health=await api("/api/health");
+ if(!health.connected){
+  const auto=await api("/api/auto-connect","POST",{});
+  if(!auto.connected)say(auto.reason||"自动连接未成功；需要时可展开连接设置");
+ }
+ health=await api("/api/health");
+ const ports=await api("/api/ports");
  $("serialPort").replaceChildren(...ports.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));
- await refreshArm();}catch(e){say("初始化提示："+e.message)}render()})();
-setInterval(async()=>{if(busy)return;try{health=await api("/api/health");render()}catch{}},2500);
+ if(health?.port&&ports.some(p=>p.device===health.port))$("serialPort").value=health.port;
+ await refreshArm();await cameras();
+ if(!cameraAutoTried&&navigator.permissions?.query){
+  cameraAutoTried=true;
+  try{
+   const permission=await navigator.permissions.query({name:"camera"});
+   if(permission.state==="granted")await startCamera();
+  }catch(e){/* Unsupported permissions API: leave camera button available. */}
+ }
+ }catch(e){say("初始化提示："+e.message)}render()})();
+setInterval(async()=>{if(busy)return;try{health=await api("/api/health");render()}catch(e){health={connected:false};render()}},2500);
 </script>
 </body>
 </html>
