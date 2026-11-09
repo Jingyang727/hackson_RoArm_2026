@@ -76,7 +76,8 @@ class XYMathTests(unittest.TestCase):
 
     def test_capture_five_points_and_save_no_actuation(self):
         cal, fake = RobotCalibration(), FakeArm()
-        token = cal.start(SIZE, [1920, 1080])["session_id"]
+        corners=[[100+c*40,100+r*40] for r in range(6) for c in range(9)]
+        token = cal.start(SIZE, [1920, 1080],corners)["session_id"]
         with tempfile.TemporaryDirectory() as folder:
             with patch("control_ui.robot_calibration.default_path", return_value=Path(folder)/"xy.json"):
                 for n, x, y in TARGETS:
@@ -86,7 +87,9 @@ class XYMathTests(unittest.TestCase):
                 self.assertTrue(result["ready"])
                 saved = cal.save(token)
                 self.assertTrue(saved["saved"])
-                self.assertTrue(json.loads(Path(saved["path"]).read_text())["fit"]["validated"])
+                saved_data=json.loads(Path(saved["path"]).read_text())
+                self.assertTrue(saved_data["fit"]["validated"])
+                self.assertEqual(len(saved_data["corners_px"]),54)
                 self.assertEqual(fake.commands, [])
 
     def test_capture_moving_or_duplicate_refused(self):
