@@ -25,6 +25,10 @@ class Step(BaseModel):
     delta: float
 
 
+class GripperMove(BaseModel):
+    delta: float
+
+
 class HomeMove(BaseModel):
     kind: str
     joint: int
@@ -86,6 +90,11 @@ def disarm():
 @app.post("/api/step")
 def step(req: Step):
     return invoke(service.step, req.joint, req.delta)
+
+
+@app.post("/api/gripper")
+def gripper(req: GripperMove):
+    return invoke(service.gripper_step, req.delta)
 
 
 @app.post("/api/home/save")
