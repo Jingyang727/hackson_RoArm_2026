@@ -62,13 +62,6 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">连接</button></div>
 <div id="armInfo" class="notice">尚未读取机械臂状态。</div>
 <p class="muted">优先使用 <a href="/" target="_blank" rel="noopener">原有手动控制 UI</a> 微步进到目标上方。两页共用一个后端串口连接，不要启动两个服务。</p>
-<div class="warning">
-<strong>可选：手动示教 / 释放扭矩</strong>
-<div class="muted">释放的是<strong>全部六个关节</strong>，肩肘可能因重力瞬间下垂。先双手托住机械臂，清空下方空间；不要拉扯线缆。上锁可能带来意外动作，重新锁定时也要托住。</div>
-<div class="row"><button id="torqueOff" class="danger" disabled>释放所有关节扭矩</button>
-<button id="torqueOn" disabled>重新锁定全部扭矩</button></div>
-<div id="torqueInfo" class="muted">默认禁用。只有用 EVOARM_ENABLE_TEACH=1 启动时才开放。</div>
-</div>
 <h2 style="margin-top:16px">③ 当前角点实时放大</h2>
 <canvas id="zoom" width="600" height="360" aria-label="当前标定角点的实时放大预览"></canvas>
 <div id="zoomNote">识别后实时放大当前角点。红色十字是目标角点，并非视觉跟踪到的夹爪。</div>
@@ -79,6 +72,14 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="row"><button id="capture" class="primary" disabled>记录当前选中点的 XYZ</button></div>
 <div id="statusLine" class="muted">点击各点旁边的绿色「记录 XYZ」即可。</div>
 <div class="muted">每次记录会连续读取两组真实反馈，检查机械臂是否静止。仅记录当前关节姿态和坐标，不会移动机械臂。要修正某一点，重新选择它再记录即可。</div>
+<h2 style="margin-top:16px">可选 · 扭矩示教</h2>
+<div class="warning">
+<strong>可选：手动示教 / 释放扭矩</strong>
+<div class="muted">释放的是<strong>全部六个关节</strong>，肩肘可能因重力瞬间下垂。先双手托住机械臂，清空下方空间；不要拉扯线缆。上锁可能带来意外动作，重新锁定时也要托住。</div>
+<div class="row"><button id="torqueOff" class="danger" disabled>释放所有关节扭矩</button>
+<button id="torqueOn" disabled>重新锁定全部扭矩</button></div>
+<div id="torqueInfo" class="muted">默认禁用。只有用 EVOARM_ENABLE_TEACH=1 启动时才开放。</div>
+</div>
 </section>
 <section class="panel wide">
 <h2>⑤ 标定验收结果</h2>
