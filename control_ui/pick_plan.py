@@ -102,10 +102,35 @@ def validate_pick_profile(profile):
     return out
 
 
-def plan_pick_place(ball_board_mm, profile, calibration_data, *, step_xy_mm=35):
+def _verify_board_unchanged(calibration_data, image_size, corners_px):
+    baseline = calibration_data.get("corners_px")
+    if baseline is None:
+        raise PickPlanningError("旧标定未保存棋盘角点指纹，请重新完成4+1坐标标定")
+    if image_size != calibration_data.get("image_size"):
+        raise PickPlanningError("摄像头分辨率与标定时不一致，需要重新标定")
+    expected = np.asarray(baseline, dtype=float)
+    observed = np.asarray(corners_px, dtype=float)
+    if expected.shape != (54, 2) or observed.shape != (54, 2):
+        raise PickPlanningError("需要当前图像54个棋盘角点以确认相机和棋盘没有移动")
+    if not np.isfinite(expected).all() or not np.isfinite(observed).all():
+        raise PickPlanningError("棋盘角点坐标无效")
+    distances = np.linalg.norm(observed - expected, axis=1)
+    rms = float(np.sqrt(np.mean(distances ** 2)))
+    max_shift = float(np.max(distances))
+    if rms > 6 or max_shift > 13:
+        raise PickPlanningError(
+            f"当前棋盘位置与标定时不同：角点偏移 RMS={rms:.1f}px，最大={max_shift:.1f}px。"
+            "请检查相机/棋盘是否移动，重新标定后再使用"
+        )
+    return {"rms_px": round(rms,2), "max_shift_px": round(max_shift,2)}
+
+
+def plan_pick_place(ball_board_mm, profile, calibration_data, *,
+                    image_size=None, corners_px=None, step_xy_mm=35):
     profile = validate_pick_profile(profile)
     if not isinstance(calibration_data, dict) or not calibration_data.get("fit", {}).get("validated"):
         raise PickPlanningError("没有通过 4+1 验证的机器人 XY 坐标标定")
+    fingerprint = _verify_board_unchanged(calibration_data, image_size, corners_px)
     fit = calibration_data["fit"]
     M = np.asarray(fit.get("matrix_2x2"), dtype=float)
     t = np.asarray(fit.get("offset_mm"), dtype=float)
@@ -170,6 +195,7 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *, step_xy_mm=35):
       "validated_region_board_mm": [list(p) for p in hull],
       "waypoints": waypoint,
       "number_of_steps": len(waypoint),
+      "board_stability_check": fingerprint,
       "auto_execute": False,
       "requirements": [
         "必须从已示教的高位安全起点开始；规划器不会自动把任意初始姿态提升到安全高度",
@@ -181,10 +207,12 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *, step_xy_mm=35):
     }
 
 
-def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None):
+def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None,
+                           image_size=None, corners_px=None):
     calibration=_read_file(calibration_file or xy_calibration_path())
     profile=_read_file(profile_file or profile_path())
-    return plan_pick_place(ball_board_mm,profile,calibration)
+    return plan_pick_place(ball_board_mm,profile,calibration,
+                           image_size=image_size,corners_px=corners_px)
 
 
 def save_pick_profile(profile):
