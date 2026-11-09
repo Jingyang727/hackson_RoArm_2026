@@ -131,7 +131,12 @@ async def vision_analyze(request: Request, square_mm: float | None = None):
 
 @app.get("/calibration", response_class=HTMLResponse)
 def calibration_page():
-    return Path(__file__).with_name("calibration.html").read_text(encoding="utf-8")
+    # Calibration UI changes rapidly during hardware bring-up. Never serve
+    # a stale cached page with old onclick bindings or torque confirmations.
+    return HTMLResponse(
+        content=Path(__file__).with_name("calibration.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
 
 
 @app.get("/api/calibration/status")
