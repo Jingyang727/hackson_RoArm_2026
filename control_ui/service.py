@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import math
 
 from serial.tools import list_ports
 from evoarm.serial_arm import RoArmSerial
@@ -26,6 +27,9 @@ MIN_JOG_PROGRESS_DEG = 0.4
 JOG_CONFIRM_TIMEOUT_S = 10.0
 GRIPPER_CONFIRM_TIMEOUT_S = 12.0
 FACTORY_CONFIRM_TIMEOUT_S = 45.0
+CART_CONFIRM_TIMEOUT_S = 65.0
+CART_ARRIVAL_TOLERANCE_MM = 6.0
+CART_SETTLED_OFFSET_MAX_MM = 10.0
 RECOVERY_SAMPLE_GAP_S = 0.75
 STABLE_POSITION_TOLERANCE_DEG = 0.6
 
@@ -112,6 +116,8 @@ class ArmService:
                 # Firmware T=100 can block other commands during reset.
                 if pending and pending.get("kind") == "factory":
                     result = self.arm.status(timeout=20)
+                elif pending and pending.get("kind") == "cartesian":
+                    result = self.arm.status(timeout=30)
                 else:
                     result = self.arm.status()
             except Exception as exc:
@@ -135,6 +141,51 @@ class ArmService:
             pending["elapsed_s"] = round(elapsed, 1)
             stable = observe_stability(pending, angles, now)
             is_factory = pending.get("kind") == "factory"
+            if pending.get("kind") == "cartesian":
+                # Official T104 is interpolated and can block firmware processing.
+                # Verify reported end-effector XYZ, not just joint-angle changes.
+                def xyz(k):
+                    v = result.get(k)
+                    if type(v) not in (int, float) or not math.isfinite(v):
+                        raise UnsafeMotion("末端XYZ反馈缺失或无效")
+                    return float(v)
+                try:
+                    current_xyz = [xyz(k) for k in "xyz"]
+                except UnsafeMotion as exc:
+                    self._latch_fault("invalid_cartesian_feedback",str(exc))
+                    raise
+                target = pending["xyz_target"]
+                residual = math.dist(current_xyz,target)
+                progress = math.dist(current_xyz,pending["xyz_start"])
+                pending["actual_xyz_mm"] = [round(v,2) for v in current_xyz]
+                pending["position_error_mm"] = round(residual,2)
+                pending["progress_mm"] = round(progress,2)
+                if residual <= CART_ARRIVAL_TOLERANCE_MM and progress >= 0.8:
+                    self.pending = None
+                    if self.last_command:
+                        self.last_command["status"] = "feedback_confirmed"
+                        self.last_command["position_error_mm"] = round(residual,2)
+                        self.last_command["confirmed_at"] = time.time()
+                elif stable:
+                    if residual <= CART_SETTLED_OFFSET_MAX_MM and progress >= 0.8:
+                        self.pending = None
+                        self.armed_until = 0
+                        if self.last_command:
+                            self.last_command["status"] = "settled_with_offset"
+                            self.last_command["position_error_mm"] = round(residual,2)
+                            self.last_command["message"] = (
+                                f"末端XYZ已停稳但偏离目标{residual:.1f}mm，请核查姿态并重新授权")
+                    else:
+                        self._latch_fault("cartesian_stalled",
+                            f"XYZ反馈已稳定但偏离目标{residual:.1f}mm，禁止继续运动；请检查实际位置",
+                            expected_xyz_mm=target, actual_xyz_mm=current_xyz,
+                            error_mm=round(residual,2))
+                elif elapsed >= CART_CONFIRM_TIMEOUT_S:
+                    self._latch_fault("cartesian_unverified",
+                        f"XYZ反馈等待超过{CART_CONFIRM_TIMEOUT_S:g}秒，目标仍未确认；请检查供电、卡滞与串口",
+                        expected_xyz_mm=target, actual_xyz_mm=current_xyz,
+                        error_mm=round(residual,2))
+                return result
             if is_factory:
                 differences = {
                     j: round(angles[j] - FACTORY_DEGREES[j], 2)
