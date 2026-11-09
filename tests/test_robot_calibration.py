@@ -136,6 +136,89 @@ class TeachModeTests(unittest.TestCase):
                 svc.set_torque(False, "已托住机械臂并确认释放全部关节")
             self.assertEqual(svc.arm.commands, [])
 
+    def test_first_t105_timeout_then_success_no_second_t210(self):
+        class TransientArm(FakeArm):
+            def __init__(self):
+                super().__init__()
+                self.reads_after_command = 0
+            def status(self, timeout=None):
+                if self.commands:
+                    self.reads_after_command += 1
+                    if self.reads_after_command == 1:
+                        raise RuntimeError("状态反馈 T=1051 超时")
+                return super().status(timeout)
+
+        with patch.dict(os.environ, {"EVOARM_ENABLE_TEACH": "1"}), \
+             patch("control_ui.service.time.sleep", return_value=None):
+            svc = ArmService()
+            arm = TransientArm()
+            svc.arm = arm
+            result = svc.set_torque(False, "已托住机械臂并确认释放全部关节")
+            self.assertTrue(result["verified"])
+            self.assertEqual(result["verification_attempts"], 2)
+            self.assertEqual(arm.commands, [{"T": 210, "cmd": 0}])
+            self.assertEqual(svc.health()["torque_status"], [0] * 6)
+            self.assertTrue(svc.health()["teach_active"])
+            self.assertTrue(svc.health()["torque_last_result"]["verified"])
+
+    def test_three_read_timeouts_not_a_false_failure_or_extra_send(self):
+        class UnreadableArm(FakeArm):
+            def status(self, timeout=None):
+                if self.commands:
+                    raise RuntimeError("状态反馈 T=1051 超时")
+                return super().status(timeout)
+
+        with patch.dict(os.environ, {"EVOARM_ENABLE_TEACH": "1", "EVOARM_ENABLE_MOTION": "1"}), \
+             patch("control_ui.service.time.sleep", return_value=None):
+            svc = ArmService()
+            arm = UnreadableArm()
+            svc.arm = arm
+            result = svc.set_torque(False, "已托住机械臂并确认释放全部关节")
+            self.assertFalse(result["verified"])
+            self.assertIsNone(result["torque_enabled"])
+            self.assertEqual(result["verification_attempts"], 3)
+            self.assertEqual(arm.commands, [{"T": 210, "cmd": 0}])
+            self.assertTrue(svc.teach_active)
+            self.assertIsNone(svc.health()["torque_status"])
+            with self.assertRaises(UnsafeMotion):
+                svc.unlock_once("已检查设备并清空运动区域")
+
+    def test_relock_after_unverified_release_no_double_send(self):
+        class TimedReleaseArm(FakeArm):
+            def __init__(self):
+                super().__init__()
+                self.reads_failing = True
+            def status(self, timeout=None):
+                if self.commands and self.reads_failing:
+                    raise RuntimeError("状态反馈超时")
+                return super().status(timeout)
+
+        with patch.dict(os.environ, {"EVOARM_ENABLE_TEACH": "1"}), \
+             patch("control_ui.service.time.sleep", return_value=None):
+            svc = ArmService()
+            arm = TimedReleaseArm()
+            svc.arm = arm
+            off = svc.set_torque(False, "已托住机械臂并确认释放全部关节")
+            self.assertFalse(off["verified"])
+            arm.reads_failing = False
+            self.assertEqual(arm.status()["torswitchS"], 0)
+            on = svc.set_torque(True, "已托住机械臂并确认重新锁定")
+            self.assertTrue(on["verified"])
+            self.assertEqual(arm.commands, [{"T": 210, "cmd": 0}, {"T": 210, "cmd": 1}])
+            self.assertFalse(svc.teach_active)
+
+    def test_already_locked_relock_is_read_only_and_clears_teach_lock(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_TEACH": "1"}):
+            svc = ArmService()
+            arm = FakeArm()
+            svc.arm = arm
+            svc.teach_active = True
+            result = svc.set_torque(True, "已托住机械臂并确认重新锁定")
+            self.assertTrue(result["verified"])
+            self.assertFalse(result["command_sent"])
+            self.assertEqual(arm.commands, [])
+            self.assertFalse(svc.teach_active)
+
     def test_explicit_release_blocks_jog_and_factory_reset(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_TEACH": "1", "EVOARM_ENABLE_MOTION": "1"}):
             svc = ArmService()
