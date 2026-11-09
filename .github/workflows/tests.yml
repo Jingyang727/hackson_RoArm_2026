@@ -1,0 +1,30 @@
+name: EvoArm tests
+on:
+  push:
+    branches: ["feature/**", "main"]
+  pull_request:
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q control_ui evoarm tests
+      - name: Unit tests (no hardware required)
+        run: python -m unittest discover -s tests -v
+      - name: Check browser JavaScript syntax
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          for source in pathlib.Path("control_ui").glob("*.html"):
+              text = source.read_text(encoding="utf-8")
+              scripts = re.findall(r"<script>(.*?)</script>", text, re.DOTALL)
+              for index, script in enumerate(scripts):
+                  pathlib.Path(f"/tmp/{source.stem}-{index}.js").write_text(script)
+          PY
+          for f in /tmp/*.js; do node --check "$f"; done
