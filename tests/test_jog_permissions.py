@@ -99,6 +99,45 @@ class ServiceSafetyTests(unittest.TestCase):
                 service.gripper_step(15)
             self.assertEqual(service.arm.commands, [])
 
+    def test_official_factory_reset_sends_T100_and_waits_for_feedback(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1",
+                                      "EVOARM_ALLOWED_JOINTS": "1,2,3,4,5,6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.arm.feedback["b"] = math.radians(30)
+            service.unlock_once("已检查设备并清空运动区域")
+            response = service.factory_reset()
+            self.assertEqual(response["status"], "sent_not_verified")
+            self.assertEqual(service.arm.commands, [{"T": 100}])
+            self.assertEqual(service.health()["pending"]["kind"], "factory")
+            with self.assertRaises(UnsafeMotion):
+                service.step(1, 1)
+            service.arm.feedback.update({
+                "b": 0.0, "s": 0.0, "e": math.pi / 2,
+                "t": 0.0, "r": 0.0, "g": math.pi,
+            })
+            service.status()
+            self.assertIsNone(service.health()["pending"])
+
+    def test_official_reset_requires_all_joints_authorized(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1",
+                                      "EVOARM_ALLOWED_JOINTS": "6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.unlock_once("已检查设备并清空运动区域")
+            with self.assertRaises(UnsafeMotion):
+                service.factory_reset()
+            self.assertEqual(service.arm.commands, [])
+
+    def test_official_reset_refused_when_not_unlocked(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1",
+                                      "EVOARM_ALLOWED_JOINTS": "1,2,3,4,5,6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            with self.assertRaises(UnsafeMotion):
+                service.factory_reset()
+            self.assertEqual(service.arm.commands, [])
+
     def test_save_and_recall_user_home_in_single_bounded_step(self):
         with tempfile.TemporaryDirectory() as td:
             with patch("control_ui.home_pose.pose_file", return_value=Path(td) / "home.json"):
