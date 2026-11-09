@@ -51,12 +51,20 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <div class="row"><button id="preview" class="primary" disabled>生成抓取-放置轨迹预览</button></div>
 <div id="previewStatus" class="notice">预览不执行任何机械臂运动。</div>
 <pre id="waypoints"></pre>
-<div class="warn">安全策略：将大幅移动拆为高位分段移动；每个姿态和高度都需真机测试。T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。当前代码只生成规划，不执行。</div>
+<div class="warn">安全策略：将大幅移动拆为高位分段移动；T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。真实执行默认禁用，需显式授权。即使启用也必须逐段人工确认，不会连发下一条动作。</div>
+<h2 style="margin-top:16px">④ 可选：真机逐段验收（非一键自动执行）</h2>
+<p class="muted">先用主控制台解锁，然后逐段执行。启动变量除 EVOARM_ENABLE_MOTION=1 外，还需要 EVOARM_ENABLE_PICK=1。初始位置必须已经由人工摆到安全高位，且距离球上方第一段目标不超过42mm。本功能没有软件碰撞检测，不可让末端或夹爪触碰桌面。</p>
+<div class="row">
+<button id="armExecution" class="primary" disabled>创建实机逐段执行会话</button>
+<button id="runNext" disabled>人工确认并执行下一步</button>
+<button id="cancelExecution" disabled>禁止后续动作</button>
+</div>
+<div id="executionStatus" class="notice">未开启真机执行；这里的按钮只允许在已完成标定和示教的前提下使用。</div>
 </section>
 </main>
 <script>
 const $=x=>document.getElementById(x);
-let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false;
+let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false,execution=null,hasPreview=false;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -68,6 +76,14 @@ async function act(fn){if(busy)return;busy=true;updateButtons();
 function updateButtons(){
  $("detect").disabled=busy||!stream;
  $("preview").disabled=busy||!saved||!latestBall?.board_mm_xy||!latestBall?.inside_inner_board;
+ $("armExecution").disabled=busy||!hasPreview||!execution?.hardware_execution_enabled;
+ const isActive=execution?.has_session&&!execution?.cancelled;
+ const previousDone=execution?.next_index===0||
+   (execution?.last_command_status?.status==="feedback_confirmed"&&
+    execution.last_command_status.pick_session_id===execution?.session_id);
+ $("runNext").disabled=busy||!isActive||!execution?.next_step||
+   !execution?.arm_armed||!!execution?.arm_pending||!!execution?.arm_fault||!previousDone;
+ $("cancelExecution").disabled=busy||!isActive;
  $("save").disabled=busy||!["grip_z_mm","travel_z_mm","place_z_mm","place_xy_mm",
  "pitch_rad","roll_rad","open_g_rad","close_g_rad"].every(x=>profile[x]!==undefined)||
  !Number($("diameter").value);
@@ -116,14 +132,14 @@ document.querySelectorAll("[data-teach]").forEach(button=>button.onclick=()=>act
  }else if(kind==="close"){
    profile.close_g_rad=sample.gripper_rad;say("closeShow",sample.gripper_rad+" rad");
  }
- saved=false;say("teachInfo","已读取真实反馈 "+kind+"。请持续确认夹爪姿态和周围空间。");
+ saved=false;hasPreview=false;say("teachInfo","已读取真实反馈 "+kind+"。请持续确认夹爪姿态和周围空间。");
 }));
 $("diameter").onchange=()=>{saved=false;updateButtons()};
 $("save").onclick=()=>act(async()=>{
  const diameter=Number($("diameter").value);
  if(!Number.isFinite(diameter)||diameter<=0)throw Error("请先实测黄色球直径");
  const result=await api("/api/pick/profile","POST",{...profile,ball_diameter_mm:diameter});
- saved=Boolean(result.saved);
+ saved=Boolean(result.saved);hasPreview=false;
  say("teachInfo","已保存示教参数到 "+result.path+"。请再生成路径预览，不会自动运动。");
 });
 $("preview").onclick=()=>act(async()=>{
@@ -138,12 +154,67 @@ $("preview").onclick=()=>act(async()=>{
   " mm → 放置XY："+result.place_robot_xy_mm.join(", ")+
   " mm，共 "+result.number_of_steps+" 步。\n"+
   result.requirements.join("\n"));
+ hasPreview=true;
  $("waypoints").textContent=result.waypoints.map((w,i)=>
   (i+1)+". "+w.stage+" "+w.kind+" "+
   (w.xyz_mm?"XYZ="+w.xyz_mm.join(", "):"夹爪角="+w.g)+
   " · "+w.reason).join("\n");
 });
+function describeExecution(){
+ if(!execution){say("executionStatus","真机执行默认关闭，需在终端显式启用并完成标定。");return}
+ const next=execution.next_step;
+ const last=execution.last_command_status;
+ let info="真机执行许可："+(execution.hardware_execution_enabled?"已通过环境变量开启":"关闭")+
+   "；会话："+(execution.session_id||"无")+
+   "；进度："+execution.next_index+"/"+execution.total;
+ if(execution.cancelled)info+="\n已取消；不能再发动作";
+ if(execution.arm_pending)info+="\n正在等待上一动作真实到位："+JSON.stringify(execution.arm_pending);
+ if(execution.arm_fault)info+="\n异常锁定："+execution.arm_fault.message;
+ if(last?.status)info+="\n上一动作状态："+last.status;
+ if(next)info+="\n下一步："+next.stage+"："+next.reason+
+    (next.xyz_mm?"；目标XYZ="+next.xyz_mm.join(","):"；目标夹爪="+next.g+" rad");
+ if(execution.completed)info+="\n所有命令已获得反馈；仍需实际确认球是否放到目标位置";
+ say("executionStatus",info);
+}
+async function updateExecution(){execution=await api("/api/pick/execution");describeExecution();updateButtons()}
+$("armExecution").onclick=()=>act(async()=>{
+ if(!hasPreview||!latestVision?.checkerboard?.detected)throw Error("请先完成路径预览");
+ if(!confirm("真正的机械臂会运动！确认固定底座、清空扫掠区域、已标定球体抓取Z和末端姿态、已将末端人工移动到球附近的高位安全姿态？"))return;
+ execution=await api("/api/pick/start","POST",{
+   ball_board_mm:latestBall.board_mm_xy,
+   image_size:[latestVision.image.width,latestVision.image.height],
+   corners_px:latestVision.checkerboard.corners_px,
+   declaration:"已核对标定、示教参数、桌面与工作空间"
+ });
+ describeExecution();
+});
+$("runNext").onclick=()=>act(async()=>{
+ if(!execution?.next_step)throw Error("没有下一步");
+ const next=execution.next_step;
+ const target=next.xyz_mm?"XYZ="+next.xyz_mm.join(","):"夹爪="+next.g+"rad";
+ if(!confirm("将实际驱动机械臂进行这一步：\n"+next.stage+"\n"+target+
+   "\n"+next.reason+"\n\n确认关节、桌面、线缆和周围空间无碰撞风险，并保持能立即切断电源？"))return;
+ const sent=await api("/api/pick/step","POST",{
+   session_id:execution.session_id,step_index:execution.next_index,
+   declaration:"已目视确认本步的运动空间与位置"
+ });
+ say("executionStatus","已发送 "+sent.stage+"，等待真实反馈。无反馈前不能发送下一步。");
+ await updateExecution();
+});
+$("cancelExecution").onclick=()=>act(async()=>{
+ if(!confirm("这只会阻止后续指令，不会停下已经执行中的固件运动。确定取消？"))return;
+ const result=await api("/api/pick/cancel","POST",{});await updateExecution();
+ say("executionStatus",result.notice);
+});
 window.addEventListener("pagehide",()=>{if(stream)stream.getTracks().forEach(t=>t.stop())});
+updateExecution().catch(e=>say("executionStatus","查询执行状态失败："+e.message));
+setInterval(async()=>{
+ if(busy||!execution?.has_session||execution.cancelled)return;
+ try{
+   if(execution.arm_pending)await api("/api/status");
+   await updateExecution();
+ }catch(e){say("executionStatus","状态查询异常："+e.message)}
+},2500);
 updateButtons();
 </script>
 </body></html>
