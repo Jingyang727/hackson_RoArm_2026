@@ -37,7 +37,7 @@ class FakeArm:
         return {"connected": self.connected, "pending": self.pending, "fault": self.fault}
 
     def status(self, timeout=None):
-        return {"T": 1051, **dict(zip("xyz", self.xyz)), "b": 0., "s": 0.,
+        return {"T": 1051, **dict(zip("xyz", self.xyz)), "tit": 0., "b": 0., "s": 0.,
                 "e": math.pi / 2, "t": 0., "r": 0., "g": math.pi,
                 **{"torswitch" + k: self.torque for k in "BSETRG"}}
 
@@ -99,6 +99,19 @@ class XYMathTests(unittest.TestCase):
         cal.capture(token, "P1", 1, 1, fake, sleep_fn=lambda _: None)
         with self.assertRaises(CalibrationError):
             cal.capture(token, "P2", 1, 1, fake, sleep_fn=lambda _: None)
+
+    def test_rejects_misaligned_wrist_pose(self):
+        cal,fake=RobotCalibration(),FakeArm()
+        token=cal.start(SIZE,[1920,1080])["session_id"]
+        fake.xyz=[*mapped_xy(1,1),85]
+        cal.capture(token,"P1",1,1,fake,sleep_fn=lambda _:None)
+        base=fake.status
+        def changed(timeout=None):
+            data=base(timeout);data["tit"]=math.radians(15);return data
+        fake.status=changed
+        fake.xyz=[*mapped_xy(7,1),85]
+        with self.assertRaises(CalibrationError):
+            cal.capture(token,"P2",7,1,fake,sleep_fn=lambda _:None)
 
     def test_not_ready_without_validation(self):
         cal, fake = RobotCalibration(), FakeArm()
