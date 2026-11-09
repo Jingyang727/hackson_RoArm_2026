@@ -181,7 +181,9 @@ function paintMotionStatus(){
  }else if(pending){
   badge.textContent="正在确认动作";
   if(pending.kind==="factory"){
-   details.textContent="官方复位进行中："+(pending.elapsed_s||0)+"秒；等待全部关节反馈确认。";
+   details.textContent="官方复位：已等待 "+(pending.elapsed_s||0)+"秒，当前最大角度偏差 "+
+     (typeof pending.max_error_deg==="number"?pending.max_error_deg.toFixed(1)+"°":"待反馈")+
+     "。将根据连续反馈判断是否停稳，不再只看理想角度。";
   }else{
    details.textContent="关节 "+pending.joint+"：目标 "+Number(pending.target_deg).toFixed(1)+"°，"+
     "实测 "+Number(pending.actual_deg).toFixed(1)+"°，"+
@@ -189,10 +191,21 @@ function paintMotionStatus(){
   }
   panel.style.display="none";
  }else if(health?.last_command){
-  badge.textContent=health.last_command.status==="feedback_confirmed"?"已到位":"待命";
-  details.textContent=health.last_command.status==="feedback_confirmed"
-    ?"上一条命令已获得实际到位反馈，可以进行下一次操作。"
-    :"当前没有等待中的指令；请确认机械臂状态。";
+  const last=health.last_command;
+  if(last.status==="settled_with_offset"){
+   badge.textContent="已停稳 · 存在偏差";
+   const worst=last.worst_joint;
+   const label=(metadata.find(j=>j.id===worst)||{}).label;
+   details.textContent=(last.message||"机械臂已停稳但未精确到位。")+
+     (label?" 偏差最大关节："+label+"。":"")+
+     "本次未认定精确成功，也未自动继续运动；观察机械臂后重新解锁即可进行手动控制。";
+  }else if(last.status==="feedback_confirmed"){
+   badge.textContent="已到位";
+   details.textContent="上一条运动收到有效到位反馈，可以进行下一次操作。";
+  }else{
+   badge.textContent="待命";
+   details.textContent="当前没有等待中的指令；请确认机械臂状态。";
+  }
   panel.style.display="none";
  }else{
   badge.textContent=health?.connected?"待命":"未连接";
