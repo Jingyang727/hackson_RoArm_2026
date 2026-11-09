@@ -280,23 +280,33 @@ $("overlay").addEventListener("click",e=>{
 $("cameraStart").onclick=()=>doAction(startCamera);
 $("cameraStop").onclick=stopCamera;
 $("analyze").onclick=()=>doAction(async()=>{
- if(summary?.records?.length&&!confirm("重新抓图后必须重新开始标定，旧记录会失效，继续？"))return;
- summary=null;session=null;vision=null;
- const L=Number($("square").value);if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写实测单格尺寸mm");
- shot=captureImage();const blob=await new Promise(resolve=>shot.toBlob(resolve,"image/png"));
+ if(summary?.records?.length&&!confirm("重新识别棋盘会清空已记录的点，确认重做吗？"))return;
+ const L=Number($("square").value);
+ if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写实测棋盘单格边长 mm");
+ const snapshot=captureImage();
+ const blob=await new Promise(resolve=>snapshot.toBlob(resolve,"image/png"));
+ if(!blob)throw Error("截图失败");
  const resp=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L),{
   method:"POST",headers:{"Content-Type":"image/png"},body:blob
  });
- const data=await resp.json();if(!resp.ok)throw Error(data.detail||"视觉分析失败");
- vision=data;if(!data.checkerboard?.detected)throw Error("没有识别到完整棋盘格54角点，调整光线或视角再试");
- $("frame").style.display="none";$("overlay").style.display="block";
- drawOverlay();say("角点识别成功！绿色是54个角点，标记P1~V1为建议位置；可先点右侧步骤，再在图上点击更易到达的角点。");
+ const data=await resp.json();
+ if(!resp.ok)throw Error(data.detail||"视觉分析失败");
+ if(!data.checkerboard?.detected)throw Error("未识别到完整54个棋盘角点，请调整光线及遮挡");
+ // Successful recognition automatically creates the calibration session.
+ const started=await api("/api/calibration/start","POST",{
+  square_mm:L,image_size:[snapshot.width,snapshot.height],
+  corners_px:data.checkerboard.corners_px
+ });
+ shot=snapshot;vision=data;session=started.session_id;summary=started;
+ chosen="P1";modifiedPoints.clear();drawOverlay();drawZoomFrame();
+ say("54角点已识别，标定会话已自动开始！视频继续实时播放，P1～V1持续可见。连接串口后，直接点击各点旁边绿色「记录 XYZ」。");
 });
 $("begin").onclick=()=>doAction(async()=>{
  if(session&&summary?.records?.length&&!confirm("开始新标定会清空已记录的全部标定点，继续？"))return;
  const L=Number($("square").value);
  const data=await api("/api/calibration/start","POST",{square_mm:L,image_size:[shot.width,shot.height],corners_px:vision.checkerboard.corners_px});
- session=data.session_id;summary=data;chosen="P1";say("已开始新标定会话，接下来逐个对准并记录4个拟合点和1个验证点。");
+ session=data.session_id;summary=data;chosen="P1";modifiedPoints.clear();drawOverlay();
+ say("已重新开始标定，可直接点击每一行的绿色记录按钮。");
 });
 async function refreshArm(){
  health=await api("/api/health");
@@ -312,19 +322,27 @@ $("serialRefresh").onclick=()=>doAction(async()=>{
 });
 $("serialConnect").onclick=()=>doAction(async()=>{
  const port=$("serialPort").value;if(!port)throw Error("请选择串口");
- await api("/api/connect","POST",{port});await refreshArm();say("已连接机械臂；准备读取 XYZ。");
+ await api("/api/connect","POST",{port});await refreshArm();say("已连接机械臂；可以开始记录角点 XYZ。");
 });
-$("capture").onclick=()=>doAction(async()=>{
- if(!session)throw Error("请先开始一次标定会话");
- const t=TARGETS.find(x=>x.id===chosen);
- const data=await api("/api/calibration/capture","POST",{
-  session_id:session,point_id:t.id,col:t.col,row:t.row
+$("refreshXYZ").onclick=()=>doAction(refreshArm);
+function capturePoint(pointId){
+ if(!session){say("请先打开摄像头并点击「识别角点并开始标定」");return;}
+ chosen=pointId;drawOverlay();drawZoomFrame();render();
+ return doAction(async()=>{
+  const t=TARGETS.find(x=>x.id===pointId);
+  if(!t)throw Error("未找到角点");
+  const data=await api("/api/calibration/capture","POST",{
+    session_id:session,point_id:t.id,col:t.col,row:t.row
+  });
+  summary=data;modifiedPoints.delete(t.id);
+  const next=TARGETS.find(x=>!data.records.some(r=>r.id===x.id)||modifiedPoints.has(x.id));
+  chosen=next?.id||t.id;drawOverlay();drawZoomFrame();
+  const recorded=data.records.find(x=>x.id===t.id);
+  say("已记录 "+t.id+"：机械臂 XYZ = "+
+    recorded.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ")+" mm。"+data.message);
  });
- summary=data;
- const next=TARGETS.find(x=>!data.records.some(r=>r.id===x.id));
- chosen=next?.id||"V1";drawOverlay();
- say("已保存真实机械臂反馈 "+t.id+"。"+data.message);
-});
+}
+$("capture").onclick=()=>capturePoint(chosen);
 for(const [id,enabled,text] of [
  ["torqueOff",false,"释放全部关节扭矩后可能突然下垂！请先托住大臂、清空下方空间。确定要释放吗？"],
  ["torqueOn",true,"重新锁定扭矩时舵机可能移动！请先托住机械臂、确保周围无障碍。确认锁定？"]]){
@@ -339,10 +357,11 @@ for(const [id,enabled,text] of [
 }
 $("save").onclick=()=>doAction(async()=>{
  if(!session)throw Error("无标定会话");
+ if(modifiedPoints.size)throw Error("存在角点移动后未重新记录："+[...modifiedPoints].join(", "));
  const result=await api("/api/calibration/save","POST",{session_id:session});
  say("已保存到 "+result.path+"；目前仅是二维XY映射，不能自动抓球。");
 });
-$("square").onchange=()=>{if(session){say("棋盘单格尺寸修改后，请重新冻结画面并开始新会话。旧记录不能沿用。");session=null;summary=null}render()};
+$("square").onchange=()=>{if(session){say("棋盘单格尺寸变更后必须重新识别角点并开始标定，原记录不可沿用。");session=null;summary=null;vision=null;modifiedPoints.clear();drawOverlay()}render()};
 window.addEventListener("pagehide",stopCamera);
 (async()=>{try{await cameras();const ports=await api("/api/ports");
  $("serialPort").replaceChildren(...ports.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));
