@@ -1,7 +1,7 @@
 """Mac-local safe control UI. Bind only to 127.0.0.1."""
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -49,6 +49,29 @@ def home():
 @app.get("/camera", response_class=HTMLResponse)
 def camera_page():
     return Path(__file__).with_name("camera.html").read_text(encoding="utf-8")
+
+
+@app.post("/api/vision/analyze")
+async def vision_analyze(request: Request, square_mm: float | None = None):
+    """Analyze ONE browser-uploaded PNG/JPEG frame; never accesses serial robot APIs."""
+    try:
+        from .vision import VisionError, analyze_image
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="缺少视觉依赖。请先在 Mac 执行 pip install -r requirements-vision.txt",
+        ) from exc
+    if request.headers.get("content-type", "").split(";")[0].strip() not in (
+        "image/png", "image/jpeg", "image/jpg"
+    ):
+        raise HTTPException(status_code=415, detail="请以 PNG 或 JPEG 格式上传单帧")
+    if int(request.headers.get("content-length", "0") or "0") > 12_000_000:
+        raise HTTPException(status_code=413, detail="图像超过12MB")
+    raw = await request.body()
+    try:
+        return analyze_image(raw, square_mm=square_mm)
+    except VisionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/ports")
