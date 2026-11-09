@@ -120,6 +120,8 @@ class MotionStateTests(unittest.TestCase):
         # No actual sleep or robot motion.
         service.pending["since"] -= 3.0
         for _ in range(3):
+            if service.pending is None:
+                break  # Already classified by prior sample.
             if service.pending.get("last_sample_at") is not None:
                 service.pending["last_sample_at"] -= 0.75
             service.status()
