@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EvoArm 中文安全控制台</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#101827;color:#e6edf8}
+*{box-sizing:border-box}body{max-width:1050px;margin:30px auto;padding:0 18px}h1{font-size:28px;margin:0}
+small,.muted{color:#9bacc5}main{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+.panel{background:#19263b;border:1px solid #34445e;border-radius:14px;padding:20px}.wide{grid-column:1/-1}
+button,select{background:#2c3e59;color:#edf3fc;border:1px solid #50617b;border-radius:9px;padding:9px;cursor:pointer}
+button:disabled{opacity:.35;cursor:not-allowed}.line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.joint{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #34445e;padding:12px 0;gap:12px}
+.num{color:#72d6ba;font-variant-numeric:tabular-nums}.danger{color:#ffb2a8}
+.warning{padding:13px;border-radius:10px;background:#3b292c;border:1px solid #885350}
+pre{white-space:pre-wrap;word-wrap:break-word;font-size:12px}h2{font-size:18px}
+@media(max-width:680px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
+</style>
+</head>
+<body>
+<header><h1>EvoArm <span class="muted">/ 中文安全控制台</span></h1><small>RoArm-M3 · Mac M1 · 初始只读</small></header>
+<main>
+<section class="panel wide warning"><strong>⚠ 已发生过碰撞：先断电检查</strong><p>移除显示器等障碍物，检查关节、夹爪、线缆、底座，禁止自动回中。软件停止或拔 USB 不等于电源级急停。安全确认前仅使用状态读取。</p></section>
+<section class="panel"><h2>串口连接与实时反馈</h2><div class="line"><select id="port"></select><button id="refresh">刷新</button><button id="connect">连接</button><button id="disconnect">断开</button></div><p id="notice" class="muted">等待串口...</p><pre id="status">未连接</pre></section>
+<section class="panel"><h2>运动许可</h2><p id="mode">默认只读</p><p class="muted">每次解锁只允许一个 ±1° 动作，30 秒超时；禁止持续旋转、初始化动作和连续指令。</p><div class="warning"><small>软件角度范围无法证明路径无碰撞。机械臂底座需固定，现场须能迅速断开电源。</small></div><p><button id="unlock" disabled>确认安全 · 仅授权一次</button></p></section>
+<section class="panel wide"><h2>中文关节位置与微步进</h2><div id="joints"></div><p class="muted">默认所有动作按钮锁定。界面显示角度为反馈值；若与实物方向不符，不要继续操作。</p></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let meta=[],healthState=null,busy=false;
+async function req(url,method="GET",body){const r=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw Error(j.detail||"HTTP "+r.status);return j}
+function note(x){$("notice").textContent=x}
+function repaint(){const enabled=healthState?.armed&&healthState?.motion_enabled&&!busy;
+document.querySelectorAll("[data-step]").forEach(x=>x.disabled=!enabled);
+$("unlock").disabled=!healthState?.connected||!healthState?.motion_enabled||busy;
+$("mode").textContent=healthState?.motion_enabled?(healthState?.armed?"已授权单次动作":"运动锁定：需要逐次解锁"):"服务端只读模式（未启用运动）";}
+async function getHealth(){healthState=await req("/api/health");repaint()}
+async function ports(){const ps=await req("/api/ports");$("port").replaceChildren(...ps.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));if(!ps.length)note("未检测到串口，请检查 USB 连接")}
+async function status(){if(!healthState?.connected)return;const v=await req("/api/status");$("status").textContent=JSON.stringify(v,null,2);for(const j of meta){const n=v[j.field];const e=$("value-"+j.id);if(e)e.textContent=typeof n==="number"?(n*180/Math.PI).toFixed(1)+"°":"无反馈"}}
+function renderJoints(){const outer=$("joints");outer.replaceChildren();for(const j of meta){const row=document.createElement("div");row.className="joint";const name=document.createElement("div");const bold=document.createElement("strong");bold.textContent=j.label;const desc=document.createElement("small");desc.textContent="软件测试范围 "+j.min+"° 至 "+j.max+"°";name.append(bold,document.createElement("br"),desc);
+const actions=document.createElement("div");actions.className="line";const val=document.createElement("span");val.id="value-"+j.id;val.className="num";val.textContent="--";actions.append(val);
+for(const delta of [-1,1]){const btn=document.createElement("button");btn.dataset.step="1";btn.textContent=delta>0?"+1°":"−1°";btn.disabled=true;btn.onclick=()=>doTask(async()=>{const x=await req("/api/step","POST",{joint:j.id,delta});note(x.message+"；目标 "+x.target_deg+"°");await status()});actions.append(btn)}row.append(name,actions);outer.append(row)}repaint()}
+async function doTask(fn){if(busy)return;busy=true;repaint();try{await fn()}catch(e){note("操作失败："+e.message)}finally{busy=false;try{await getHealth()}catch(e){note("状态异常："+e.message)}repaint()}}
+$("refresh").onclick=()=>doTask(ports);
+$("connect").onclick=()=>doTask(async()=>{const port=$("port").value;if(!port)throw Error("请选择串口");await req("/api/connect","POST",{port});await getHealth();await status();note("已连接，默认未授权运动")});
+$("disconnect").onclick=()=>doTask(async()=>{await req("/api/disconnect","POST",{});$("status").textContent="已断开";note("串口已断开；不会停止已经发出的运动")});
+$("unlock").onclick=()=>doTask(async()=>{if(!confirm("已断电检查过机械臂，排除碰撞损伤，清空运动区域，确保能立即切断电源？"))return;await req("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});note("已授权本次一个微步进动作，30秒内有效")});
+(async()=>{try{await ports();await getHealth();meta=healthState.joints;renderJoints();setInterval(async()=>{if(!busy){try{await getHealth();await status()}catch(e){note("读取反馈失败："+e.message)}}},2000)}catch(e){note("初始化失败："+e.message)}})();
+</script>
+</body>
+</html>
