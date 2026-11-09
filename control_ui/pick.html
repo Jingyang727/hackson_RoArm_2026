@@ -18,12 +18,13 @@ label{font-size:13px}.primary{background:#166d58;border-color:#269982}
 pre{white-space:pre-wrap;word-wrap:break-word;font-size:12px;max-height:420px;overflow:auto}
 table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #3c5068;text-align:left}
 @media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
-</style></head>
+</style>
+<link rel="stylesheet" href="/assets/theme.css"></head>
 <body>
 <nav><a href="/">关节控制</a> · <a href="/camera">俯视相机</a> · <a href="/calibration">机械臂XY标定</a></nav>
 <h1>黄色球抓取 / 放置示教</h1>
 <p class="muted">按照实际反馈记录抓取高度、末端姿态、夹爪开合和固定放置点。生成路径并审查每一步；<strong>当前仅提供预览，不发送自动 XYZ 运动</strong>。硬件抓取必须完成逐段真机验证后才会开启。</p>
-<div class="warn">先完成 <a href="/calibration">机械臂XY标定（4个点+1个验证点，并保存）</a>。球须位于标定点覆盖的内部安全区域，摄像头、棋盘、机械臂底座不能移动。黄色球有高度；目前基于棋盘平面的视觉坐标只是初步定位，必须用真实球反复验证并测量球直径。夹爪不能碰桌面或压住其他东西。</div>
+<details class="safety-details"><summary>抓取与标定说明</summary><p class="muted">先完成 <a href="/calibration">机械臂 XY 标定</a>。仅在通过标定的工作区抓球，摄像头和底座须保持固定。真实抓取还需要验证球体视差、工具姿态和高度。</p></details>
 <main>
 <section>
 <h2>① 获取黄色球位置</h2>
