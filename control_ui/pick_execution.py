@@ -149,6 +149,18 @@ class PickExecutor:
                 from .safety import JOINTS
                 if not (math.radians(63)<=g<=math.radians(182)):
                     raise PickExecutionError("夹爪实际角度偏离官方范围，请人工检查")
+                if abs(g-stage["g"])<=math.radians(2):
+                    # No-op: opening a gripper already at the requested angle
+                    # must not create a "pending forever" or invent motor motion.
+                    arm_service.last_command={
+                        "status":"feedback_confirmed","pick_session_id":self.session_id,
+                        "pick_step":self.next_index,"stage":stage["stage"],
+                        "command":None,"confirmed_at":time.time(),
+                        "message":"夹爪已经处于目标角度，跳过重复电机指令",
+                    }
+                    self.next_index+=1
+                    return {"sent":False,"verified":True,"step":step_index,
+                            "stage":stage["stage"],"notice":"夹爪已到位，未重复下发电机命令"}
                 command={"T":106,"cmd":stage["g"],"spd":stage["spd"],"acc":stage["acc"]}
                 pending={"joint":6,"target_deg":math.degrees(stage["g"]),
                          "start_deg":math.degrees(g),"actual_deg":math.degrees(g),
