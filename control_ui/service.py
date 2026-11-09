@@ -67,7 +67,7 @@ class ArmService:
                 raise
             self.arm, self.port = arm, port
             self.armed_until = 0
-            self.pending = self.last_command = self.fault = None
+            self.pending = self.last_command = None  # Keep a latched fault across reconnects.
             return result
 
     def disconnect(self):
@@ -77,7 +77,7 @@ class ArmService:
                 self.arm.__exit__(None, None, None)
             self.arm = self.port = None
             self.pending = None
-            self.fault = None
+            # A serial reconnect must not silently erase an unverified motion fault.
 
     def _latch_fault(self, code, description, **details):
         self.fault = {"code": code, "message": description, **details}
