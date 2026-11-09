@@ -6,6 +6,7 @@ import time
 from serial.tools import list_ports
 from evoarm.serial_arm import RoArmSerial
 from .home_pose import save_pose, load_pose
+from .settling import observe_stability
 from .safety import (
     JOINTS, JOG_STEPS, FACTORY_DEGREES, UnsafeMotion,
     current_degrees, checked_home_pose, plan_single_step, plan_gripper_step, plan_home_step,
@@ -14,6 +15,11 @@ from .safety import (
 SESSION_SECONDS = 120
 MIN_GAP_SECONDS = 0.8
 ARRIVAL_TOLERANCE = 2.0
+# These are *classification heuristics*, not new servo commands or safety
+# guarantees. A settled offset must be visible and the operator re-authorizes.
+FACTORY_SETTLED_OFFSET_MAX_DEG = 5.0
+JOG_SETTLED_OFFSET_MAX_DEG = 3.5
+MIN_JOG_PROGRESS_DEG = 0.4
 # A firmware command is not automatically treated as successful.
 # If feedback never reaches target, surface a latched fault instead of leaving
 # an invisible, permanent 'pending' state. New motion remains blocked.
@@ -113,37 +119,90 @@ class ArmService:
                 self._latch_fault("invalid_feedback", "状态反馈不完整，已锁定新的动作", detail=str(exc))
                 raise
 
-            elapsed = time.monotonic() - pending["since"]
+            now = time.monotonic()
+            elapsed = now - pending["since"]
             pending["elapsed_s"] = round(elapsed, 1)
-            if pending.get("kind") == "factory":
-                residual = max(abs(angles[j] - FACTORY_DEGREES[j]) for j in FACTORY_DEGREES)
-                confirmed = residual <= ARRIVAL_TOLERANCE
-                timeout_s = FACTORY_CONFIRM_TIMEOUT_S
+            stable = observe_stability(pending, angles, now)
+            is_factory = pending.get("kind") == "factory"
+            if is_factory:
+                differences = {
+                    j: round(angles[j] - FACTORY_DEGREES[j], 2)
+                    for j in FACTORY_DEGREES
+                }
+                worst_joint = max(differences, key=lambda j: abs(differences[j]))
+                residual = abs(differences[worst_joint])
+                progress = max(
+                    abs(angles[j] - pending["initial_angles"][j])
+                    for j in FACTORY_DEGREES
+                )
                 pending["max_error_deg"] = round(residual, 2)
+                pending["worst_joint"] = worst_joint
+                pending["joint_errors_deg"] = differences
+                timeout_s = FACTORY_CONFIRM_TIMEOUT_S
+                soft_limit = FACTORY_SETTLED_OFFSET_MAX_DEG
                 label = "官方复位"
             else:
                 joint = pending["joint"]
                 actual = angles[joint]
                 residual = abs(actual - pending["target_deg"])
-                confirmed = residual <= ARRIVAL_TOLERANCE
-                timeout_s = (GRIPPER_CONFIRM_TIMEOUT_S if joint == 6 else JOG_CONFIRM_TIMEOUT_S)
+                progress = abs(actual - pending["start_deg"])
                 pending["actual_deg"] = round(actual, 2)
                 pending["error_deg"] = round(residual, 2)
+                timeout_s = (GRIPPER_CONFIRM_TIMEOUT_S if joint == 6 else JOG_CONFIRM_TIMEOUT_S)
+                soft_limit = JOG_SETTLED_OFFSET_MAX_DEG
                 label = JOINTS[joint][0]
-            if confirmed:
+            pending["progress_deg"] = round(progress, 2)
+
+            # A tiny step may fall inside the 2° tolerance *before it moves*.
+            # Do not claim successful arrival based on unchanged early feedback.
+            enough_motion = is_factory or progress >= MIN_JOG_PROGRESS_DEG
+            if residual <= ARRIVAL_TOLERANCE and enough_motion:
                 self.pending = None
                 if self.last_command:
                     self.last_command["status"] = "feedback_confirmed"
                     self.last_command["confirmed_at"] = time.time()
+                    self.last_command["error_deg"] = round(residual, 2)
+            elif stable:
+                # Three stable samples mean the servo/feedback *settled*, but
+                # that alone cannot prove the intended target was reached.
+                if residual <= soft_limit and (is_factory or progress >= MIN_JOG_PROGRESS_DEG):
+                    self.pending = None
+                    self.armed_until = 0
+                    if self.last_command:
+                        self.last_command["status"] = "settled_with_offset"
+                        self.last_command["error_deg"] = round(residual, 2)
+                        self.last_command["worst_joint"] = pending.get("worst_joint")
+                        self.last_command["joint_errors_deg"] = pending.get("joint_errors_deg")
+                        self.last_command["settled_at"] = time.time()
+                        self.last_command["message"] = (
+                            f"{label}已停止变化，但与预设目标仍差{residual:.1f}°。"
+                            "这是稳定但存在偏差，不等于精确到位。请目视确认姿态，再重新解锁。"
+                        )
+                else:
+                    # A stable position far from target, or no observable motion,
+                    # is a potential stall or calibration issue: fail early.
+                    self._latch_fault(
+                        "motion_stalled_or_offset",
+                        f"{label}反馈已稳定，但未能确认到达目标（差{residual:.1f}°，"
+                        f"检测到移动{progress:.1f}°）。可能是机械受阻、零位偏差或指令未执行；"
+                        "请检查后再恢复",
+                        expected_deg=pending.get("target_deg"),
+                        actual_deg=pending.get("actual_deg"),
+                        error_deg=round(residual, 2),
+                        joint=pending.get("joint"),
+                        joint_errors_deg=pending.get("joint_errors_deg"),
+                        elapsed_s=round(elapsed, 1),
+                    )
             elif elapsed >= timeout_s:
                 self._latch_fault(
                     "motion_not_confirmed",
                     f"{label}超过{timeout_s:g}秒仍未反馈到达目标（误差{residual:.1f}°）。"
-                    "这不是正常冷却；请检查是否卡滞、供电或机械限制，然后手动恢复",
+                    "反馈仍未稳定；请检查电源、运动空间和机械负载",
                     expected_deg=pending.get("target_deg"),
                     actual_deg=pending.get("actual_deg"),
                     error_deg=round(residual, 2),
                     joint=pending.get("joint"),
+                    joint_errors_deg=pending.get("joint_errors_deg"),
                     elapsed_s=round(elapsed, 1),
                 )
             return result
@@ -239,7 +298,8 @@ class ArmService:
         self.last_motion_at = time.monotonic()
         self.pending = {"joint": plan.joint, "target_deg": plan.target_deg,
                         "since": time.monotonic(), "elapsed_s": 0.0,
-                        "actual_deg": plan.current_deg}
+                        "actual_deg": plan.current_deg, "start_deg": plan.current_deg,
+                        "stable_intervals": 0}
         self.last_command = {
             "joint": plan.joint, "from_deg": plan.current_deg,
             "to_deg": plan.target_deg, "sent_at": time.time(),
@@ -282,7 +342,7 @@ class ArmService:
                 raise UnsafeMotion("动作异常未解除，不能复位")
             if self.pending is not None:
                 raise UnsafeMotion("上一动作尚未确认完成，不允许复位")
-            current_degrees(feedback)  # Refuse when joint feedback is incomplete.
+            initial_angles = current_degrees(feedback)  # Must be complete for reset verification.
             if any(feedback.get(key) != 1 for key in
                    ("torswitchB", "torswitchS", "torswitchE",
                     "torswitchT", "torswitchR", "torswitchG")):
@@ -290,7 +350,9 @@ class ArmService:
             self.arm.send({"T": 100})
             self.last_motion_at = time.monotonic()
             self.pending = {"kind": "factory", "target": "official_init",
-                            "since": time.monotonic(), "elapsed_s": 0.0}
+                            "since": time.monotonic(), "elapsed_s": 0.0,
+                            "initial_angles": initial_angles,
+                            "stable_intervals": 0}
             self.last_command = {
                 "status": "factory_reset_sent_unverified",
                 "command": {"T": 100},
