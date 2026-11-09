@@ -30,13 +30,15 @@ class FakeElement {
   }}
 }
 
-function makePage() {
+function makePage({initiallyConnected=true}={}) {
   const html = fs.readFileSync(path.join(__dirname,"..","control_ui","calibration.html"),"utf8");
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
   const elements = new Map(ids.map(id=>[id,new FakeElement(id)]));
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script,"inline JS must exist");
   let torque = 1;
+  let connected=initiallyConnected;
+  let autoConnectCalls=0;
   let teachActive = false;
   let torquePosts = 0;
   let statusGets = 0;
@@ -46,8 +48,12 @@ function makePage() {
     requests.push(method+" "+url);
     let data;
     if(url==="/api/ports") data=[{device:"/dev/mock-usb"}];
+    else if(url==="/api/auto-connect"){
+      autoConnectCalls++;connected=true;
+      data={connected:true,port:"/dev/mock-usb",reused:false};
+    }
     else if(url==="/api/health") data={
-      connected:true,port:"/dev/mock-usb",teach_enabled:true,
+      connected,port:connected?"/dev/mock-usb":null,teach_enabled:true,
       teach_active:teachActive,torque_status:Array(6).fill(torque),
       pending:null,fault:null,
     };
@@ -90,7 +96,7 @@ function makePage() {
     assert.ok(elements.has(id),"DOM id missing: "+id);
     return elements.get(id);
   };
-  return {el,requests,torquePosts:()=>torquePosts,statusGets:()=>statusGets};
+  return {el,requests,torquePosts:()=>torquePosts,statusGets:()=>statusGets,autoConnectCalls:()=>autoConnectCalls};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -137,4 +143,20 @@ test("disabled relock button becomes enabled after confirmed release",async()=>{
   assert.equal(page.el("torquePrompt").hidden,false);
   assert.match(page.el("torquePromptTitle").textContent,/重新锁定/);
   assert.equal(page.torquePosts(),1); // confirmation required again
+});
+
+test("new calibration tab automatically reuses/opens single shared serial connection",async()=>{
+  const connectedPage=makePage();
+  await flush();await flush();await flush();
+  assert.equal(connectedPage.autoConnectCalls(),0);
+  assert.equal(connectedPage.el("connectionToast").hidden,true);
+  assert.match(connectedPage.el("connectionChip").textContent,/已连接/);
+
+  const freshPage=makePage({initiallyConnected:false});
+  await flush();await flush();await flush();await flush();
+  assert.equal(freshPage.autoConnectCalls(),1);
+  assert.equal(freshPage.el("connectionToast").hidden,true);
+  assert.match(freshPage.el("connectionChip").textContent,/已连接/);
+  assert.ok(!freshPage.requests.includes("POST /api/connect"),
+    "page should use backend shared auto-connect, not repeatedly POST manual connect");
 });
