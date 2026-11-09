@@ -1,4 +1,4 @@
-# EvoArm — RoArm-M3 中文控制台 v0.4.1
+# EvoArm — RoArm-M3 中文控制台 v0.4.2
 
 Mac M1 + USB 串口 + RoArm-M3-S / Pro：六关节手动步进、XYZ/角度反馈、俯视相机预览和自定义复位姿态。
 
@@ -8,8 +8,8 @@ Mac M1 + USB 串口 + RoArm-M3-S / Pro：六关节手动步进、XYZ/角度反�
 
 ```bash
 git fetch origin
-git switch --track origin/fix/evoarm-ux-gripper-v0-4-1
-# 若本地已有此分支：git switch fix/evoarm-ux-gripper-v0-4-1 && git pull --ff-only
+git switch --track origin/fix/evoarm-motion-pending-v0-4-2
+# 若本地已有此分支：git switch fix/evoarm-motion-pending-v0-4-2 && git pull --ff-only
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -70,3 +70,28 @@ python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
 - 最新版本基于 `feature/evoarm-safe-manual-jog`，保留 ESP32 打开串口后的启动日志等待修复；
 - 所有测试与 CI 均不直接操作真实机械臂；真实关节方向、夹爪范围、扭矩反馈和回位效果需要用户现场逐关节验收；
 - `main` 保持不变，通过独立功能分支和 Draft PR 合并。
+
+## v0.4.2 修复：调整几次后长时间无法继续移动
+
+**现象**：连续调整几个角度后，「增加/减少」按钮变灰、没有反应，长时间没有提示。
+
+**根因**：旧版在发送 `T=121` / `T=106` 后，只要传感器反馈与目标角度相差超过 2°，就永远保留 `pending`（等待到位）标记。UI 因此永久禁用运动按钮。此外，普通串口状态读取单次可能等待20秒。
+
+**现在的处理**：
+- UI 直接显示正在执行的关节、目标角度、反馈角度、等待秒数。
+- 普通串口状态读取超时降为4秒（首次 ESP32 连接仍给最多20秒启动查询）。
+- 正常手动关节等待反馈最长10秒，夹爪最长12秒，官方多关节复位最长45秒。
+- 如目标在窗口内到达±2°，自动释放 `pending`，下一条命令可继续发送。
+- 若反馈未到达或串口读取失败，不会假装完成：界面显示故障详情，并锁定新的动作。请目视检查机械臂是否静止、关节是否有阻挡、是否供电正常。
+- 「已检查机械臂静止 · 复核并恢复控制」按钮只检查两次连续且稳定的 `T=1051` 关节反馈（中间相隔0.75秒），**不会发送机械臂运动指令**。复核通过后仍需重新点击「确认安全并解锁」。
+- 该故障流程与正常的运动授权120秒倒计时是两回事；UI 会分别显示。
+
+**注意**：若舵机实际未到位或被桌面/物体阻挡，不能简单地自动清除异常、继续施加动作。软件角度判定不是力/碰撞检测；强制反复运动可能损坏机构。现场仍须保留电源级停机手段。
+
+### 本地验收
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+先在无障碍区域选择一个低幅度的单关节调整（例如5°），观察「动作执行状态」显示目标/反馈；连续调整三次确认成功。请勿为消除软件锁定而掰动已上电并锁扭矩的机械臂。
