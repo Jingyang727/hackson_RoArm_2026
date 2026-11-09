@@ -74,9 +74,10 @@ class SupervisedPickTests(unittest.TestCase):
             svc.status()
             self.assertEqual(svc.last_command["status"],"feedback_confirmed")
             svc.last_motion_at -= 1.0
-            exe.step(token,1,"已目视确认本步的运动空间与位置",svc)
-            self.assertEqual(svc.arm.commands[-1]["T"],106)
-            svc.status()
+            noop=exe.step(token,1,"已目视确认本步的运动空间与位置",svc)
+            self.assertFalse(noop["sent"])  # T104 already set the gripper to the open angle.
+            self.assertTrue(noop["verified"])
+            self.assertEqual(svc.last_command["status"],"feedback_confirmed")
             self.assertIsNone(svc.pending)
             svc.last_motion_at -= 1.0
             out=exe.step(token,2,"已目视确认本步的运动空间与位置",svc)
@@ -84,7 +85,7 @@ class SupervisedPickTests(unittest.TestCase):
             self.assertEqual(out["command"]["z"],145)
             svc.status()
             self.assertTrue(exe.state(svc)["completed"])
-            self.assertEqual(len(svc.arm.commands),3)
+            self.assertEqual(len(svc.arm.commands),2)
 
     def test_cannot_replay_old_index(self):
         with patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}),\

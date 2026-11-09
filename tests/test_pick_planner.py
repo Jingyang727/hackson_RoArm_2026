@@ -50,7 +50,13 @@ class TestPickPlan(unittest.TestCase):
         self.assertTrue(all(w["requires_operator_confirm"] for w in result["waypoints"]))
         moves=[w for w in result["waypoints"] if w["kind"]=="cartesian"]
         self.assertTrue(all(w["spd"]<=0.15 for w in moves))
-        self.assertTrue(all(w["xyz_mm"][2] in (100,105,165) for w in moves))
+        # Vertical travel is now intentionally split into small safe increments.
+        self.assertTrue(all(100 <= w["xyz_mm"][2] <= 165 for w in moves))
+        for before, after in zip(moves, moves[1:]):
+            self.assertLessEqual(
+                math.dist(before["xyz_mm"][:2], after["xyz_mm"][:2]),35.01)
+            self.assertLessEqual(
+                abs(before["xyz_mm"][2]-after["xyz_mm"][2]),20.01)
 
     def test_outside_measured_work_area_is_not_treated_as_safe(self):
         for xy in ([200,60],[40,130],[25,25],[0,0]):

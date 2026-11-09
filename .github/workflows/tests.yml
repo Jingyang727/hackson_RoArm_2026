@@ -1,8 +1,11 @@
 name: EvoArm tests
 on:
   push:
-    branches: ["feature/**", "main"]
+    branches: ["main"]
   pull_request:
+concurrency:
+  group: evoarm-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   python-tests:
     runs-on: ubuntu-latest
