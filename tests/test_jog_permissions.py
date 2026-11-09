@@ -19,7 +19,7 @@ class FakeArm:
             **{f"torswitch{k}": 1 for k in "BSETRG"},
         }
 
-    def status(self):
+    def status(self, timeout=None):
         return self.feedback.copy()
 
     def send(self, payload):
