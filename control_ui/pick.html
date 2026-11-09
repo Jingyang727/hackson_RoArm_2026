@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EvoArm · 黄色球抓取示教</title>
+<style>
+:root{font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#e9eff7;background:#0e1828}
+*{box-sizing:border-box}body{margin:24px auto;padding:0 16px;max-width:1050px}
+h1{font-size:25px;margin:12px 0}h2{font-size:18px;margin:8px 0}
+a{color:#85d4ed}.muted,small{color:#aabbd0}
+main{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+section{background:#1a293e;padding:16px;border:1px solid #3c516b;border-radius:12px}
+.wide{grid-column:1/-1}.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0}
+button,input{border:1px solid #67829f;border-radius:8px;padding:9px 10px;background:#283c57;color:white;font:inherit}
+button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}input{width:125px}
+label{font-size:13px}.primary{background:#166d58;border-color:#269982}
+.notice{padding:12px;background:#263953;border-radius:9px;line-height:1.7;margin-top:10px;white-space:pre-wrap}
+.warn{padding:12px;background:#482e35;border:1px solid #98666a;border-radius:9px;line-height:1.7}
+#video{width:100%;max-height:44vh;background:#0a1320;object-fit:contain}#photo{width:100%;height:auto;display:none}
+pre{white-space:pre-wrap;word-wrap:break-word;font-size:12px;max-height:420px;overflow:auto}
+table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #3c5068;text-align:left}
+@media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
+</style></head>
+<body>
+<nav><a href="/">关节控制</a> · <a href="/camera">俯视相机</a> · <a href="/calibration">机械臂XY标定</a></nav>
+<h1>黄色球抓取 / 放置示教</h1>
+<p class="muted">按照实际反馈记录抓取高度、末端姿态、夹爪开合和固定放置点。生成路径并审查每一步；<strong>当前仅提供预览，不发送自动 XYZ 运动</strong>。硬件抓取必须完成逐段真机验证后才会开启。</p>
+<div class="warn">先完成 <a href="/calibration">机械臂XY标定（4个点+1个验证点，并保存）</a>。球须位于标定点覆盖的内部安全区域，摄像头、棋盘、机械臂底座不能移动。黄色球有高度；目前基于棋盘平面的视觉坐标只是初步定位，必须用真实球反复验证并测量球直径。夹爪不能碰桌面或压住其他东西。</div>
+<main>
+<section>
+<h2>① 获取黄色球位置</h2>
+<div class="row"><label for="square">棋盘单格 mm</label><input type="number" min="0.1" max="200" step=".1" id="square" value="24"/><button id="camOpen">开启相机</button><button id="detect" disabled>识别当前球</button></div>
+<video id="video" autoplay playsinline muted></video><canvas id="photo"></canvas>
+<div id="ballResult" class="notice">尚未识别黄色球；24mm为前次输入值，请先用尺核实。</div>
+</section>
+<section>
+<h2>② 示教关键位置和夹爪</h2>
+<p class="muted">使用 <a href="/" target="_blank" rel="noopener">关节控制台</a> 手动微调。每次点击「读取当前」仅获取两次稳定的 T=1051，不会驱动电机。释放扭矩示教时必须先托住机械臂，重新锁定并确认姿态稳定后再记录。</p>
+<div class="row"><label>球直径 mm</label><input id="diameter" type="number" step=".1" min="8" max="90" placeholder="实测"/></div>
+<table><thead><tr><th>示教项目</th><th>当前数值</th><th>操作</th></tr></thead><tbody>
+<tr><td>抓取时末端 Z + Pitch/Roll</td><td id="grabShow">未读取</td><td><button data-teach="grab">读取当前</button></td></tr>
+<tr><td>高位安全 Z</td><td id="travelShow">未读取</td><td><button data-teach="travel">读取当前</button></td></tr>
+<tr><td>放置 XY + Z</td><td id="placeShow">未读取</td><td><button data-teach="place">读取当前</button></td></tr>
+<tr><td>张开夹爪角度</td><td id="openShow">未读取</td><td><button data-teach="open">读取当前</button></td></tr>
+<tr><td>试夹球后的闭合角度</td><td id="closeShow">未读取</td><td><button data-teach="close">读取当前</button></td></tr>
+</tbody></table>
+<div id="teachInfo" class="notice">请先在主控制台连接串口，调整夹爪位置。需要固定工具姿态、球直径和桌面高度。</div>
+<div class="row"><button id="save" class="primary" disabled>验证并保存示教参数</button></div>
+</section>
+<section class="wide">
+<h2>③ 生成抓取与放置轨迹预览</h2>
+<p class="muted">使用已保存的机器人XY标定和示教参数，将当前球的位置转换成机器人XY。只有球在四个标定点形成的凸多边形内部、放置点合理且安全高度足够时才生成轨迹。</p>
+<div class="row"><button id="preview" class="primary" disabled>生成抓取-放置轨迹预览</button></div>
+<div id="previewStatus" class="notice">预览不执行任何机械臂运动。</div>
+<pre id="waypoints"></pre>
+<div class="warn">安全策略：将大幅移动拆为高位分段移动；每个姿态和高度都需真机测试。T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。当前代码只生成规划，不执行。</div>
+</section>
+</main>
+<script>
+const $=x=>document.getElementById(x);
+let stream=null,latestBall=null,frame=null,profile={},saved=false,busy=false;
+function say(id,value){$(id).textContent=value}
+async function api(url,method="GET",body){
+ const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+ const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
+}
+async function act(fn){if(busy)return;busy=true;updateButtons();
+ try{await fn()}catch(e){say("teachInfo","操作未完成："+e.message);say("previewStatus","操作未完成："+e.message)}
+ finally{busy=false;updateButtons()}}
+function updateButtons(){
+ $("detect").disabled=busy||!stream;
+ $("preview").disabled=busy||!saved||!latestBall?.board_mm_xy||!latestBall?.inside_inner_board;
+ $("save").disabled=busy||!["grip_z_mm","travel_z_mm","place_z_mm","place_xy_mm",
+ "pitch_rad","roll_rad","open_g_rad","close_g_rad"].every(x=>profile[x]!==undefined)||
+ !Number($("diameter").value);
+ document.querySelectorAll("[data-teach]").forEach(b=>b.disabled=busy);
+}
+$("camOpen").onclick=()=>act(async()=>{
+ if(stream){stream.getTracks().forEach(x=>x.stop());stream=null}
+ const prefs={width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}};
+ stream=await navigator.mediaDevices.getUserMedia({video:prefs,audio:false});
+ $("video").srcObject=stream;await $("video").play();
+ say("ballResult","相机已开启 "+$("video").videoWidth+"×"+$("video").videoHeight+"。请在已标定区域内放入黄色球并点击检测。");
+});
+$("detect").onclick=()=>act(async()=>{
+ const L=Number($("square").value);if(!Number.isFinite(L)||L<=0||L>200)throw Error("填写有效的实际单格边长");
+ const v=$("video"),c=$("photo");c.width=v.videoWidth;c.height=v.videoHeight;
+ if(!c.width)throw Error("相机未采集图像");
+ const ctx=c.getContext("2d");ctx.drawImage(v,0,0);
+ const raw=await new Promise(resolve=>c.toBlob(resolve,"image/png"));if(!raw)throw Error("截图失败");
+ const resp=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L),{method:"POST",headers:{"Content-Type":"image/png"},body:raw});
+ const result=await resp.json();if(!resp.ok)throw Error(result.detail||"检测失败");
+ if(!result.ball?.detected)throw Error("未发现黄色圆形球");
+ latestBall=result.ball;
+ if(latestBall.center_px){
+   const [x,y]=latestBall.center_px;ctx.strokeStyle="#f43e82";ctx.lineWidth=6;
+   ctx.beginPath();ctx.arc(x,y,Math.max(latestBall.radius_px,15),0,2*Math.PI);ctx.stroke();
+ }
+ c.style.display="block";
+ say("ballResult","球心像素 "+latestBall.center_px.join(", ")+"，棋盘毫米位置 "+
+   (latestBall.board_mm_xy?.join(", ")||"不可用")+
+   (latestBall.inside_inner_board?"（内部角点区域内）":"（超出棋盘格区域，不允许抓取规划）")+
+   "。\n注意：这是球面图像中心的平面投影，尚未经三维视差补偿。");
+});
+document.querySelectorAll("[data-teach]").forEach(button=>button.onclick=()=>act(async()=>{
+ const kind=button.dataset.teach;const sample=await api("/api/pick/teach");
+ if(kind==="grab"){
+   profile.grip_z_mm=sample.z_mm;profile.pitch_rad=sample.pitch_rad;profile.roll_rad=sample.roll_rad;
+   say("grabShow",sample.z_mm+" mm，Pitch "+sample.pitch_rad.toFixed(3)+"，Roll "+sample.roll_rad.toFixed(3));
+ }else if(kind==="travel"){
+   profile.travel_z_mm=sample.z_mm;say("travelShow",sample.z_mm+" mm");
+ }else if(kind==="place"){
+   profile.place_z_mm=sample.z_mm;profile.place_xy_mm=[sample.x_mm,sample.y_mm];
+   say("placeShow",sample.x_mm+", "+sample.y_mm+", "+sample.z_mm+" mm");
+ }else if(kind==="open"){
+   profile.open_g_rad=sample.gripper_rad;say("openShow",sample.gripper_rad+" rad");
+ }else if(kind==="close"){
+   profile.close_g_rad=sample.gripper_rad;say("closeShow",sample.gripper_rad+" rad");
+ }
+ saved=false;say("teachInfo","已读取真实反馈 "+kind+"。请持续确认夹爪姿态和周围空间。");
+}));
+$("diameter").onchange=()=>{saved=false;updateButtons()};
+$("save").onclick=()=>act(async()=>{
+ const diameter=Number($("diameter").value);
+ if(!Number.isFinite(diameter)||diameter<=0)throw Error("请先实测黄色球直径");
+ const result=await api("/api/pick/profile","POST",{...profile,ball_diameter_mm:diameter});
+ saved=Boolean(result.saved);
+ say("teachInfo","已保存示教参数到 "+result.path+"。请再生成路径预览，不会自动运动。");
+});
+$("preview").onclick=()=>act(async()=>{
+ if(!latestBall?.board_mm_xy)throw Error("请重新识别黄色球");
+ const result=await api("/api/pick/preview","POST",{ball_board_mm:latestBall.board_mm_xy});
+ say("previewStatus","球位置机械臂XY："+result.ball_robot_xy_mm.join(", ")+
+  " mm → 放置XY："+result.place_robot_xy_mm.join(", ")+
+  " mm，共 "+result.number_of_steps+" 步。\n"+
+  result.requirements.join("\n"));
+ $("waypoints").textContent=result.waypoints.map((w,i)=>
+  (i+1)+". "+w.stage+" "+w.kind+" "+
+  (w.xyz_mm?"XYZ="+w.xyz_mm.join(", "):"夹爪角="+w.g)+
+  " · "+w.reason).join("\n");
+});
+window.addEventListener("pagehide",()=>{if(stream)stream.getTracks().forEach(t=>t.stop())});
+updateButtons();
+</script>
+</body></html>
