@@ -176,6 +176,8 @@ async function cameras(){
 }
 async function startCamera(){
  if(!navigator.mediaDevices?.getUserMedia)throw Error("无法使用浏览器摄像头");
+ if(summary?.records?.length&&!confirm("重新打开相机将需要重新标定，清空本次记录吗？"))return;
+ vision=null;shot=null;session=null;summary=null;modifiedPoints.clear();drawOverlay();
  if(stream)stream.getTracks().forEach(t=>t.stop());
  let video={width:{exact:1920},height:{exact:1080},frameRate:{ideal:30}};
  if($("device").value)video.deviceId={exact:$("device").value};
@@ -186,12 +188,16 @@ async function startCamera(){
   stream=await navigator.mediaDevices.getUserMedia({video,audio:false});
  }
  $("frame").srcObject=stream;await $("frame").play();await cameras();
- say("摄像头正在预览，实际 "+$("frame").videoWidth+"×"+$("frame").videoHeight+
-  "。固定好支架，点击冻结并识别角点。");render();
+ $("view").style.aspectRatio=$("frame").videoWidth+" / "+$("frame").videoHeight;
+ cancelAnimationFrame(raf);drawZoomLoop();
+ say("实时视频已启动："+$("frame").videoWidth+"×"+$("frame").videoHeight+
+  "。点击识别角点后，会保持实时预览和角点标记。");render();
 }
 function stopCamera(){
+ cancelAnimationFrame(raf);raf=0;
  if(stream)stream.getTracks().forEach(t=>t.stop());
- stream=null;$("frame").srcObject=null;render();
+ stream=null;$("frame").srcObject=null;
+ $("overlay").classList.remove("ready");render();
 }
 function captureImage(){
  if(!stream||!$("frame").videoWidth)throw Error("未启动摄像头");
@@ -199,22 +205,56 @@ function captureImage(){
  canvas.getContext("2d").drawImage($("frame"),0,0);return canvas;
 }
 function drawOverlay(){
- if(!shot||!vision?.checkerboard?.detected)return;
- const canvas=$("overlay"),context=canvas.getContext("2d");
- canvas.width=shot.width;canvas.height=shot.height;
- context.drawImage(shot,0,0);context.lineWidth=3;context.font="bold 22px sans-serif";
- for(let index=0;index<54;index++){
-  const point=vision.checkerboard.corners_px[index];
-  context.beginPath();context.arc(point[0],point[1],4,0,Math.PI*2);
-  context.fillStyle="#40f6b8";context.fill();
+ const canvas=$("overlay"),ctx=canvas.getContext("2d");
+ if(!vision?.checkerboard?.detected||!shot){
+   canvas.classList.remove("ready");
+   ctx.clearRect(0,0,canvas.width,canvas.height);return;
  }
- for(const t of TARGETS){
-  const [x,y]=vision.checkerboard.corners_px[t.row*9+t.col];
-  context.beginPath();context.arc(x,y,15,0,Math.PI*2);
-  context.strokeStyle=t.id===chosen?"#ff2d75":"#ffd25e";context.lineWidth=5;context.stroke();
-  context.fillStyle=t.id===chosen?"#ff2d75":"#ffd25e";
-  context.fillText(t.id,x+18,y-15);
+ canvas.width=shot.width;canvas.height=shot.height;canvas.classList.add("ready");
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ ctx.font="bold 29px sans-serif";ctx.textBaseline="middle";
+ for(const [x,y] of vision.checkerboard.corners_px){
+  ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);
+  ctx.fillStyle="rgba(37,255,169,.9)";ctx.fill();
  }
+ for(const target of TARGETS){
+  const [x,y]=vision.checkerboard.corners_px[target.row*9+target.col];
+  const active=target.id===chosen;
+  const done=Boolean(recordById(target.id))&&!modifiedPoints.has(target.id);
+  const color=active?"#ff2d75":done?"#36ef9a":"#f5c95b";
+  ctx.strokeStyle=color;ctx.lineWidth=active?9:6;
+  ctx.beginPath();ctx.arc(x,y,active?27:22,0,Math.PI*2);ctx.stroke();
+  if(active){ctx.beginPath();ctx.moveTo(x-42,y);ctx.lineTo(x+42,y);ctx.moveTo(x,y-42);ctx.lineTo(x,y+42);ctx.stroke()}
+  const txt=target.id+(done?" ✓":"");
+  ctx.strokeStyle="rgba(0,0,0,.9)";ctx.lineWidth=7;ctx.strokeText(txt,x+33,y-27);
+  ctx.fillStyle=color;ctx.fillText(txt,x+33,y-27);
+ }
+}
+function drawZoomFrame(){
+ const canvas=$("zoom"),ctx=canvas.getContext("2d"),video=$("frame");
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ if(!vision?.checkerboard?.detected||!stream||video.readyState<2||!video.videoWidth){
+  ctx.fillStyle="#b7c5d7";ctx.font="24px sans-serif";
+  ctx.fillText("先打开相机并识别棋盘格",25,180);return;
+ }
+ const target=TARGETS.find(t=>t.id===chosen);
+ const [cx,cy]=vision.checkerboard.corners_px[target.row*9+target.col];
+ const sw=Math.min(180,video.videoWidth),sh=Math.min(108,video.videoHeight);
+ const sx=Math.max(0,Math.min(video.videoWidth-sw,cx-sw/2));
+ const sy=Math.max(0,Math.min(video.videoHeight-sh,cy-sh/2));
+ ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+ const tx=(cx-sx)*canvas.width/sw,ty=(cy-sy)*canvas.height/sh;
+ ctx.strokeStyle="#ff2d75";ctx.lineWidth=4;
+ ctx.beginPath();ctx.moveTo(tx-42,ty);ctx.lineTo(tx+42,ty);
+ ctx.moveTo(tx,ty-42);ctx.lineTo(tx,ty+42);ctx.stroke();
+ ctx.beginPath();ctx.arc(tx,ty,14,0,Math.PI*2);ctx.stroke();
+ ctx.fillStyle="rgba(0,0,0,.75)";ctx.fillRect(8,8,252,39);
+ ctx.font="bold 24px sans-serif";ctx.fillStyle="#fff";
+ ctx.fillText(target.id+" · 实时放大 3.3×",16,35);
+}
+function drawZoomLoop(){
+ drawZoomFrame();
+ if(stream)raf=requestAnimationFrame(drawZoomLoop);
 }
 $("overlay").addEventListener("click",e=>{
  if(!vision?.checkerboard?.detected)return;
@@ -231,10 +271,11 @@ $("overlay").addEventListener("click",e=>{
  if(TARGETS.some(x=>x.id!==chosen&&x.col===col&&x.row===row)){
   say("这个角点已分配给其他步骤，请选择不同的角点");return
  }
- if(recordById(chosen)){
-  say("此点已经记录过。如果修改它的棋盘位置，请重新点击记录以覆盖旧样本。");
+ if(recordById(chosen) && (t.col!==col || t.row!==row)){
+  if(!confirm("该点已经记录。更换角点后需要重新对准并重录，继续吗？"))return;
+  modifiedPoints.add(chosen);
  }
- t.col=col;t.row=row;drawOverlay();render();
+ t.col=col;t.row=row;drawOverlay();drawZoomFrame();render();
 });
 $("cameraStart").onclick=()=>doAction(startCamera);
 $("cameraStop").onclick=stopCamera;
