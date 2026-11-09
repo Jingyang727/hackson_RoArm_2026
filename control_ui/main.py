@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from .service import ArmService
 from .safety import UnsafeMotion
+from .robot_calibration import CalibrationError, calibration
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 service = ArmService()
@@ -32,6 +33,27 @@ class GripperMove(BaseModel):
 class HomeMove(BaseModel):
     kind: str
     joint: int
+
+
+class CalibrationStart(BaseModel):
+    square_mm: float
+    image_size: list[int]
+
+
+class CalibrationCapture(BaseModel):
+    session_id: str
+    point_id: str
+    col: int
+    row: int
+
+
+class CalibrationSave(BaseModel):
+    session_id: str
+
+
+class TeachTorque(BaseModel):
+    enabled: bool
+    declaration: str
 
 
 def invoke(fn, *args):
@@ -72,6 +94,45 @@ async def vision_analyze(request: Request, square_mm: float | None = None):
         return analyze_image(raw, square_mm=square_mm)
     except VisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/calibration", response_class=HTMLResponse)
+def calibration_page():
+    return Path(__file__).with_name("calibration.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/calibration/status")
+def calibration_status():
+    return calibration.summary()
+
+
+@app.post("/api/calibration/start")
+def calibration_start(req: CalibrationStart):
+    try:
+        return calibration.start(req.square_mm, req.image_size)
+    except CalibrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/calibration/capture")
+def calibration_capture(req: CalibrationCapture):
+    try:
+        return calibration.capture(req.session_id, req.point_id, req.col, req.row, service)
+    except CalibrationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/calibration/save")
+def calibration_save(req: CalibrationSave):
+    try:
+        return calibration.save(req.session_id)
+    except CalibrationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/teach/torque")
+def teach_torque(req: TeachTorque):
+    return invoke(service.set_torque, req.enabled, req.declaration)
 
 
 @app.get("/api/ports")
