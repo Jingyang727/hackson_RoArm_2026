@@ -53,7 +53,7 @@ class RoArmSerial:
             elif saw_data and time.monotonic() - last > 1.2:
                 return
 
-    def status(self, timeout=20):
+    def status(self, timeout=4.0):
         if not self.ser:
             raise ArmCommunicationError("串口未打开")
         self.ser.reset_input_buffer()
