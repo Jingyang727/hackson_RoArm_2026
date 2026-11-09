@@ -14,6 +14,14 @@ from .safety import (
 SESSION_SECONDS = 120
 MIN_GAP_SECONDS = 0.8
 ARRIVAL_TOLERANCE = 2.0
+# A firmware command is not automatically treated as successful.
+# If feedback never reaches target, surface a latched fault instead of leaving
+# an invisible, permanent 'pending' state. New motion remains blocked.
+JOG_CONFIRM_TIMEOUT_S = 10.0
+GRIPPER_CONFIRM_TIMEOUT_S = 12.0
+FACTORY_CONFIRM_TIMEOUT_S = 45.0
+RECOVERY_SAMPLE_GAP_S = 0.75
+STABLE_POSITION_TOLERANCE_DEG = 0.6
 
 
 class ArmService:
@@ -25,6 +33,7 @@ class ArmService:
         self.last_motion_at = 0.0
         self.pending = None
         self.last_command = None
+        self.fault = None
 
     @property
     def motion_enabled(self):
@@ -51,13 +60,14 @@ class ArmService:
             arm = RoArmSerial(port)
             try:
                 arm.__enter__()
-                result = arm.status()
+                # ESP32 can still be booting after its initial USB reset.
+                result = arm.status(timeout=20)
             except Exception:
                 arm.__exit__(None, None, None)
                 raise
             self.arm, self.port = arm, port
             self.armed_until = 0
-            self.pending = self.last_command = None
+            self.pending = self.last_command = self.fault = None
             return result
 
     def disconnect(self):
@@ -67,29 +77,75 @@ class ArmService:
                 self.arm.__exit__(None, None, None)
             self.arm = self.port = None
             self.pending = None
+            self.fault = None
+
+    def _latch_fault(self, code, description, **details):
+        self.fault = {"code": code, "message": description, **details}
+        self.armed_until = 0
+        self.pending = None
+        if self.last_command:
+            self.last_command["status"] = "unverified_fault"
+        return self.fault
 
     def status(self):
         with self.lock:
             if self.arm is None:
                 raise ValueError("尚未连接机械臂")
+            pending = self.pending
             try:
-                result = self.arm.status()
-            except Exception:
-                self.armed_until = 0
-                raise
-            if self.pending:
-                angles = current_degrees(result)
-                if self.pending.get("kind") == "factory":
-                    # T=100 is a multi-joint firmware reset, not a single joint jog.
-                    targets = FACTORY_DEGREES
-                    if all(abs(angles[j] - targets[j]) <= ARRIVAL_TOLERANCE for j in targets):
-                        self.pending = None
-                        if self.last_command:
-                            self.last_command["status"] = "factory_home_confirmed"
+                # Firmware T=100 can block other commands during reset.
+                if pending and pending.get("kind") == "factory":
+                    result = self.arm.status(timeout=20)
                 else:
-                    actual = angles[self.pending["joint"]]
-                    if abs(actual - self.pending["target_deg"]) <= ARRIVAL_TOLERANCE:
-                        self.pending = None
+                    result = self.arm.status()
+            except Exception as exc:
+                self._latch_fault(
+                    "feedback_timeout",
+                    "状态查询失败：可能是串口超时、固件忙或供电异常；已锁定新的动作",
+                    detail=str(exc),
+                )
+                raise
+            if pending is None:
+                return result
+            try:
+                angles = current_degrees(result)
+            except UnsafeMotion as exc:
+                self._latch_fault("invalid_feedback", "状态反馈不完整，已锁定新的动作", detail=str(exc))
+                raise
+
+            elapsed = time.monotonic() - pending["since"]
+            pending["elapsed_s"] = round(elapsed, 1)
+            if pending.get("kind") == "factory":
+                residual = max(abs(angles[j] - FACTORY_DEGREES[j]) for j in FACTORY_DEGREES)
+                confirmed = residual <= ARRIVAL_TOLERANCE
+                timeout_s = FACTORY_CONFIRM_TIMEOUT_S
+                pending["max_error_deg"] = round(residual, 2)
+                label = "官方复位"
+            else:
+                joint = pending["joint"]
+                actual = angles[joint]
+                residual = abs(actual - pending["target_deg"])
+                confirmed = residual <= ARRIVAL_TOLERANCE
+                timeout_s = (GRIPPER_CONFIRM_TIMEOUT_S if joint == 6 else JOG_CONFIRM_TIMEOUT_S)
+                pending["actual_deg"] = round(actual, 2)
+                pending["error_deg"] = round(residual, 2)
+                label = JOINTS[joint][0]
+            if confirmed:
+                self.pending = None
+                if self.last_command:
+                    self.last_command["status"] = "feedback_confirmed"
+                    self.last_command["confirmed_at"] = time.time()
+            elif elapsed >= timeout_s:
+                self._latch_fault(
+                    "motion_not_confirmed",
+                    f"{label}超过{timeout_s:g}秒仍未反馈到达目标（误差{residual:.1f}°）。"
+                    "这不是正常冷却；请检查是否卡滞、供电或机械限制，然后手动恢复",
+                    expected_deg=pending.get("target_deg"),
+                    actual_deg=pending.get("actual_deg"),
+                    error_deg=round(residual, 2),
+                    joint=pending.get("joint"),
+                    elapsed_s=round(elapsed, 1),
+                )
             return result
 
     def health(self):
@@ -107,6 +163,7 @@ class ArmService:
                     for j, spec in JOINTS.items()
                 ],
                 "pending": self.pending,
+                "fault": self.fault,
                 "last_command": self.last_command,
             }
 
@@ -121,6 +178,8 @@ class ArmService:
             if declaration != "已检查设备并清空运动区域":
                 raise UnsafeMotion("请先确认机械臂、固定支架和工作区域安全")
             self.status()
+            if self.fault:
+                raise UnsafeMotion("动作异常未解除，请先检查并按“异常复核”操作")
             self.armed_until = time.monotonic() + SESSION_SECONDS
             return {"armed": True, "expires_in_seconds": SESSION_SECONDS}
 
@@ -130,9 +189,36 @@ class ArmService:
             self.armed_until = 0
             return {"locked": True, "notice": "已锁定新的运动指令。已发出的运动不会因此立即停止；紧急情况请切断机械臂运动电源"}
 
+    def recover_fault(self, declaration):
+        """Operator-confirmed stable feedback recovery; NEVER send movement here."""
+        with self.lock:
+            if not self.fault:
+                raise UnsafeMotion("没有需要恢复的动作异常")
+            if not self.arm:
+                raise UnsafeMotion("请先检查串口连接")
+            if declaration != "已检查机械臂静止且运动区域安全":
+                raise UnsafeMotion("需要确认机械臂已静止且无障碍")
+            try:
+                first = current_degrees(self.arm.status())
+                time.sleep(RECOVERY_SAMPLE_GAP_S)
+                second = current_degrees(self.arm.status())
+            except Exception as exc:
+                raise UnsafeMotion(f"恢复失败：无法连续读取有效关节状态：{exc}") from exc
+            deviation = max(abs(second[j] - first[j]) for j in JOINTS)
+            if deviation > STABLE_POSITION_TOLERANCE_DEG:
+                raise UnsafeMotion(f"机械臂仍存在反馈变化（最大{deviation:.2f}°），不能解锁")
+            previous_fault = self.fault
+            self.fault = None
+            self.pending = None
+            self.armed_until = 0  # Reconfirm workspace before any subsequent move.
+            return {"recovered": True, "previous_fault": previous_fault,
+                    "message": "反馈稳定、异常已解除。需要重新点击“确认安全并解锁”"}
+
     def _preflight(self, joint):
         if self.arm is None or not self.motion_enabled:
             raise UnsafeMotion("机械臂未连接，或后端仍处于只读模式")
+        if self.fault:
+            raise UnsafeMotion("存在未解决的动作异常：" + self.fault["message"])
         if joint not in self.allowed_joints:
             raise UnsafeMotion("该关节未被当前后端授权")
         if time.monotonic() >= self.armed_until:
@@ -141,14 +227,19 @@ class ArmService:
         if time.monotonic() - self.last_motion_at < MIN_GAP_SECONDS:
             raise UnsafeMotion("动作间隔太短，请稍后重试")
         status = self.status()
+        if self.fault:
+            raise UnsafeMotion("动作反馈异常：" + self.fault["message"])
         if self.pending is not None:
-            raise UnsafeMotion("上一动作尚未确认到达目标，拒绝叠加运动指令")
+            elapsed = self.pending.get("elapsed_s", 0)
+            raise UnsafeMotion(f"上一动作正在等待到位反馈（{elapsed:.1f}秒），请查看下方执行状态")
         return status
 
     def _send_move(self, plan):
         self.arm.send(plan.payload)
         self.last_motion_at = time.monotonic()
-        self.pending = {"joint": plan.joint, "target_deg": plan.target_deg}
+        self.pending = {"joint": plan.joint, "target_deg": plan.target_deg,
+                        "since": time.monotonic(), "elapsed_s": 0.0,
+                        "actual_deg": plan.current_deg}
         self.last_command = {
             "joint": plan.joint, "from_deg": plan.current_deg,
             "to_deg": plan.target_deg, "sent_at": time.time(),
@@ -177,6 +268,8 @@ class ArmService:
         with self.lock:
             if not self.motion_enabled or self.arm is None:
                 raise UnsafeMotion("机械臂未连接或运动模式未开启")
+            if self.fault:
+                raise UnsafeMotion("存在未解决的动作异常，不能执行官方复位")
             if set(JOINTS) - self.allowed_joints:
                 raise UnsafeMotion("官方复位需要明确授权全部六个关节")
             if time.monotonic() >= self.armed_until:
@@ -185,6 +278,8 @@ class ArmService:
             if time.monotonic() - self.last_motion_at < MIN_GAP_SECONDS:
                 raise UnsafeMotion("动作间隔过短")
             feedback = self.status()
+            if self.fault:
+                raise UnsafeMotion("动作异常未解除，不能复位")
             if self.pending is not None:
                 raise UnsafeMotion("上一动作尚未确认完成，不允许复位")
             current_degrees(feedback)  # Refuse when joint feedback is incomplete.
@@ -194,7 +289,8 @@ class ArmService:
                 raise UnsafeMotion("一个或多个关节扭矩状态未确认，不能执行整臂复位")
             self.arm.send({"T": 100})
             self.last_motion_at = time.monotonic()
-            self.pending = {"kind": "factory", "target": "official_init"}
+            self.pending = {"kind": "factory", "target": "official_init",
+                            "since": time.monotonic(), "elapsed_s": 0.0}
             self.last_command = {
                 "status": "factory_reset_sent_unverified",
                 "command": {"T": 100},
@@ -207,8 +303,8 @@ class ArmService:
     def home_save(self):
         with self.lock:
             status = self.status()
-            if self.pending is not None:
-                raise UnsafeMotion("上一次动作尚未确认到位，不能把运动中姿态保存为复位点")
+            if self.fault or self.pending is not None:
+                raise UnsafeMotion("动作异常或尚未到位，不能把运动中姿态保存为复位点")
             degrees = checked_home_pose(status)
             return save_pose(degrees)
 
