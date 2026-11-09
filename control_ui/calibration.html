@@ -26,7 +26,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
-<div class="row"><a href="/">控制台</a><span class="muted">/</span><a href="/camera">俯视相机</a><span class="muted">/</span><strong>机械臂坐标标定</strong></div>
+<div class="row"><a href="/">控制台</a><span class="muted">/</span><a href="/camera">俯视相机</a><span class="muted">/</span><strong>机械臂坐标标定</strong><span class="muted">/</span><a href="/pick">黄色球抓取示教</a></div>
 <h1>棋盘格 → RoArm-M3 坐标标定</h1>
 <p class="muted">4 个拟合点 + 1 个独立验证点。先人工把夹爪中心对准棋盘角点，再读取机械臂末端 XYZ。此页面<strong>不发送任何抓取、XYZ 移动或复位指令</strong>。</p>
 <div class="warning">先移走黄色球和其它障碍物，固定棋盘格、摄像头、底座。对准时让夹爪或指示尖端保持在标记上方，避免触碰桌面。记录过程中固定工具姿态与高度，防止夹爪中心和机器人末端坐标不一致。只有扭矩“释放/锁定”按钮会发送 T=210，请先托住大臂。</div>
