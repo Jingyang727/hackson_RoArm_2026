@@ -3,6 +3,8 @@ import os
 import threading
 import time
 import math
+import json
+from pathlib import Path
 
 from serial.tools import list_ports
 from evoarm.serial_arm import RoArmSerial
@@ -74,8 +76,57 @@ class ArmService:
         return [{"device": p.device, "description": p.description} for p in list_ports.comports()
                 if p.device.startswith("/dev/cu.")]
 
+    @staticmethod
+    def _last_port_path():
+        return Path.home() / ".evoarm" / "last_serial_port.json"
+
+    def auto_connect(self):
+        """One conservative, idempotent attempt shared by all browser pages.
+
+        Never toggle a connected port or auto-retry motion/faulted hardware.
+        Auto connect requests serial STATUS only. Motion unlock is separate.
+        """
+        with self.lock:
+            if self.arm is not None:
+                return {"connected": True, "port": self.port, "reused": True}
+            available = {entry["device"] for entry in self.ports()}
+            preferred = os.getenv("EVOARM_SERIAL_PORT", "").strip()
+            if not preferred:
+                try:
+                    data = json.loads(self._last_port_path().read_text(encoding="utf-8"))
+                    preferred = data.get("port", "") if isinstance(data, dict) else ""
+                except (OSError, ValueError):
+                    pass
+            candidates = sorted(
+                port for port in available
+                if any(token in port.lower() for token in ("usbserial", "slab_usbtouart", "usbmodem"))
+            )
+            # Never connect to an arbitrary unrelated serial port.
+            if preferred in available:
+                selected = preferred
+            elif len(candidates) == 1:
+                selected = candidates[0]
+            else:
+                return {
+                    "connected": False,
+                    "port": None,
+                    "reason": "无法唯一确定 RoArm USB 串口；请展开连接设置并手动选择一次",
+                }
+            try:
+                self.connect(selected)
+            except Exception as exc:
+                return {"connected": False, "port": selected,
+                        "reason": f"自动连接失败：{exc}。请检查 USB 或供电，必要时手动重连"}
+            return {"connected": True, "port": selected, "reused": False}
+
     def connect(self, port):
         with self.lock:
+            if self.arm is not None and self.port == port:
+                # Opening the same port again would reset the ESP32 and could
+                # disrupt an in-flight motion or a released-torque teach pose.
+                return self.arm.status()
+            if self.arm is not None and (self.pending or self.teach_active):
+                raise UnsafeMotion("机械臂正在运动或处于释放扭矩示教中，禁止切换串口")
             if port not in {p["device"] for p in self.ports()}:
                 raise ValueError("选择的串口不在 Mac 可用设备列表")
             self.disconnect()
@@ -94,6 +145,17 @@ class ArmService:
             self.last_torque_status = flags
             self.last_torque_result = None
             self.teach_active = not all(v == 1 for v in flags)
+            # Save only an already verified working device; never persist an
+            # unverified guessed port and never store private serial status.
+            try:
+                path = self._last_port_path()
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"port": port}) + "\n", encoding="utf-8")
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+            except OSError:
+                pass  # Read-only home directories should not break a connection.
             return result
 
     def disconnect(self):
