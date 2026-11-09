@@ -1,12 +1,14 @@
-"""Mac-only safe control UI. Keep host bound to 127.0.0.1."""
+"""Mac-local safe control UI. Bind only to 127.0.0.1."""
 from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
 from .service import ArmService
 from .safety import UnsafeMotion
 
-app = FastAPI(title="EvoArm 安全控制台", docs_url=None, redoc_url=None)
+app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 service = ArmService()
 
 
@@ -23,11 +25,16 @@ class Step(BaseModel):
     delta: float
 
 
-def call(fn, *args):
+class HomeMove(BaseModel):
+    kind: str
+    joint: int
+
+
+def invoke(fn, *args):
     try:
         return fn(*args)
-    except (UnsafeMotion, ValueError, RuntimeError, OSError) as e:
-        raise HTTPException(409, str(e)) from e
+    except (UnsafeMotion, ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -37,7 +44,6 @@ def home():
 
 @app.get("/camera", response_class=HTMLResponse)
 def camera_page():
-    """Browser-local overhead camera preview; does not touch robot serial."""
     return Path(__file__).with_name("camera.html").read_text(encoding="utf-8")
 
 
@@ -53,7 +59,7 @@ def health():
 
 @app.post("/api/connect")
 def connect(req: Connect):
-    return {"status": call(service.connect, req.port)}
+    return {"status": invoke(service.connect, req.port)}
 
 
 @app.post("/api/disconnect")
@@ -64,17 +70,37 @@ def disconnect():
 
 @app.get("/api/status")
 def status():
-    return call(service.status)
+    return invoke(service.status)
 
 
 @app.post("/api/unlock-once")
 def unlock(req: Unlock):
-    return call(service.unlock_once, req.declaration)
+    return invoke(service.unlock_once, req.declaration)
+
+
+@app.post("/api/disarm")
+def disarm():
+    return service.disarm()
 
 
 @app.post("/api/step")
 def step(req: Step):
-    return call(service.step, req.joint, req.delta)
+    return invoke(service.step, req.joint, req.delta)
+
+
+@app.post("/api/home/save")
+def home_save():
+    return invoke(service.home_save)
+
+
+@app.get("/api/home/preview")
+def home_preview(kind: str = "saved"):
+    return invoke(service.home_info, kind)
+
+
+@app.post("/api/home/step")
+def home_step(req: HomeMove):
+    return invoke(service.home_step, req.kind, req.joint)
 
 
 @app.on_event("shutdown")
