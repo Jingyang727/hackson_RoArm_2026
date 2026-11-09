@@ -1,0 +1,107 @@
+/* EvoArm 2026 | Minimal, accessible, shared desktop UI.
+   Neutral surfaces, single teal accent, minimal warning chrome.
+   Added AFTER legacy inline styles so existing behaviours stay intact. */
+:root{
+  color-scheme:light;
+  --canvas:#f5f7fa;--panel:#ffffff;--text:#182331;--muted:#64748b;
+  --border:#e1e7ee;--accent:#0e766e;--accent-dark:#095d57;
+  --soft:#edf7f5;--danger:#ad343e;--danger-soft:#fff4f4;
+  background:var(--canvas)!important;color:var(--text)!important;
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+body{background:var(--canvas);color:var(--text);line-height:1.55}
+h1{font-size:24px;line-height:1.25;letter-spacing:-.035em;font-weight:740}
+h2{font-size:16px;line-height:1.4;font-weight:690;letter-spacing:-.015em}
+p{line-height:1.55}
+small,.muted,.tip{color:var(--muted)!important}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.panel,section.panel,main>section{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:13px;box-shadow:0 2px 8px rgba(26,36,50,.035);
+}
+button,select,input,textarea{
+  background:#fff;color:var(--text);
+  border:1px solid #d5dee8;border-radius:8px;
+  box-shadow:none;min-height:36px;
+}
+button:hover:not(:disabled){background:#eff3f7;border-color:#b9c8d7}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{
+  outline:3px solid rgba(14,118,110,.25);outline-offset:2px
+}
+button:disabled{opacity:.45}
+.primary,.point .record{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+.primary:hover:not(:disabled),.point .record:hover:not(:disabled){
+  background:var(--accent-dark)!important;border-color:var(--accent-dark)!important
+}
+.danger{background:#fff9fa!important;color:var(--danger)!important;border-color:#e8c4c9!important}
+.danger:hover:not(:disabled){background:#fff0f2!important}
+.notice,.coords div{
+  background:#f6f8fb;color:#34445a;border:1px solid #e6ecf3;border-radius:9px
+}
+.warning,.warn:not(#faultPanel){
+  background:#fafbfc;border:1px solid var(--border);color:#38495b;
+  border-radius:10px
+}
+#faultPanel{background:var(--danger-soft);border-color:#f1c9ca;color:var(--danger)}
+#torqueCard{background:#f8fafc;border:1px solid var(--border)}
+#torquePrompt{background:var(--danger-soft);border-color:#eac6ca}
+#torqueActionFeedback{background:var(--soft);border:1px solid #d3e9e5;color:var(--accent)}
+#torqueMessage{background:#fff}
+#torqueInfo{font-size:12px;line-height:1.6}
+#setupState{font-size:13px;line-height:1.6;font-weight:500}
+#statusLine{font-size:12px}
+#selected{font-size:13px}
+.point{border-top:1px solid var(--border);align-items:center}
+.point.active{background:#f0f7f5;border-radius:8px}
+.point .point-description{font-size:13px;font-weight:500}
+.pill{background:#edf2f7;color:#536579}
+.num{color:var(--accent)}
+#mode{font-weight:650}
+#motionBadge{font-weight:650}
+.joint,.homeRow{border-top:1px solid var(--border)}
+.joint strong,.homeRow{font-size:13px}
+#view,#zoom{background:#101a28;border-color:#d9e2e9;border-radius:10px}
+#zoomNote{color:var(--muted)}
+#notice{font-size:13px}
+#armInfo{font-variant-numeric:tabular-nums}
+.safety-details{
+  background:transparent;border:0!important;box-shadow:none!important;
+  padding:0!important;margin:0;
+}
+.safety-details summary{color:var(--muted);font-size:12px;cursor:pointer}
+.safety-details[open]{background:#fff!important;padding:12px!important;border:1px solid var(--border)!important;border-radius:10px}
+.topbar{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.connection-chip{
+  display:inline-flex;align-items:center;gap:6px;padding:6px 10px;
+  border-radius:99px;border:1px solid #d8e9e2;background:#edf8f3;
+  color:#26715d;font-size:12px;font-weight:660;white-space:nowrap
+}
+.connection-chip.offline{color:#995029;background:#fff6eb;border-color:#f2dcc8}
+.connection-chip::before{
+  content:"";width:7px;height:7px;border-radius:50%;background:#36a880
+}
+.connection-chip.offline::before{background:#d99456}
+.connection-toast{
+  position:fixed;right:18px;top:18px;z-index:110;
+  background:#fff;border:1px solid #e7c7a4;color:#7f4b28;
+  padding:12px 16px;max-width:360px;border-radius:11px;
+  box-shadow:0 9px 32px rgba(20,31,46,.14);font-size:13px;line-height:1.5
+}
+.connection-toast[hidden]{display:none}
+.connection-settings{background:#f8fafc;border-radius:9px;padding:9px 11px;margin-top:8px}
+.connection-settings summary{font-size:12px;color:var(--muted);cursor:pointer}
+.connection-settings .row,.connection-settings .flex{margin-top:8px}
+.connection-settings select{min-width:150px}
+#torqueCard{margin-top:10px}
+#torqueCard .warning{margin-top:10px}
+#torqueCard strong{font-size:14px}
+#torqueCard .muted{font-size:12px}
+.nav-links{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.nav-links a{font-size:13px;font-weight:570}
+code,pre{color:#315b69}
+@media (max-width:980px){
+  body{padding-left:12px;padding-right:12px}
+  .sticky-panel{position:static}
+}
