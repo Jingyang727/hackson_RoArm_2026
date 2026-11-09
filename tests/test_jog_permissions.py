@@ -1,7 +1,9 @@
-"""Regression tests for explicit manual-motion permissions (no robot hardware)."""
+"""Service tests with mocked serial arm (no hardware or movement)."""
 import math
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from control_ui.service import ArmService
@@ -11,63 +13,85 @@ from control_ui.safety import UnsafeMotion
 class FakeArm:
     def __init__(self):
         self.commands = []
+        self.feedback = {
+            "T": 1051, "b": 0.0, "s": 0.0, "e": math.pi / 2,
+            "t": 0.0, "r": 0.0, "g": math.radians(175),
+            **{f"torswitch{k}": 1 for k in "BSETRG"},
+        }
 
     def status(self):
-        return {"T": 1051, "b": 0.0, "s": 0.0, "e": math.pi / 2,
-                "t": 0.0, "r": 0.0, "g": math.radians(175),
-                "torswitchG": 1, "torswitchB": 1}
+        return self.feedback.copy()
 
     def send(self, payload):
-        self.commands.append(payload)
+        self.commands.append(payload.copy())
 
 
-class MotionPermissionTests(unittest.TestCase):
-    def test_readonly_by_default(self):
-        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "0"}, clear=False):
-            app = ArmService()
-            app.arm = FakeArm()
-            self.assertFalse(app.health()["motion_enabled"])
+class ServiceSafetyTests(unittest.TestCase):
+    def test_readonly_is_default(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "0"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            self.assertFalse(service.health()["motion_enabled"])
             with self.assertRaises(UnsafeMotion):
-                app.unlock_once("已检查设备并清空运动区域")
+                service.unlock_once("已检查设备并清空运动区域")
 
-    def test_only_gripper_is_allowed_initially(self):
+    def test_six_joints_available_after_explicit_opt_in(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "1,2,3,4,5,6"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            self.assertEqual(service.health()["allowed_joints"], [1, 2, 3, 4, 5, 6])
+            service.unlock_once("已检查设备并清空运动区域")
+            result = service.step(1, 5)
+            self.assertEqual(result["to_deg"], 5.0)
+            self.assertEqual(service.arm.commands[0]["T"], 121)
+            self.assertEqual(service.arm.commands[0]["spd"], 15)
+            self.assertIsNotNone(service.health()["pending"])
+            with self.assertRaises(UnsafeMotion):
+                service.step(2, 5)
+
+    def test_joint_allowlist(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "6"}):
-            app = ArmService()
-            app.arm = FakeArm()
-            self.assertEqual(app.health()["allowed_joints"], [6])
-            app.unlock_once("已检查设备并清空运动区域")
+            service = ArmService()
+            service.arm = FakeArm()
+            service.unlock_once("已检查设备并清空运动区域")
             with self.assertRaises(UnsafeMotion):
-                app.step(1, 1)
-            self.assertEqual(app.arm.commands, [])
-
-    def test_one_gripper_step_consumes_authorization(self):
-        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "6"}):
-            app = ArmService()
-            app.arm = FakeArm()
-            app.unlock_once("已检查设备并清空运动区域")
-            result = app.step(6, -1)
-            self.assertEqual(result["joint"], 6)
-            self.assertEqual(app.arm.commands[0]["T"], 121)
-            self.assertEqual(app.arm.commands[0]["joint"], 6)
-            self.assertEqual(app.arm.commands[0]["spd"], 3)
-            with self.assertRaises(UnsafeMotion):
-                app.step(6, -1)
+                service.step(1, 1)
+            self.assertEqual(service.arm.commands, [])
 
     def test_invalid_allowlist_fails_closed(self):
-        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "bogus"}):
-            app = ArmService()
-            app.arm = FakeArm()
-            self.assertEqual(app.health()["allowed_joints"], [])
-            app.unlock_once("已检查设备并清空运动区域")
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "invalid"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.unlock_once("已检查设备并清空运动区域")
+            self.assertEqual(service.health()["allowed_joints"], [])
             with self.assertRaises(UnsafeMotion):
-                app.step(6, -1)
+                service.step(6, -1)
 
-    def test_decline_authorization(self):
-        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1", "EVOARM_ALLOWED_JOINTS": "6"}):
-            app = ArmService()
-            app.arm = FakeArm()
+    def test_disarm_blocks_new_moves(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}):
+            service = ArmService()
+            service.arm = FakeArm()
+            service.unlock_once("已检查设备并清空运动区域")
+            service.disarm()
             with self.assertRaises(UnsafeMotion):
-                app.unlock_once("不确认")
+                service.step(1, 3)
+
+    def test_save_and_recall_user_home_in_single_bounded_step(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch("control_ui.home_pose.pose_file", return_value=Path(td) / "home.json"):
+                with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}):
+                    service = ArmService()
+                    service.arm = FakeArm()
+                    service.home_save()
+                    service.arm.feedback["b"] = math.radians(30)
+                    preview = service.home_info("saved")
+                    first = preview["rows"][0]
+                    self.assertAlmostEqual(first["difference_deg"], -30.0, places=2)
+                    service.unlock_once("已检查设备并清空运动区域")
+                    result = service.home_step("saved", 1)
+                    self.assertAlmostEqual(result["to_deg"], 25.0, places=2)
+                    self.assertEqual(service.arm.commands[0]["joint"], 1)
+                    self.assertEqual(service.arm.commands[0]["spd"], 15)
 
 
 if __name__ == "__main__":
