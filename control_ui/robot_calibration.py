@@ -159,6 +159,22 @@ class RobotCalibration:
             sample = np.mean(abc, axis=0)
             if float(np.max(np.abs(sample))) > 2000:
                 raise CalibrationError("机械臂 XYZ 反馈超出合理范围")
+            pitch = float(np.mean([
+                _finite_number(first.get("tit"), "末端Pitch(tit)"),
+                _finite_number(second.get("tit"), "末端Pitch(tit)")
+            ]))
+            roll = float(np.mean([
+                _finite_number(first.get("r"), "末端Roll(r)"),
+                _finite_number(second.get("r"), "末端Roll(r)")
+            ]))
+            other = [r for key, r in self.records.items() if key != point_id]
+            if other:
+                baseline = other[0]
+                baseline_pitch, baseline_roll = baseline["tool_pose_rad"]
+                if abs(pitch-baseline_pitch) > math.radians(5) or abs(roll-baseline_roll) > math.radians(5):
+                    raise CalibrationError("请将所有标定点的夹爪姿态保持一致（Pitch/Roll差应≤5°）；否则末端工具偏移会影响XY对齐")
+                if abs(float(sample[2]) - baseline["robot_xyz_mm"][2]) > 15:
+                    raise CalibrationError("各标定点末端Z高度差超过15mm，无法保证是同一工具参考平面")
             self.records[point_id] = {
                 "id": point_id,
                 "role": "validate" if point_id == "V1" else "train",
@@ -166,6 +182,7 @@ class RobotCalibration:
                 "board_mm": [round(col * self.square_mm, 3), round(row * self.square_mm, 3)],
                 "robot_xyz_mm": [round(float(v), 3) for v in sample],
                 "torque_locked": bool(torque[0]),
+                "tool_pose_rad": [round(pitch, 5), round(roll, 5)],
                 "captured_at": datetime.now(timezone.utc).isoformat(),
             }
             return self.summary()
