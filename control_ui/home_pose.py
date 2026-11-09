@@ -33,6 +33,10 @@ def load_pose():
             raise ValueError("版本不支持")
         raw = data["degrees"]
         degrees = {j: raw[str(j)] for j in JOINTS}
+        import math
+        for j, value in degrees.items():
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"关节 {j} 的目标角度无效")
         # Actual hard limits are separately enforced on every motion.
         return {"created_at": data["created_at"], "degrees": degrees}
     except (OSError, ValueError, KeyError, TypeError) as exc:
