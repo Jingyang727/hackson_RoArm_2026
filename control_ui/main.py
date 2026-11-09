@@ -40,6 +40,7 @@ class HomeMove(BaseModel):
 class CalibrationStart(BaseModel):
     square_mm: float
     image_size: list[int]
+    corners_px: list[list[float]] | None = None
 
 
 class CalibrationCapture(BaseModel):
@@ -72,6 +73,8 @@ class PickProfile(BaseModel):
 
 class PickPlan(BaseModel):
     ball_board_mm: list[float]
+    image_size: list[int]
+    corners_px: list[list[float]]
 
 
 
@@ -128,7 +131,7 @@ def calibration_status():
 @app.post("/api/calibration/start")
 def calibration_start(req: CalibrationStart):
     try:
-        return calibration.start(req.square_mm, req.image_size)
+        return calibration.start(req.square_mm, req.image_size, req.corners_px)
     except CalibrationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -178,7 +181,7 @@ def pick_profile_save(req: PickProfile):
 @app.post("/api/pick/preview")
 def pick_plan_preview(req: PickPlan):
     try:
-        return build_from_saved_files(req.ball_board_mm)
+        return build_from_saved_files(req.ball_board_mm, image_size=req.image_size, corners_px=req.corners_px)
     except (PickPlanningError, CalibrationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
