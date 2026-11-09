@@ -66,7 +66,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 </section>
 <section class="panel controls-panel">
 <h2>② 连接机械臂并对准角点</h2>
-<div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">连接</button></div>
+<div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">连接</button><button id="refreshXYZ" type="button">刷新当前 XYZ</button></div>
 <div id="armInfo" class="notice">尚未读取机械臂状态。</div>
 <div class="row"><button id="captureTop" class="primary" disabled style="font-size:16px;font-weight:750;padding:12px 18px">记录当前 P1 的 XYZ</button><span class="muted">对准后立即记录；每个点下方也有独立记录按钮</span></div>
 <p class="muted">优先使用 <a href="/" target="_blank" rel="noopener">原有手动控制 UI</a> 微步进到目标上方。两页共用一个后端串口连接，不要启动两个服务。</p>
