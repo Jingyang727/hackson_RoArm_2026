@@ -28,23 +28,22 @@ pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
 .tip{font-size:12px;color:#afc4d6;line-height:1.8}
 @media(max-width:720px){main{grid-template-columns:1fr}.wide{grid-column:auto}.homeRow{grid-template-columns:1fr 1fr}.joint{flex-wrap:wrap}}
 </style>
+<link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
 <header class="flex between">
 <div><h1>EvoArm <span class="muted">/ 机械臂控制台</span></h1><small>RoArm-M3 · Mac M1 · 关节控制 / 自定义复位</small></div>
-<div><a href="/camera">俯视摄像头 ↗</a> · <a href="/calibration">机械臂XY标定 ↗</a> · <a href="/pick">黄色球抓取示教 ↗</a></div>
+<div class="topbar"><nav class="nav-links"><a href="/camera">俯视相机</a><a href="/calibration">XY 标定</a><a href="/pick">抓放示教</a></nav><span id="connectionChip" class="connection-chip offline">正在连接</span></div>
 </header>
+<div id="connectionToast" class="connection-toast" hidden role="alert"></div>
+<details class="safety-details"><summary>使用说明与安全须知</summary><p class="tip">运动前需固定底座、清空运动空间并备好独立断电手段。软件锁定不能停止已发送的动作；不要同时使用其他控制台。</p></details>
 <main>
-<section class="panel wide warn">
-<strong>运动前检查</strong>
-<div class="tip">此前已发生过碰撞显示器的事故：移走显示器等物品，固定底座与摄像头支架，检查夹爪和关节；确保有独立断电开关。软件按钮“锁定新动作”不会停止机械臂已收到的指令。不要同时用官方 Web UI 控制。</div>
-</section>
 <section class="panel">
-<h2>连接与实时状态</h2>
-<div class="flex">
-<select id="port"></select><button id="refresh">刷新串口</button><button id="connect">连接</button><button id="disconnect">断开</button>
-</div>
-<p id="notice" class="tip" role="status">尚未连接</p>
+<h2>机械臂实时状态</h2>
+<details class="connection-settings"><summary>连接设置 · 仅在断开时使用</summary><div class="flex">
+<select id="port"></select><button id="refresh">刷新串口</button><button id="connect">重新连接</button><button id="disconnect">手动断开</button>
+</div></details>
+<p id="notice" class="tip" role="status">正在检查连接…</p>
 <div class="coords">
 <div><small>X</small><br><strong id="x">--</strong> <small>mm</small></div>
 <div><small>Y</small><br><strong id="y">--</strong> <small>mm</small></div>
@@ -125,6 +124,17 @@ async function api(path,method="GET",data){
  if(!response.ok)throw Error(json.detail||"HTTP "+response.status);return json;
 }
 function notify(msg){$("notice").textContent=msg}
+function paintConnection(){
+ const chip=$("connectionChip"),toast=$("connectionToast");
+ if(health?.connected && !health?.fault){
+  chip.textContent="已连接 · "+(health.port||"RoArm");
+  chip.classList.remove("offline");toast.hidden=true;
+ }else{
+  chip.textContent=health?.fault?"连接异常":"设备未连接";
+  chip.classList.add("offline");toast.hidden=false;
+  toast.textContent="机械臂连接提醒："+(health?.fault?.message||"检查 USB 连接；需要时展开连接设置");
+ }
+}
 async function safeAction(task){
  if(busy)return;
  busy=true;paintPermission();
@@ -134,7 +144,8 @@ async function safeAction(task){
 async function portList(){
  const ports=await api("/api/ports");
  $("port").replaceChildren(...ports.map(p=>{const opt=document.createElement("option");opt.value=p.device;opt.textContent=p.device;return opt}));
- if(!ports.length)notify("找不到 USB 串口，检查连接与设备权限");
+ if(health?.port&&ports.some(p=>p.device===health.port))$("port").value=health.port;
+ if(!ports.length)notify("未发现 USB 串口，请检查设备连接");
 }
 async function refreshStatus(){
  if(!health?.connected)return;
@@ -170,6 +181,7 @@ function gripperFeedbackMessage(){
 function paintMotionStatus(){
  const pending=health?.pending, fault=health?.fault;
  const badge=$("motionBadge"),details=$("motionDetails"),panel=$("faultPanel");
+ paintConnection();
  if(fault){
   badge.textContent="异常锁定";
   details.textContent="控制指令暂时锁定；请阅读故障原因，不要连续重试。";
@@ -336,14 +348,22 @@ $("previewHome").onclick=()=>safeAction(preview);
 $("homeKind").onchange=()=>safeAction(preview);
 (async()=>{
  try{
-  await portList();health=await api("/api/health");metadata=health.joints;drawJoints();await preview();
- }catch(e){notify("初始化失败："+e.message)}
+  health=await api("/api/health");
+  if(!health.connected){
+   const auto=await api("/api/auto-connect","POST",{});
+   if(!auto.connected)notify(auto.reason||"暂未找到 RoArm");
+   health=await api("/api/health");
+  }
+  metadata=health.joints;await portList();drawJoints();
+  if(health.connected)await refreshStatus();
+  await preview();paintConnection();
+ }catch(e){notify("初始化失败："+e.message);paintConnection()}
  setInterval(async()=>{
   if(busy)return;
   busy=true;
   try{health=await api("/api/health");await refreshStatus()}
   catch(e){notify("状态轮询失败："+e.message)}
-  finally{busy=false;paintPermission()}
+  finally{busy=false;paintPermission();paintConnection()}
  },2000);
 })();
 </script>
