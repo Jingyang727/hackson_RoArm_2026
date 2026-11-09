@@ -2,54 +2,224 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EvoArm 中文安全控制台</title>
+<title>EvoArm · 机械臂控制台</title>
 <style>
-:root{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#101827;color:#e6edf8}
-*{box-sizing:border-box}body{max-width:1050px;margin:30px auto;padding:0 18px}h1{font-size:28px;margin:0}
-small,.muted{color:#9bacc5}main{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
-.panel{background:#19263b;border:1px solid #34445e;border-radius:14px;padding:20px}.wide{grid-column:1/-1}
-button,select{background:#2c3e59;color:#edf3fc;border:1px solid #50617b;border-radius:9px;padding:9px;cursor:pointer}
-button:disabled{opacity:.35;cursor:not-allowed}.line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.joint{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #34445e;padding:12px 0;gap:12px}
-.num{color:#72d6ba;font-variant-numeric:tabular-nums}.danger{color:#ffb2a8}
-.warning{padding:13px;border-radius:10px;background:#3b292c;border:1px solid #885350}
-pre{white-space:pre-wrap;word-wrap:break-word;font-size:12px}h2{font-size:18px}
-@media(max-width:680px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
+:root{font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif;background:#0f1727;color:#ebf0f9}
+*{box-sizing:border-box}body{max-width:1080px;margin:25px auto;padding:0 17px}
+h1{font-size:27px;margin:0}h2{font-size:18px;margin:0 0 14px}p{line-height:1.65}
+small,.muted{color:#a7b6cc}a{color:#7de0c7}
+main{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.panel{background:#19283e;border:1px solid #34465f;border-radius:13px;padding:18px}.wide{grid-column:1/-1}
+button,select{background:#2c4262;color:#edf4ff;border:1px solid #5b759a;border-radius:8px;padding:10px 12px;font:inherit;cursor:pointer}
+button:disabled{opacity:.32;cursor:not-allowed}
+button:hover:not(:disabled){background:#3b567b}
+.primary{background:#166c5a;border-color:#26a78a}
+.warn{background:#452d32;border:1px solid #a96565;border-radius:9px;padding:12px}
+.flex{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.between{justify-content:space-between}
+.pill{display:inline-block;padding:5px 10px;border-radius:30px;font-size:12px;background:#303d55}
+.ok{color:#87e5bd}.bad{color:#ffb6b6}
+.joint{border-top:1px solid #354861;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 0}
+.num{font-variant-numeric:tabular-nums;color:#82e0c6;min-width:64px;display:inline-block}
+.coords{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.coords div{padding:10px;border-radius:8px;background:#263650}
+pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
+.homeRow{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr auto;gap:7px;align-items:center;border-top:1px solid #354861;padding:9px 0;font-size:13px}
+.tip{font-size:12px;color:#afc4d6;line-height:1.8}
+@media(max-width:720px){main{grid-template-columns:1fr}.wide{grid-column:auto}.homeRow{grid-template-columns:1fr 1fr}.joint{flex-wrap:wrap}}
 </style>
 </head>
 <body>
-<header><h1>EvoArm <span class="muted">/ 中文安全控制台</span></h1><small>RoArm-M3 · Mac M1 · 小步进控制（默认只读）</small><p><a href="/camera" style="color:#8adfca">打开俯视摄像头预览 →</a></p></header>
+<header class="flex between">
+<div><h1>EvoArm <span class="muted">/ 机械臂控制台</span></h1><small>RoArm-M3 · Mac M1 · 关节控制 / 自定义复位</small></div>
+<a href="/camera">打开俯视摄像头 ↗</a>
+</header>
 <main>
-<section class="panel wide warning"><strong>⚠ 已发生过碰撞：先断电检查</strong><p>移除显示器等障碍物，检查关节、夹爪、线缆、底座，禁止自动回中。软件停止或拔 USB 不等于电源级急停。安全确认前仅使用状态读取。</p></section>
-<section class="panel"><h2>串口连接与实时反馈</h2><div class="line"><select id="port"></select><button id="refresh">刷新</button><button id="connect">连接</button><button id="disconnect">断开</button></div><p id="notice" class="muted">等待串口...</p><pre id="status">未连接</pre></section>
-<section class="panel"><h2>运动许可</h2><p id="mode">默认只读</p>
-<div class="muted" style="font-size:12px;line-height:1.8">
-只读是默认安全设置，并非 UI 故障。先检查机械臂周围完全无障碍物、底座固定，准备好独立断电方式，然后关闭旧服务、在 Mac 终端执行：<br>
-<code style="user-select:all;color:#8adfca">EVOARM_ENABLE_MOTION=1 EVOARM_ALLOWED_JOINTS=6 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765</code><br>
-初次仅开放「夹爪」；其他关节保持锁定。不要在有障碍物、靠近人员时开启。
-</div><p class="muted">每次解锁只允许一个 ±1° 动作，30 秒超时；禁止持续旋转、初始化动作和连续指令。</p><div class="warning"><small>软件角度范围无法证明路径无碰撞。机械臂底座需固定，现场须能迅速断开电源。</small></div><p><button id="unlock" disabled>确认安全 · 仅授权一次</button></p></section>
-<section class="panel wide"><h2>中文关节位置与微步进</h2><div id="joints"></div><p class="muted">按钮只有在“运动许可”开启、关节属于允许列表、且单次授权有效时才可点击。每次仅 1°，默认仅允许夹爪（6号）动作；其余关节待检查后再逐个解锁。软件角度限制不保证末端路径安全。</p></section>
+<section class="panel wide warn">
+<strong>运动前检查</strong>
+<div class="tip">此前已发生过碰撞显示器的事故：移走显示器等物品，固定底座与摄像头支架，检查夹爪和关节；确保有独立断电开关。软件按钮“锁定新动作”不会停止机械臂已收到的指令。不要同时用官方 Web UI 控制。</div>
+</section>
+<section class="panel">
+<h2>连接与实时状态</h2>
+<div class="flex">
+<select id="port"></select><button id="refresh">刷新串口</button><button id="connect">连接</button><button id="disconnect">断开</button>
+</div>
+<p id="notice" class="tip" role="status">尚未连接</p>
+<div class="coords">
+<div><small>X</small><br><strong id="x">--</strong> <small>mm</small></div>
+<div><small>Y</small><br><strong id="y">--</strong> <small>mm</small></div>
+<div><small>Z</small><br><strong id="z">--</strong> <small>mm</small></div>
+</div>
+<div class="tip" style="margin-top:10px">关节角度每2秒更新；下方每一行都会显示实际反馈，而不是计算出来的假想位置。</div>
+<details><summary class="muted">原始状态 JSON</summary><pre id="status">暂无数据</pre></details>
+</section>
+<section class="panel">
+<h2>控制授权</h2>
+<p><span id="mode" class="pill">当前只读</span></p>
+<div class="tip">启动时需显式授权运动。解锁后允许在限定时间内点击单次移动按钮，随时可以锁定新的命令。</div>
+<div class="flex" style="margin-top:12px">
+<button id="unlock" class="primary" disabled>确认安全并解锁</button>
+<button id="lock" disabled>锁定新动作</button>
+</div>
+<div class="tip" style="margin-top:12px">
+只读是默认设置，并非故障。确认物理安全后，在终端结束旧服务并用下列命令启动：<br>
+<code>EVOARM_ENABLE_MOTION=1 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765</code>
+</div>
+</section>
+<section class="panel wide">
+<div class="flex between">
+<h2>手动调整 6 个关节</h2>
+<div class="flex"><label for="stepSize">单次步进</label>
+<select id="stepSize"><option value="1">1° 精调</option><option value="3">3°</option><option value="5" selected>5° 推荐</option><option value="10">10° 大步进</option></select></div>
+</div>
+<div class="tip">每次点击只执行一个角度目标指令（官方 T=121），不采用 G+ / G- 式持续旋转。根据反馈限制下一条指令叠加；反向控制时先观察真实运动方向。</div>
+<div id="joints"></div>
+</section>
+<section class="panel wide">
+<div class="flex between"><h2>复位 / 返回待机姿态</h2><button id="saveHome" disabled>保存当前位置为我的复位点</button></div>
+<div class="tip">官方 T=100 会驱动所有关节一起返回出厂初始位。本页面不直接调用 T=100，而是让你预览目标，并自行选择每个关节最多 5° 的逐段回位，防止发生不可预期的大幅回中。即使是单关节移动，也仍须确保运动范围无障碍。</div>
+<div class="flex" style="margin:12px 0">
+<label for="homeKind">复位目标</label>
+<select id="homeKind"><option value="saved">我的安全复位点</option><option value="factory">官方初始姿态</option></select>
+<button id="previewHome">刷新回位预览</button>
+</div>
+<div id="homeInfo" class="tip">尚未读取复位点</div>
+<div id="homeRows"></div>
+</section>
 </main>
 <script>
-const $=id=>document.getElementById(id);let meta=[],healthState=null,busy=false;
-async function req(url,method="GET",body){const r=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});const j=await r.json();if(!r.ok)throw Error(j.detail||"HTTP "+r.status);return j}
-function note(x){$("notice").textContent=x}
-function repaint(){const enabled=healthState?.armed&&healthState?.motion_enabled&&!busy;
-document.querySelectorAll("[data-step]").forEach(x=>x.disabled=!(enabled&&(healthState?.allowed_joints||[]).includes(Number(x.dataset.joint))));
-$("unlock").disabled=!healthState?.connected||!healthState?.motion_enabled||busy;
-$("mode").textContent=healthState?.motion_enabled?(healthState?.armed?"已授权一次，选择允许的关节按钮":"手动模式已开启：连接后点下方“确认安全”逐次解锁"):"只读模式：需要在终端显式开启手动控制";}
-async function getHealth(){healthState=await req("/api/health");repaint()}
-async function ports(){const ps=await req("/api/ports");$("port").replaceChildren(...ps.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));if(!ps.length)note("未检测到串口，请检查 USB 连接")}
-async function status(){if(!healthState?.connected)return;const v=await req("/api/status");$("status").textContent=JSON.stringify(v,null,2);for(const j of meta){const n=v[j.field];const e=$("value-"+j.id);if(e)e.textContent=typeof n==="number"?(n*180/Math.PI).toFixed(1)+"°":"无反馈"}}
-function renderJoints(){const outer=$("joints");outer.replaceChildren();for(const j of meta){const row=document.createElement("div");row.className="joint";const name=document.createElement("div");const bold=document.createElement("strong");bold.textContent=j.label;const desc=document.createElement("small");desc.textContent="软件测试范围 "+j.min+"° 至 "+j.max+"°";name.append(bold,document.createElement("br"),desc);
-const actions=document.createElement("div");actions.className="line";const val=document.createElement("span");val.id="value-"+j.id;val.className="num";val.textContent="--";actions.append(val);
-for(const delta of [-1,1]){const btn=document.createElement("button");btn.dataset.step="1";btn.dataset.joint=String(j.id);btn.textContent=delta>0?"+1°":"−1°";btn.disabled=true;btn.onclick=()=>{if(!confirm("准备发送："+j.label+" "+(delta>0?"+1°":"−1°")+"；请目视确认安全空间、随时可以切断机械臂电源。"))return;doTask(async()=>{const x=await req("/api/step","POST",{joint:j.id,delta});note(x.message+"；目标 "+x.target_deg+"°；请目视确认动作方向");await status()})};actions.append(btn)}row.append(name,actions);outer.append(row)}repaint()}
-async function doTask(fn){if(busy)return;busy=true;repaint();try{await fn()}catch(e){note("操作失败："+e.message)}finally{busy=false;try{await getHealth()}catch(e){note("状态异常："+e.message)}repaint()}}
-$("refresh").onclick=()=>doTask(ports);
-$("connect").onclick=()=>doTask(async()=>{const port=$("port").value;if(!port)throw Error("请选择串口");await req("/api/connect","POST",{port});await getHealth();await status();note("已连接，默认未授权运动")});
-$("disconnect").onclick=()=>doTask(async()=>{await req("/api/disconnect","POST",{});$("status").textContent="已断开";note("串口已断开；不会停止已经发出的运动")});
-$("unlock").onclick=()=>doTask(async()=>{if(!confirm("已断电检查过机械臂，排除碰撞损伤，清空运动区域，确保能立即切断电源？"))return;await req("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});note("已授权本次一个微步进动作，30秒内有效")});
-(async()=>{try{await ports();await getHealth();meta=healthState.joints;renderJoints();setInterval(async()=>{if(!busy){try{await getHealth();await status()}catch(e){note("读取反馈失败："+e.message)}}},2000)}catch(e){note("初始化失败："+e.message)}})();
+const $=id=>document.getElementById(id);
+let health=null,metadata=[],latest=null,busy=false,homeData=null;
+async function api(path,method="GET",data){
+ const response=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:data===undefined?undefined:JSON.stringify(data)});
+ let json;try{json=await response.json()}catch{throw Error("服务端没有返回有效 JSON")}
+ if(!response.ok)throw Error(json.detail||"HTTP "+response.status);return json;
+}
+function notify(msg){$("notice").textContent=msg}
+async function safeAction(task){
+ if(busy)return;
+ busy=true;paintPermission();
+ try{await task()}catch(e){notify("操作未完成："+e.message)}
+ finally{busy=false;try{health=await api("/api/health")}catch(e){notify("状态读取失败："+e.message)}paintPermission()}
+}
+async function portList(){
+ const ports=await api("/api/ports");
+ $("port").replaceChildren(...ports.map(p=>{const opt=document.createElement("option");opt.value=p.device;opt.textContent=p.device;return opt}));
+ if(!ports.length)notify("找不到 USB 串口，检查连接与设备权限");
+}
+async function refreshStatus(){
+ if(!health?.connected)return;
+ latest=await api("/api/status");
+ $("status").textContent=JSON.stringify(latest,null,2);
+ for(const axis of ["x","y","z"]){const value=latest[axis];$(axis).textContent=typeof value==="number"?value.toFixed(1):"--"}
+ for(const j of metadata){
+ const value=latest[j.field];
+ const el=$("j"+j.id);
+ if(el)el.textContent=typeof value==="number"?(value*180/Math.PI).toFixed(1)+"°":"无反馈";
+ }
+}
+function paintPermission(){
+ const armed=Boolean(health?.armed)&&!busy;
+ const available=armed&&!health?.pending;
+ $("unlock").disabled=!health?.connected||!health?.motion_enabled||busy;
+ $("lock").disabled=!health?.motion_enabled||busy;
+ $("saveHome").disabled=!health?.connected||busy;
+ $("mode").textContent=health?.motion_enabled
+  ?(health?.armed?"已解锁 "+health.arm_seconds_left+"秒"+(health.pending?" · 等待动作到位":""):"手动模式已启用 · 当前锁定")
+  :"默认只读 · 终端开启手动模式";
+ document.querySelectorAll("[data-jog]").forEach(button=>{
+  button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
+ });
+ document.querySelectorAll("[data-home-step]").forEach(button=>{
+  button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
+ });
+}
+function drawJoints(){
+ $("joints").replaceChildren();
+ for(const j of metadata){
+ const row=document.createElement("div");row.className="joint";
+ const name=document.createElement("div");name.style.minWidth="180px";
+ const title=document.createElement("strong");title.textContent=j.label;
+ const range=document.createElement("div");range.className="tip";range.textContent="软件范围 "+j.min+"°～"+j.max+"°";
+ name.append(title,range);
+ const controls=document.createElement("div");controls.className="flex";
+ const readout=document.createElement("strong");readout.className="num";readout.id="j"+j.id;readout.textContent="--";
+ controls.append(readout);
+ for(const sign of [-1,1]){
+  const button=document.createElement("button");
+  button.dataset.jog="1";button.dataset.joint=String(j.id);
+  button.textContent=sign<0?"− 减少":"＋ 增加";
+  button.onclick=()=>{const delta=sign*Number($("stepSize").value);
+   if(!confirm(j.label+"："+(delta>0?"+":"")+delta+"°\n请确认机械臂将要运动的区域已经清空。"))return;
+   safeAction(async()=>{const result=await api("/api/step","POST",{joint:j.id,delta});notify("已发送 "+j.label+" 目标 "+result.to_deg+"°。请观察运动方向与反馈。");await refreshStatus()});
+  };
+  controls.append(button);
+ }
+ row.append(name,controls);$("joints").append(row);
+ }
+ paintPermission();
+}
+async function preview(){
+ const kind=$("homeKind").value;
+ homeData=await api("/api/home/preview?kind="+encodeURIComponent(kind));
+ const info=$("homeInfo"),root=$("homeRows");root.replaceChildren();
+ if(!homeData.available){info.textContent="还未保存自定义复位点。可以先把机械臂调整到无障碍的待机姿态，再点击保存。";return}
+ info.textContent=kind==="factory"?"官方初始目标角度：不是自动执行的 T=100。":"你自己保存的复位目标：按关节逐步回位。";
+ for(const row of homeData.rows){
+  const entry=document.createElement("div");entry.className="homeRow";
+  const fields=[
+   row.label,
+   "当前 "+(row.current_deg??"--")+"°",
+   "目标 "+row.target_deg+"°",
+   "差值 "+(row.difference_deg??"--")+"°"
+  ];
+  for(const value of fields){const span=document.createElement("span");span.textContent=value;entry.append(span)}
+  const btn=document.createElement("button");btn.dataset.homeStep="1";btn.dataset.joint=row.joint;
+  btn.textContent="回位一步 ≤5°";btn.disabled=true;
+  btn.onclick=()=>{
+   if(!confirm("将 "+row.label+" 向"+kind+"复位点移动不超过5°。请目视检查回位路径和电源开关。"))return;
+   safeAction(async()=>{const result=await api("/api/home/step","POST",{kind,joint:row.joint});
+      notify(row.label+" 已发送目标 "+result.to_deg+"°；正在等待真实位置反馈");
+      await refreshStatus();await preview();
+   });
+  };
+  entry.append(btn);root.append(entry);
+ }
+ paintPermission();
+}
+$("refresh").onclick=()=>safeAction(portList);
+$("connect").onclick=()=>safeAction(async()=>{
+ const port=$("port").value;if(!port)throw Error("请先选择串口");
+ await api("/api/connect","POST",{port});health=await api("/api/health");await refreshStatus();notify("已连接：可以查看角度和 XYZ 坐标");
+});
+$("disconnect").onclick=()=>safeAction(async()=>{
+ await api("/api/disconnect","POST",{});latest=null;$("status").textContent="已断开";
+ for(const k of ["x","y","z"])$(k).textContent="--";
+ notify("已断开串口。注意：已发出的动作可能继续执行。");
+});
+$("unlock").onclick=()=>{
+ if(!confirm("请确认：机械臂固定牢靠，已移走显示器等易损物品，能立即切断机械臂电源。"))return;
+ safeAction(async()=>{const r=await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});notify("已授权 "+r.expires_in_seconds+" 秒；可选单步动作")});
+};
+$("lock").onclick=()=>safeAction(async()=>{const r=await api("/api/disarm","POST",{});notify(r.notice)});
+$("saveHome").onclick=()=>{
+ if(!confirm("确定保存此时所有六个关节的实际反馈角度为自定义复位姿态吗？\n请确认这确实是安全的待机位置。"))return;
+ safeAction(async()=>{await api("/api/home/save","POST",{});notify("自定义安全复位姿态已保存到这台 Mac 的 ~/.evoarm/home_pose.json");await preview()});
+};
+$("previewHome").onclick=()=>safeAction(preview);
+$("homeKind").onchange=()=>safeAction(preview);
+(async()=>{
+ try{
+  await portList();health=await api("/api/health");metadata=health.joints;drawJoints();await preview();
+ }catch(e){notify("初始化失败："+e.message)}
+ setInterval(async()=>{
+  if(busy)return;
+  busy=true;
+  try{health=await api("/api/health");await refreshStatus()}
+  catch(e){notify("状态轮询失败："+e.message)}
+  finally{busy=false;paintPermission()}
+ },2000);
+})();
 </script>
 </body>
 </html>
