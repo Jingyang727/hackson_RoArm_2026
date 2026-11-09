@@ -21,6 +21,7 @@ video{display:block;width:100%;max-height:65vh;object-fit:contain}
 #analysisDetails{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}
 input{background:#243650;color:white;border:1px solid #65738a;border-radius:7px;padding:9px;width:115px}
 </style>
+<link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
 <a href="/">← 返回机械臂状态控制台</a> · <a href="/calibration">机械臂坐标标定 →</a>
@@ -50,7 +51,7 @@ input{background:#243650;color:white;border:1px solid #65738a;border-radius:7px;
     <div id="analysisDetails" class="info" aria-live="polite"></div>
     <canvas id="analysisCanvas"></canvas>
   </div>
-  <div class="warning">这里只分析相机图片，不会给机械臂发送指令。即使已算出毫米坐标，也尚未完成机械臂基座坐标标定；球在棋盘格之外时属于坐标外推，不可据此自动抓取。</div>
+  <details class="safety-details"><summary>视觉结果说明</summary><p class="muted">图像坐标不是机械臂坐标。未建立基座映射、球心高度和路径验证前，不可自动抓取；棋盘外的坐标仅为外推估算。</p></details>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -180,7 +181,15 @@ $("shot").onclick=()=>{
 };
 $("devices").onchange=async()=>{if(stream){try{await startCamera()}catch(e){stopCamera();note("切换失败："+e.message)}}};
 window.addEventListener("pagehide",stopCamera);
-listCameras().catch(e=>note("设备枚举失败："+e.message));
+(async()=>{
+ try{
+   await listCameras();
+   if(navigator.permissions?.query){
+     const permission=await navigator.permissions.query({name:"camera"});
+     if(permission.state==="granted"&&!stream)await startCamera();
+   }
+ }catch(e){note("相机自动预览未启动："+e.message+"；可手动点击启动预览")}
+})();
 </script>
 </body>
 </html>
