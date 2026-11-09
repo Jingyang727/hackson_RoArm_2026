@@ -66,6 +66,16 @@ pre{white-space:pre-wrap;overflow:auto;font-size:12px;max-height:120px}
 <code>EVOARM_ENABLE_MOTION=1 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765</code>
 </div>
 </section>
+<section class="panel wide" id="motionPanel">
+<div class="flex between"><h2>动作执行状态</h2><span id="motionBadge" class="pill">待机</span></div>
+<p id="motionDetails" class="tip" aria-live="polite">等待机械臂连接。正常情况下，关节运动结束后可以立即发出下一条动作。</p>
+<div id="faultPanel" class="warn" style="display:none">
+<strong>动作反馈异常 · 已禁止新运动</strong>
+<p id="faultDetails" class="tip">等待故障信息</p>
+<button id="recoverBtn" disabled>已检查机械臂静止 · 复核并恢复控制</button>
+<p class="tip">此按钮不会移动机械臂。恢复需要连续两次稳定的角度反馈；完成后需要重新解锁。</p>
+</div>
+</section>
 <section class="panel wide">
 <div class="flex between">
 <h2>手动调整 6 个关节</h2>
@@ -157,16 +167,51 @@ function gripperFeedbackMessage(){
  if(current-step<65)return "当前夹爪接近张开下限；张开"+step+"°会超限，可改小步长。";
  return "当前在训练范围内；每次单步完成后等待反馈。";
 }
+function paintMotionStatus(){
+ const pending=health?.pending, fault=health?.fault;
+ const badge=$("motionBadge"),details=$("motionDetails"),panel=$("faultPanel");
+ if(fault){
+  badge.textContent="异常锁定";
+  details.textContent="控制指令暂时锁定；请阅读故障原因，不要连续重试。";
+  $("faultDetails").textContent=fault.message+
+    (typeof fault.expected_deg==="number"?" 目标 "+fault.expected_deg.toFixed(1)+"°":"")+
+    (typeof fault.actual_deg==="number"?" / 实际 "+fault.actual_deg.toFixed(1)+"°":"");
+  panel.style.display="block";
+  $("recoverBtn").disabled=!health?.connected||busy;
+ }else if(pending){
+  badge.textContent="正在确认动作";
+  if(pending.kind==="factory"){
+   details.textContent="官方复位进行中："+(pending.elapsed_s||0)+"秒；等待全部关节反馈确认。";
+  }else{
+   details.textContent="关节 "+pending.joint+"：目标 "+Number(pending.target_deg).toFixed(1)+"°，"+
+    "实测 "+Number(pending.actual_deg).toFixed(1)+"°，"+
+    "等待 "+Number(pending.elapsed_s||0).toFixed(1)+" 秒。未确认到位前暂不叠加动作。";
+  }
+  panel.style.display="none";
+ }else if(health?.last_command){
+  badge.textContent=health.last_command.status==="feedback_confirmed"?"已到位":"待命";
+  details.textContent=health.last_command.status==="feedback_confirmed"
+    ?"上一条命令已获得实际到位反馈，可以进行下一次操作。"
+    :"当前没有等待中的指令；请确认机械臂状态。";
+  panel.style.display="none";
+ }else{
+  badge.textContent=health?.connected?"待命":"未连接";
+  details.textContent=health?.connected?"尚无执行中的运动，可选择步长和关节。":"请先连接机械臂。";
+  panel.style.display="none";
+ }
+}
 function paintPermission(){
  const armed=Boolean(health?.armed)&&!busy;
- const available=armed&&!health?.pending;
- $("unlock").disabled=!health?.connected||!health?.motion_enabled||busy;
+ const available=armed&&!health?.pending&&!health?.fault;
+ paintMotionStatus();
+ $("unlock").disabled=!health?.connected||!health?.motion_enabled||busy||!!health?.fault;
  $("lock").disabled=!health?.motion_enabled||busy;
  $("saveHome").disabled=!health?.connected||busy;
  $("factoryReset").disabled=!(available&&health.allowed_joints?.length===6);
- $("mode").textContent=health?.motion_enabled
-  ?(health?.armed?"已解锁 "+health.arm_seconds_left+"秒"+(health.pending?" · 等待动作到位":""):"手动模式已启用 · 当前锁定")
-  :"默认只读 · 终端开启手动模式";
+ $("mode").textContent=health?.fault?"动作异常：需要人工检查与复核":
+  health?.motion_enabled
+    ?(health?.armed?"已解锁 "+health.arm_seconds_left+"秒"+(health.pending?" · 等待动作到位":""):"手动模式已启用 · 当前锁定")
+    :"默认只读 · 终端开启手动模式";
  document.querySelectorAll("[data-jog]").forEach(button=>{
   button.disabled=!(available&&health.allowed_joints?.includes(Number(button.dataset.joint)));
  });
@@ -245,6 +290,13 @@ $("unlock").onclick=()=>{
  safeAction(async()=>{const r=await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});notify("已授权 "+r.expires_in_seconds+" 秒；可选单步动作")});
 };
 $("lock").onclick=()=>safeAction(async()=>{const r=await api("/api/disarm","POST",{});notify(r.notice)});
+$("recoverBtn").onclick=()=>{
+ if(!confirm("请先目视确认机械臂已经静止、关节和线缆无卡滞，运动区域已清空。\n此次仅复核角度反馈，不会发送运动指令。"))return;
+ safeAction(async()=>{
+  const r=await api("/api/recover","POST",{declaration:"已检查机械臂静止且运动区域安全"});
+  notify(r.message);
+ });
+};
 $("factoryReset").onclick=()=>{
  if(!confirm("警告：官方 T=100 会同时驱动六个关节回初始位，软件无法避障。\n确认已清空整个机械臂扫掠范围、检查设备并保持能切断电源？"))return;
  safeAction(async()=>{
