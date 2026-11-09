@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from .service import ArmService
 from .safety import UnsafeMotion
 from .robot_calibration import CalibrationError, calibration
+from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile
+from .pick_teach import observe_tool_pose
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 service = ArmService()
@@ -54,6 +56,23 @@ class CalibrationSave(BaseModel):
 class TeachTorque(BaseModel):
     enabled: bool
     declaration: str
+
+
+class PickProfile(BaseModel):
+    grip_z_mm: float
+    place_z_mm: float
+    travel_z_mm: float
+    place_xy_mm: list[float]
+    pitch_rad: float
+    roll_rad: float
+    open_g_rad: float
+    close_g_rad: float
+    ball_diameter_mm: float
+
+
+class PickPlan(BaseModel):
+    ball_board_mm: list[float]
+
 
 
 def invoke(fn, *args):
@@ -133,6 +152,35 @@ def calibration_save(req: CalibrationSave):
 @app.post("/api/teach/torque")
 def teach_torque(req: TeachTorque):
     return invoke(service.set_torque, req.enabled, req.declaration)
+
+
+@app.get("/pick", response_class=HTMLResponse)
+def pick_page():
+    return Path(__file__).with_name("pick.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/pick/teach")
+def pick_teach():
+    try:
+        return observe_tool_pose(service)
+    except PickPlanningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/pick/profile")
+def pick_profile_save(req: PickProfile):
+    try:
+        return save_pick_profile(req.model_dump() if hasattr(req, "model_dump") else req.dict())
+    except PickPlanningError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/pick/preview")
+def pick_plan_preview(req: PickPlan):
+    try:
+        return build_from_saved_files(req.ball_board_mm)
+    except (PickPlanningError, CalibrationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/ports")
