@@ -17,6 +17,9 @@ video{display:block;width:100%;max-height:65vh;object-fit:contain}
 #stage:before{width:1px;height:100%;left:50%;top:0}#stage:after{width:100%;height:1px;top:50%;left:0}
 .info{padding:10px 12px;border-radius:8px;background:#283850;margin-top:12px;line-height:1.7}
 .warning{background:#392a2b;border:1px solid #805454;padding:12px;border-radius:8px;margin-top:12px}
+#analysisCanvas{width:100%;height:auto;background:#0b1321;border-radius:8px;display:block;margin-top:12px}
+#analysisDetails{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}
+input{background:#243650;color:white;border:1px solid #65738a;border-radius:7px;padding:9px;width:115px}
 </style>
 </head>
 <body>
@@ -31,12 +34,23 @@ video{display:block;width:100%;max-height:65vh;object-fit:contain}
     <button id="stop" disabled>关闭摄像头</button>
     <button id="shot" disabled>保存一帧 PNG</button>
   </div>
+  <div class="row">
+    <label for="squareSize">棋盘单格边长（mm）</label>
+    <input id="squareSize" type="number" min="0.1" max="200" step="0.1" placeholder="请实测"/>
+    <button id="analyze" disabled>检测棋盘格和黄色球</button>
+  </div>
+  <small>不填边长也能检测，但只能得到棋盘格单位；填写实际尺寸后才计算毫米坐标。</small>
   <div id="stage"><video id="video" autoplay muted playsinline></video></div>
   <div class="info">
     <div id="result" role="status">未启动摄像头。点击“启动预览”，并允许浏览器访问摄像头。</div>
     <div class="muted">十字线仅用于取景辅助，不是坐标标定结果。拍照保存的是原始画面，不附带十字线。</div>
   </div>
-  <div class="warning">安装前先断开机械臂运动电源，确保相机支架不在机械臂的扫掠范围内，移走显示器等易损物品。这里只开启摄像头，不会自动抓取。</div>
+  <div id="analysisBox" style="display:none">
+    <h2>单帧检测结果（非机械臂坐标）</h2>
+    <div id="analysisDetails" class="info" aria-live="polite"></div>
+    <canvas id="analysisCanvas"></canvas>
+  </div>
+  <div class="warning">这里只分析相机图片，不会给机械臂发送指令。即使已算出毫米坐标，也尚未完成机械臂基座坐标标定；球在棋盘格之外时属于坐标外推，不可据此自动抓取。</div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -57,7 +71,7 @@ async function listCameras(currentId=""){
 function stopCamera(){
   if(stream){for(const track of stream.getTracks())track.stop();stream=null}
   $("video").srcObject=null;
-  $("stop").disabled=true;$("shot").disabled=true;
+  $("stop").disabled=true;$("shot").disabled=true;$("analyze").disabled=true;
   $("start").disabled=false;
 }
 async function startCamera(){
@@ -80,7 +94,7 @@ async function startCamera(){
   }
   const element=$("video");element.srcObject=stream;
   await element.play();
-  $("stop").disabled=false;$("shot").disabled=false;$("start").disabled=true;
+  $("stop").disabled=false;$("shot").disabled=false;$("analyze").disabled=false;$("start").disabled=true;
   const selected=stream.getVideoTracks()[0];
   await listCameras(selected.getSettings().deviceId||id);
   const actual=element.videoWidth+"×"+element.videoHeight;
@@ -90,11 +104,73 @@ async function startCamera(){
 }
 $("start").onclick=async()=>{try{await startCamera()}catch(e){stopCamera();note("打开摄像头失败："+e.message+"。检查系统隐私权限或其他软件占用。")}};
 $("stop").onclick=()=>{stopCamera();note("摄像头已关闭")};
+function captureFrame(){
+ if(!stream||!$("video").videoWidth)throw Error("摄像头还未开始预览");
+ const v=$("video"),canvas=document.createElement("canvas");
+ canvas.width=v.videoWidth;canvas.height=v.videoHeight;
+ canvas.getContext("2d").drawImage(v,0,0);
+ return canvas;
+}
+$("analyze").onclick=async()=>{
+ $("analyze").disabled=true;
+ try{
+  const squareText=$("squareSize").value.trim();
+  const squareMM=squareText?Number(squareText):null;
+  if(squareMM!==null&&(!Number.isFinite(squareMM)||squareMM<=0||squareMM>200))
+    throw Error("单格边长必须是0到200mm之间的正数");
+  const snapshot=captureFrame();
+  note("正在分析单帧棋盘格和黄色球；机械臂不会运动...");
+  const blob=await new Promise(resolve=>snapshot.toBlob(resolve,"image/png"));
+  if(!blob)throw Error("无法创建PNG截图");
+  const query=squareMM!==null?"?square_mm="+encodeURIComponent(squareMM):"";
+  const response=await fetch("/api/vision/analyze"+query,{
+    method:"POST",headers:{"Content-Type":"image/png"},body:blob
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||"HTTP "+response.status);
+  const box=$("analysisBox"),view=$("analysisCanvas"),ctx=view.getContext("2d");
+  box.style.display="block";view.width=snapshot.width;view.height=snapshot.height;
+  ctx.drawImage(snapshot,0,0);
+  if(data.checkerboard?.detected){
+   ctx.fillStyle="#00eeae";
+   for(const [x,y] of data.checkerboard.corners_px){
+     ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
+   }
+  }
+  if(data.ball?.detected){
+   const [x,y]=data.ball.center_px;
+   ctx.strokeStyle="#f22a68";ctx.lineWidth=5;
+   ctx.beginPath();ctx.arc(x,y,Math.max(10,data.ball.radius_px),0,Math.PI*2);ctx.stroke();
+   ctx.beginPath();ctx.moveTo(x-12,y);ctx.lineTo(x+12,y);
+   ctx.moveTo(x,y-12);ctx.lineTo(x,y+12);ctx.stroke();
+   ctx.font="28px sans-serif";ctx.fillStyle="#f22a68";
+   ctx.fillText("Yellow ball ("+x.toFixed(0)+", "+y.toFixed(0)+")",Math.min(x+26,view.width-440),Math.max(y-20,40));
+  }
+  const board=data.checkerboard?.detected
+    ?"棋盘格：9×6，角点"+data.checkerboard.corners_count+"个。"
+    :"棋盘格：未检出。";
+  const ball=data.ball?.detected
+    ?"黄色球：像素坐标 ("+data.ball.center_px.join(", ")+")，直径约"+(2*data.ball.radius_px).toFixed(1)+"px。"
+    :"黄色球：未检出。";
+  const grid=data.ball?.board_grid_xy
+    ?"棋盘相对坐标："+data.ball.board_grid_xy.join(", ")+"格"+
+      (data.ball.board_mm_xy?"；约 ("+data.ball.board_mm_xy.join(", ")+")mm":"")+
+      (data.ball.inside_inner_board?"（角点范围内）":"（超出角点范围，外推仅供参考）")
+    :"";
+  $("analysisDetails").textContent=[
+   "实际图像："+data.image.width+"×"+data.image.height,board,ball,grid,
+   ...data.warnings.map(w=>"注意："+w)
+  ].filter(Boolean).join("\n");
+  note("分析完成：下方已显示带标记的截图。");
+ }catch(err){
+  $("analysisBox").style.display="block";
+  $("analysisDetails").textContent="分析失败："+err.message;
+  note("分析失败："+err.message);
+ }finally{$("analyze").disabled=!stream}
+};
 $("shot").onclick=()=>{
   if(!stream || !$("video").videoWidth)return;
-  const v=$("video"),canvas=document.createElement("canvas");
-  canvas.width=v.videoWidth;canvas.height=v.videoHeight;
-  canvas.getContext("2d").drawImage(v,0,0);
+  const canvas=captureFrame();
   canvas.toBlob(blob=>{
     if(!blob){note("截图失败");return}
     const a=document.createElement("a");const url=URL.createObjectURL(blob);
