@@ -19,6 +19,16 @@ class ArmService:
     def motion_enabled(self):
         return os.getenv("EVOARM_ENABLE_MOTION", "0") == "1"
 
+    @property
+    def allowed_joints(self):
+        """Hardware test allowlist: only gripper (6) until operator opts in."""
+        raw = os.getenv("EVOARM_ALLOWED_JOINTS", "6")
+        try:
+            joints = {int(value.strip()) for value in raw.split(",") if value.strip()}
+        except ValueError:
+            return set()
+        return joints & set(JOINTS)
+
     def ports(self):
         return [{"device": p.device, "description": p.description}
                 for p in list_ports.comports() if p.device.startswith("/dev/cu.")]
@@ -62,6 +72,7 @@ class ArmService:
             return {
                 "connected": self.arm is not None, "port": self.port,
                 "motion_enabled": self.motion_enabled,
+                "allowed_joints": sorted(self.allowed_joints) if self.motion_enabled else [],
                 "armed": self.arm is not None and self.motion_enabled and time.monotonic() < self.armed_until,
                 "joints": [{"id": k, "label": j[0], "field": j[1], "min": j[2], "max": j[3]}
                            for k, j in JOINTS.items()],
@@ -84,6 +95,9 @@ class ArmService:
         with self.lock:
             if not self.motion_enabled or self.arm is None:
                 raise UnsafeMotion("未启用运动或机械臂未连接")
+            if joint not in self.allowed_joints:
+                self.armed_until = 0.0
+                raise UnsafeMotion("该关节未在启动参数中授权。初次联调默认只允许夹爪 6 号关节")
             if time.monotonic() > self.armed_until:
                 self.armed_until = 0.0
                 raise UnsafeMotion("单次授权无效或超时")
@@ -91,6 +105,11 @@ class ArmService:
             if time.monotonic() - self.last_motion < 2:
                 raise UnsafeMotion("请至少间隔2秒")
             status = self.arm.status()
+            # Refuse motion when firmware explicitly reports torque lock off.
+            torque_field = {1: "torswitchB", 2: "torswitchS", 3: "torswitchE",
+                            4: "torswitchT", 5: "torswitchR", 6: "torswitchG"}[joint]
+            if status.get(torque_field) == 0:
+                raise UnsafeMotion("该关节当前关闭扭矩锁，不允许发出运动指令")
             plan = plan_single_step(status, joint, delta)
             self.arm.send(plan.payload)
             self.last_motion = time.monotonic()
