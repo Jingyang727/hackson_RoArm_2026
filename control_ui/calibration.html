@@ -28,6 +28,8 @@ button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}input[type=
 #setupState{margin:8px 0;font-weight:650}
 #capture{font-weight:700}
 #statusLine{font-size:13px;line-height:1.7;white-space:pre-wrap}
+#torquePrompt[hidden]{display:none}#torqueMessage{white-space:pre-wrap}
+#torqueAcknowledged{width:auto;margin-right:7px}
 .notice{border:1px solid #455a72;background:#27364c;border-radius:9px;padding:11px;line-height:1.65}
 .warning{border:1px solid #986b5e;background:#432f31;border-radius:9px;padding:11px;margin-top:10px;line-height:1.7}
 .point{padding:10px 5px;border-top:1px solid #364b61}
@@ -78,8 +80,17 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <strong>可选：手动示教 / 释放扭矩</strong>
 <div class="muted">释放的是<strong>全部六个关节</strong>，肩肘可能因重力瞬间下垂。先双手托住机械臂，清空下方空间；不要拉扯线缆。上锁可能带来意外动作，重新锁定时也要托住。</div>
 <div class="row"><button id="torqueOff" class="danger" disabled>释放所有关节扭矩</button>
-<button id="torqueOn" disabled>重新锁定全部扭矩</button></div>
+<button id="torqueOn" disabled>重新锁定全部扭矩</button>
+<button id="torqueRefresh">读取实际扭矩状态</button></div>
 <div id="torqueInfo" class="muted">默认禁用。只有用 EVOARM_ENABLE_TEACH=1 启动时才开放。</div>
+<div id="torqueMessage" class="notice" role="status" aria-live="polite">点击扭矩按钮后，将在此处显示确认和执行结果。</div>
+<div id="torquePrompt" class="warning" hidden>
+  <strong id="torquePromptTitle">请确认机械臂已得到支撑</strong>
+  <p id="torquePromptDescription"></p>
+  <label><input type="checkbox" id="torqueAcknowledged"/> 已托住机械臂，并检查了下方和周围空间</label>
+  <div class="row"><button id="torqueConfirm" class="danger" disabled>确认，发送一次扭矩指令</button>
+  <button id="torqueCancel">取消，不发送指令</button></div>
+</div>
 </div>
 </section>
 <section class="panel wide">
@@ -123,9 +134,18 @@ function render(){
  $("cameraStop").disabled=busy||!stream;
  $("torqueOff").disabled=busy||!health?.connected||!health?.teach_enabled||health?.teach_active;
  $("torqueOn").disabled=busy||!health?.connected||!health?.teach_enabled||!health?.teach_active;
+ $("torqueRefresh").disabled=busy||!health?.connected;
+ $("torqueConfirm").disabled=busy||!$("torqueAcknowledged").checked;
+ const torqueFlags=health?.torque_status;
+ const actual=torqueFlags?.length===6
+   ?(torqueFlags.every(v=>v===0)?"最近反馈：六关节全部释放":
+     torqueFlags.every(v=>v===1)?"最近反馈：六关节全部锁定":
+     "最近反馈：关节状态不一致，请检查")
+   :"最近反馈：未知或尚未读取";
  $("torqueInfo").textContent=health?.teach_enabled
-   ?("示教开关已授权；"+(health?.teach_active?"当前处于扭矩释放状态，请持续托住机械臂":"当前未进入释放状态")+"。关闭/开启扭矩都需要人工确认。")
-   :"扭矩释放默认被服务端禁用；仅需手动摆臂时设置 EVOARM_ENABLE_TEACH=1 并重启后端。";
+   ?("示教模式已授权；"+actual+"。软件运动锁："+(health?.teach_active?"已启用":"未进入示教锁定")+
+     "。切换前后始终托住机械臂，反馈不代表实时安全。")
+   :"示教接口默认禁用，请设置 EVOARM_ENABLE_TEACH=1。"+actual;
  $("targets").replaceChildren();
  for(const t of TARGETS){
   const item=document.createElement("div");item.className="point"+(chosen===t.id?" active":"");
@@ -348,18 +368,71 @@ function capturePoint(pointId){
 }
 $("capture").onclick=()=>capturePoint(chosen);
 $("captureTop").onclick=()=>capturePoint(chosen);
-for(const [id,enabled,text] of [
- ["torqueOff",false,"释放全部关节扭矩后可能突然下垂！请先托住大臂、清空下方空间。确定要释放吗？"],
- ["torqueOn",true,"重新锁定扭矩时舵机可能移动！请先托住机械臂、确保周围无障碍。确认锁定？"]]){
- $(id).onclick=()=>{
-  if(!confirm(text))return;
-  doAction(async()=>{
-   const declaration=enabled?"已托住机械臂并确认重新锁定":"已托住机械臂并确认释放全部关节";
-   const result=await api("/api/teach/torque","POST",{enabled,declaration});
-   await refreshArm();say(result.message);
-  });
- };
+let torqueIntent=null;
+function requestTorqueChange(enabled){
+ if(busy)return;
+ torqueIntent=enabled;
+ $("torqueAcknowledged").checked=false;
+ $("torquePrompt").hidden=false;
+ $("torquePromptTitle").textContent=enabled?"准备重新锁定全部六关节":"准备释放全部六关节扭矩";
+ $("torquePromptDescription").textContent=enabled
+   ?"舵机锁定时可能突然移动。请托住大臂，检查没有障碍物或易损物品。"
+   :"六个关节将失去主动保持力，肩部和肘部可能突然下垂。请持续托住机械臂，并清空下方空间。";
+ $("torqueMessage").textContent="已打开页面内安全确认。当前还没有发送扭矩指令。";
+ render();
+ $("torquePrompt").scrollIntoView({block:"nearest",behavior:"smooth"});
 }
+$("torqueOff").onclick=()=>requestTorqueChange(false);
+$("torqueOn").onclick=()=>requestTorqueChange(true);
+$("torqueAcknowledged").onchange=render;
+$("torqueCancel").onclick=()=>{
+ torqueIntent=null;$("torquePrompt").hidden=true;
+ $("torqueAcknowledged").checked=false;
+ $("torqueMessage").textContent="操作已取消，没有发送扭矩指令。";
+ render();
+};
+$("torqueConfirm").onclick=async()=>{
+ if(busy||torqueIntent===null||!$("torqueAcknowledged").checked)return;
+ const enabled=torqueIntent;
+ torqueIntent=null;$("torquePrompt").hidden=true;
+ $("torqueAcknowledged").checked=false;
+ busy=true;
+ $("torqueMessage").textContent="扭矩切换请求处理中，正在核对六关节实际状态。请持续托住机械臂……";
+ render();
+ try{
+  const declaration=enabled?"已托住机械臂并确认重新锁定":"已托住机械臂并确认释放全部关节";
+  const result=await api("/api/teach/torque","POST",{enabled,declaration});
+  $("torqueMessage").textContent=(result.verified?"确认成功：":"状态仍未确认：")+
+    result.message+"\n发送扭矩指令："+(result.command_sent?"1次":"0次")+
+    "；状态确认读取："+result.verification_attempts+"次。";
+ }catch(err){
+  $("torqueMessage").textContent="请求失败或通讯异常："+err.message+
+    "。无法据此判断扭矩是否已经切换。请托住机械臂，点击“读取实际扭矩状态”。";
+ }
+ try{health=await api("/api/health")}catch(err){
+  $("torqueMessage").textContent+="\n刷新状态失败："+err.message;
+ }
+ busy=false;render();
+};
+$("torqueRefresh").onclick=async()=>{
+ if(busy)return;
+ busy=true;$("torqueMessage").textContent="正在请求当前六关节真实扭矩状态……";render();
+ try{
+  const result=await api("/api/status");
+  const flags="BSETRG".split("").map(k=>result["torswitch"+k]);
+  const state=flags.every(v=>v===0)?"六关节全部释放":
+    flags.every(v=>v===1)?"六关节全部锁定":"关节状态不一致或无效";
+  $("torqueMessage").textContent="本次真实反馈："+state+
+    "（"+flags.join(", ")+"）。如软件仍在示教锁定状态，请托住机械臂并主动执行“重新锁定”。";
+ }catch(err){
+  $("torqueMessage").textContent="实际状态读取失败："+err.message+
+    "。当前状态不明，请托住机械臂，禁止下发运动指令。";
+ }
+ try{health=await api("/api/health")}catch(err){
+  $("torqueMessage").textContent+="\n读取服务状态失败："+err.message;
+ }
+ busy=false;render();
+};
 $("save").onclick=()=>doAction(async()=>{
  if(!session)throw Error("无标定会话");
  if(modifiedPoints.size)throw Error("存在角点移动后未重新记录："+[...modifiedPoints].join(", "));
