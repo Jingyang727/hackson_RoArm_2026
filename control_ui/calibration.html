@@ -61,6 +61,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <h2>② 连接机械臂并对准角点</h2>
 <div class="row"><select id="serialPort"></select><button id="serialRefresh">刷新串口</button><button id="serialConnect">连接</button></div>
 <div id="armInfo" class="notice">尚未读取机械臂状态。</div>
+<div class="row"><button id="captureTop" class="primary" disabled style="font-size:16px;font-weight:750;padding:12px 18px">记录当前 P1 的 XYZ</button><span class="muted">对准后立即记录；每个点下方也有独立记录按钮</span></div>
 <p class="muted">优先使用 <a href="/" target="_blank" rel="noopener">原有手动控制 UI</a> 微步进到目标上方。两页共用一个后端串口连接，不要启动两个服务。</p>
 <h2 style="margin-top:16px">③ 当前角点实时放大</h2>
 <canvas id="zoom" width="600" height="360" aria-label="当前标定角点的实时放大预览"></canvas>
@@ -115,6 +116,8 @@ function render(){
  $("begin").disabled=busy||!ready;
  $("analyze").disabled=busy||!stream;
  $("capture").disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+ $("captureTop").disabled=$("capture").disabled;
+ $("captureTop").textContent="记录当前 "+chosen+" 的 XYZ";
  $("save").disabled=busy||!summary?.ready||modifiedPoints.size>0;
  $("cameraStart").disabled=busy||Boolean(stream);
  $("cameraStop").disabled=busy||!stream;
@@ -344,6 +347,7 @@ function capturePoint(pointId){
  });
 }
 $("capture").onclick=()=>capturePoint(chosen);
+$("captureTop").onclick=()=>capturePoint(chosen);
 for(const [id,enabled,text] of [
  ["torqueOff",false,"释放全部关节扭矩后可能突然下垂！请先托住大臂、清空下方空间。确定要释放吗？"],
  ["torqueOn",true,"重新锁定扭矩时舵机可能移动！请先托住机械臂、确保周围无障碍。确认锁定？"]]){
