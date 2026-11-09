@@ -217,7 +217,7 @@ $("analyze").onclick=()=>doAction(async()=>{
 $("begin").onclick=()=>doAction(async()=>{
  if(session&&summary?.records?.length&&!confirm("开始新标定会清空已记录的全部标定点，继续？"))return;
  const L=Number($("square").value);
- const data=await api("/api/calibration/start","POST",{square_mm:L,image_size:[shot.width,shot.height]});
+ const data=await api("/api/calibration/start","POST",{square_mm:L,image_size:[shot.width,shot.height],corners_px:vision.checkerboard.corners_px});
  session=data.session_id;summary=data;chosen="P1";say("已开始新标定会话，接下来逐个对准并记录4个拟合点和1个验证点。");
 });
 async function refreshArm(){
