@@ -114,6 +114,67 @@ class MotionStateTests(unittest.TestCase):
         svc.disconnect()
         self.assertEqual(svc.health()["fault"]["code"], "motion_not_confirmed")
 
+    @staticmethod
+    def simulate_three_stable_samples(service):
+        # Three independent samples over a synthetic >=2.5-second interval.
+        # No actual sleep or robot motion.
+        service.pending["since"] -= 3.0
+        for _ in range(3):
+            if service.pending.get("last_sample_at") is not None:
+                service.pending["last_sample_at"] -= 0.75
+            service.status()
+
+    def test_factory_reset_stable_3_degree_offset_does_not_wait_45_seconds(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1",
+                                      "EVOARM_ALLOWED_JOINTS": "1,2,3,4,5,6"}):
+            service = self.make()
+            service.arm.angle[0] = math.radians(30)
+            service.arm.angle[5] = math.pi
+            service.factory_reset()
+            service.arm.angle[0] = math.radians(3)  # Returned to near home, not exact.
+            self.simulate_three_stable_samples(service)
+            self.assertIsNone(service.pending)
+            self.assertIsNone(service.fault)
+            self.assertEqual(service.last_command["status"], "settled_with_offset")
+            self.assertAlmostEqual(service.last_command["error_deg"], 3.0)
+            self.assertFalse(service.health()["armed"])
+            self.assertEqual(service.arm.commands, [{"T": 100}])
+            # Operator must re-authorize; no automatic next movement.
+            with self.assertRaises(UnsafeMotion):
+                service.step(1, 5)
+
+    def test_factory_reset_far_and_stalled_is_fault_even_if_feedback_stable(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}):
+            service = self.make()
+            service.arm.angle[5] = math.pi
+            service.arm.angle[0] = math.radians(40)
+            service.factory_reset()
+            service.arm.angle[0] = math.radians(20)
+            self.simulate_three_stable_samples(service)
+            self.assertIsNone(service.pending)
+            self.assertEqual(service.fault["code"], "motion_stalled_or_offset")
+            self.assertEqual(len(service.arm.commands), 1)
+
+    def test_jog_stable_at_2_point_5_degree_error_reports_warning(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}):
+            service = self.make()
+            service.step(1, 5)
+            service.arm.angle[0] = math.radians(2.5)
+            self.simulate_three_stable_samples(service)
+            self.assertIsNone(service.fault)
+            self.assertIsNone(service.pending)
+            self.assertEqual(service.last_command["status"], "settled_with_offset")
+            self.assertFalse(service.health()["armed"])
+
+    def test_tiny_jog_cannot_claim_success_without_feedback_movement(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}):
+            service = self.make()
+            service.step(1, 1)
+            service.status()  # 0° is within 2° of target, but servo did not move.
+            self.assertIsNotNone(service.pending)
+            self.simulate_three_stable_samples(service)
+            self.assertEqual(service.fault["code"], "motion_stalled_or_offset")
+
     def test_missing_serial_feedback_latches_fault(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}), \
              patch("control_ui.service.MIN_GAP_SECONDS", 0.0):
