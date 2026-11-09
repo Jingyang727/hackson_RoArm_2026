@@ -25,7 +25,7 @@ class RoArmSerial:
             ser.dtr = ser.rts = False
             ser.open()
             self.ser = ser
-            time.sleep(0.3)
+            self._wait_until_quiet(cap=12)
             return self
         except Exception as exc:
             raise ArmCommunicationError(f"打开串口失败: {exc}") from exc
@@ -42,7 +42,18 @@ class RoArmSerial:
         self.ser.write(line.encode())
         self.ser.flush()
 
-    def status(self, timeout=3.5):
+    def _wait_until_quiet(self, cap):
+        last = time.monotonic()
+        deadline = last + cap
+        saw_data = False
+        while time.monotonic() < deadline:
+            if self.ser.readline():
+                saw_data = True
+                last = time.monotonic()
+            elif saw_data and time.monotonic() - last > 1.2:
+                return
+
+    def status(self, timeout=20):
         if not self.ser:
             raise ArmCommunicationError("串口未打开")
         self.ser.reset_input_buffer()
