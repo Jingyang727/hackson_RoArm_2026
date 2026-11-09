@@ -155,6 +155,8 @@ class ArmService:
     def home_save(self):
         with self.lock:
             status = self.status()
+            if self.pending is not None:
+                raise UnsafeMotion("上一次动作尚未确认到位，不能把运动中姿态保存为复位点")
             degrees = checked_home_pose(status)
             return save_pose(degrees)
 
