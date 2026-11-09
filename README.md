@@ -45,3 +45,9 @@ EVOARM_ENABLE_MOTION=1 python -m uvicorn control_ui.main:app --host 127.0.0.1 --
 工作分支：`feature/evoarm-control-ui`。请通过 PR 审核后再合并到 main。以后的 Observer / Scientist / RSI 代码继续独立开发，避免覆盖机器人控制层。
 
 官方文档：https://www.waveshare.net/wiki/RoArm-M3
+
+## 俯视相机预览（无需安装 OpenCV）
+
+本分支还提供 `http://127.0.0.1:8765/camera`：Mac 浏览器直接查看 USB 摄像头的实时画面、选择设备并保存一帧 PNG。此功能不需要 Jetson，也不会触发任何机械臂运动。首次使用时在浏览器里允许摄像头权限。
+
+安装、标定和安全检查见 [docs/overhead-camera.md](docs/overhead-camera.md)。
