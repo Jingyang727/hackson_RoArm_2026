@@ -56,7 +56,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 </main>
 <script>
 const $=x=>document.getElementById(x);
-let stream=null,latestBall=null,frame=null,profile={},saved=false,busy=false;
+let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -81,6 +81,7 @@ $("camOpen").onclick=()=>act(async()=>{
  say("ballResult","相机已开启 "+$("video").videoWidth+"×"+$("video").videoHeight+"。请在已标定区域内放入黄色球并点击检测。");
 });
 $("detect").onclick=()=>act(async()=>{
+ latestBall=null;latestVision=null;
  const L=Number($("square").value);if(!Number.isFinite(L)||L<=0||L>200)throw Error("填写有效的实际单格边长");
  const v=$("video"),c=$("photo");c.width=v.videoWidth;c.height=v.videoHeight;
  if(!c.width)throw Error("相机未采集图像");
@@ -89,7 +90,7 @@ $("detect").onclick=()=>act(async()=>{
  const resp=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L),{method:"POST",headers:{"Content-Type":"image/png"},body:raw});
  const result=await resp.json();if(!resp.ok)throw Error(result.detail||"检测失败");
  if(!result.ball?.detected)throw Error("未发现黄色圆形球");
- latestBall=result.ball;
+ latestBall=result.ball;latestVision=result;
  if(latestBall.center_px){
    const [x,y]=latestBall.center_px;ctx.strokeStyle="#f43e82";ctx.lineWidth=6;
    ctx.beginPath();ctx.arc(x,y,Math.max(latestBall.radius_px,15),0,2*Math.PI);ctx.stroke();
@@ -127,7 +128,12 @@ $("save").onclick=()=>act(async()=>{
 });
 $("preview").onclick=()=>act(async()=>{
  if(!latestBall?.board_mm_xy)throw Error("请重新识别黄色球");
- const result=await api("/api/pick/preview","POST",{ball_board_mm:latestBall.board_mm_xy});
+ if(!latestVision?.checkerboard?.detected)throw Error("必须看到完整棋盘格54角点并确认相机未移动");
+ const result=await api("/api/pick/preview","POST",{
+   ball_board_mm:latestBall.board_mm_xy,
+   image_size:[latestVision.image.width,latestVision.image.height],
+   corners_px:latestVision.checkerboard.corners_px
+ });
  say("previewStatus","球位置机械臂XY："+result.ball_robot_xy_mm.join(", ")+
   " mm → 放置XY："+result.place_robot_xy_mm.join(", ")+
   " mm，共 "+result.number_of_steps+" 步。\n"+
