@@ -40,6 +40,13 @@ class ArmService:
         self.pending = None
         self.last_command = None
         self.fault = None
+        # Teach mode never auto-enables. Keep a fail-closed flag after releasing torque.
+        self.teach_active = False
+        self.last_torque_status = None
+
+    @property
+    def teach_enabled(self):
+        return os.getenv("EVOARM_ENABLE_TEACH", "0") == "1"
 
     @property
     def motion_enabled(self):
@@ -74,6 +81,9 @@ class ArmService:
             self.arm, self.port = arm, port
             self.armed_until = 0
             self.pending = self.last_command = None  # Keep a latched fault across reconnects.
+            flags = [result.get("torswitch" + k) for k in "BSETRG"]
+            self.last_torque_status = flags
+            self.teach_active = not all(v == 1 for v in flags)
             return result
 
     def disconnect(self):
@@ -111,6 +121,7 @@ class ArmService:
                     detail=str(exc),
                 )
                 raise
+            self.last_torque_status = [result.get("torswitch" + k) for k in "BSETRG"]
             if pending is None:
                 return result
             try:
@@ -213,6 +224,9 @@ class ArmService:
             return {
                 "connected": self.arm is not None, "port": self.port,
                 "motion_enabled": self.motion_enabled,
+                "teach_enabled": self.teach_enabled,
+                "teach_active": self.teach_active,
+                "torque_status": self.last_torque_status,
                 "allowed_joints": sorted(self.allowed_joints) if self.motion_enabled else [],
                 "armed": bool(self.arm and self.motion_enabled and remaining > 0),
                 "arm_seconds_left": remaining,
@@ -234,6 +248,8 @@ class ArmService:
                 raise UnsafeMotion("只读模式：需要显式设置 EVOARM_ENABLE_MOTION=1")
             if self.arm is None:
                 raise UnsafeMotion("请先连接机械臂")
+            if self.teach_active:
+                raise UnsafeMotion("示教释放扭矩状态下，禁止解锁运动。请先支撑机械臂并确认恢复扭矩")
             if declaration != "已检查设备并清空运动区域":
                 raise UnsafeMotion("请先确认机械臂、固定支架和工作区域安全")
             self.status()
@@ -241,6 +257,58 @@ class ArmService:
                 raise UnsafeMotion("动作异常未解除，请先检查并按“异常复核”操作")
             self.armed_until = time.monotonic() + SESSION_SECONDS
             return {"armed": True, "expires_in_seconds": SESSION_SECONDS}
+
+    def set_torque(self, enabled, declaration):
+        """Optional manual teaching. T=210 affects ALL servos and may cause gravity drop.
+
+        Never called from calibration capture; only an explicit, opt-in UI button.
+        Re-engagement is not a safe/automatic way to hold an arbitrary hand pose.
+        """
+        with self.lock:
+            if type(enabled) is not bool:
+                raise UnsafeMotion("扭矩模式无效")
+            if not self.teach_enabled:
+                raise UnsafeMotion("示教扭矩控制默认关闭，须显式设置 EVOARM_ENABLE_TEACH=1")
+            if self.arm is None:
+                raise UnsafeMotion("机械臂未连接")
+            if self.pending is not None:
+                raise UnsafeMotion("动作未确认完成，不能切换扭矩")
+            if self.fault and not enabled:
+                raise UnsafeMotion("有运动异常时，不能释放扭矩")
+            required = ("已托住机械臂并确认重新锁定" if enabled
+                        else "已托住机械臂并确认释放全部关节")
+            if declaration != required:
+                raise UnsafeMotion("请确认已经托住机械臂、避免失重下垂与突然转动")
+            before = self.arm.status()
+            flags = [before.get("torswitch" + k) for k in "BSETRG"]
+            if not all(x in (0, 1) for x in flags):
+                raise UnsafeMotion("扭矩反馈不完整，拒绝切换")
+            if not enabled and not all(x == 1 for x in flags):
+                raise UnsafeMotion("部分关节已经释放扭矩，请检查状态后再操作")
+            self.armed_until = 0
+            # Fail closed if transmission or follow-up feedback fails.
+            if not enabled:
+                self.teach_active = True
+            self.arm.send({"T": 210, "cmd": 1 if enabled else 0})
+            time.sleep(0.3)
+            confirmed = self.arm.status()
+            current = [confirmed.get("torswitch" + k) for k in "BSETRG"]
+            self.last_torque_status = current
+            verified = all(x == (1 if enabled else 0) for x in current)
+            if enabled and verified:
+                self.teach_active = False
+            if not verified:
+                self.teach_active = True
+            return {
+                "verified": verified,
+                "torque_enabled": enabled if verified else None,
+                "torque_state": current,
+                "message": (
+                    ("全部关节扭矩已锁定，手动移动前需重新确认运动权限" if enabled
+                     else "全部关节扭矩已释放，务必持续托住大臂，避免下垂")
+                    if verified else "扭矩指令已发送但未确认状态；保持机械臂支撑，暂不发送运动指令"
+                ),
+            }
 
     def disarm(self):
         # Intentionally does not claim to stop a command already sent.
@@ -274,6 +342,8 @@ class ArmService:
                     "message": "反馈稳定、异常已解除。需要重新点击“确认安全并解锁”"}
 
     def _preflight(self, joint):
+        if self.teach_active:
+            raise UnsafeMotion("当前为释放扭矩的示教模式，禁止下发运动指令")
         if self.arm is None or not self.motion_enabled:
             raise UnsafeMotion("机械臂未连接，或后端仍处于只读模式")
         if self.fault:
@@ -288,6 +358,8 @@ class ArmService:
         status = self.status()
         if self.fault:
             raise UnsafeMotion("动作反馈异常：" + self.fault["message"])
+        if any(status.get("torswitch" + k) != 1 for k in "BSETRG"):
+            raise UnsafeMotion("全部关节扭矩未锁定，禁止运动")
         if self.pending is not None:
             elapsed = self.pending.get("elapsed_s", 0)
             raise UnsafeMotion(f"上一动作正在等待到位反馈（{elapsed:.1f}秒），请查看下方执行状态")
@@ -328,6 +400,8 @@ class ArmService:
         with self.lock:
             if not self.motion_enabled or self.arm is None:
                 raise UnsafeMotion("机械臂未连接或运动模式未开启")
+            if self.teach_active:
+                raise UnsafeMotion("示教释放扭矩时禁止执行官方复位")
             if self.fault:
                 raise UnsafeMotion("存在未解决的动作异常，不能执行官方复位")
             if set(JOINTS) - self.allowed_joints:
@@ -364,6 +438,8 @@ class ArmService:
 
     def home_save(self):
         with self.lock:
+            if self.teach_active:
+                raise UnsafeMotion("释放扭矩中不能保存正常动作待机位置")
             status = self.status()
             if self.fault or self.pending is not None:
                 raise UnsafeMotion("动作异常或尚未到位，不能把运动中姿态保存为复位点")
