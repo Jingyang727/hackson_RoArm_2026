@@ -119,3 +119,20 @@ python -m unittest discover -s tests -v
 ### 验证建议
 
 拉取此分支后，先进行一次小角度单关节动作，再在完全无障碍情况下执行一次官方复位，观察 `动作执行状态` 是否从“正在确认”变为“已到位”或“已停稳 · 存在偏差”，并记录最大偏差关节。如果仍然长时间等待，请提供该时刻 `T=1051` 原始状态（尤其 b/s/e/t/r/g 和扭矩状态）与界面等待时间。
+
+## P1：俯视棋盘格坐标标定与黄色球识别
+
+该分支新增**纯观察式** P1 页面：`http://127.0.0.1:8765/camera`，支持1080p预览、单帧棋盘格9×6内部角点识别、黄球中心提取、根据单格边长计算棋盘平面的毫米坐标。
+
+```bash
+git fetch origin
+git switch --track origin/feature/evoarm-vision-calibration-p1
+source .venv/bin/activate
+pip install -r requirements-vision.txt
+python -m unittest discover -s tests -v
+python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
+```
+
+页面输入实测方格边长（mm），然后点击 **检测棋盘格和黄色球**。棋盘格左上第一个内部角点为(0,0)，X向右、Y向下，仍然只是桌面棋盘坐标系，**不是机器人底座坐标**。尚未进行机械臂XY对齐、工具高度和镜头畸变的多视角标定，不会自动发送任何抓取指令。
+
+详细流程：[docs/vision-calibration-p1.md](docs/vision-calibration-p1.md)。
