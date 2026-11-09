@@ -10,6 +10,7 @@ from .safety import UnsafeMotion
 from .robot_calibration import CalibrationError, calibration
 from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile
 from .pick_teach import observe_tool_pose
+from .pick_execution import executor
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 service = ArmService()
@@ -75,6 +76,16 @@ class PickPlan(BaseModel):
     ball_board_mm: list[float]
     image_size: list[int]
     corners_px: list[list[float]]
+
+
+class PickStart(PickPlan):
+    declaration: str
+
+
+class PickStepRequest(BaseModel):
+    session_id: str
+    step_index: int
+    declaration: str
 
 
 
@@ -184,6 +195,28 @@ def pick_plan_preview(req: PickPlan):
         return build_from_saved_files(req.ball_board_mm, image_size=req.image_size, corners_px=req.corners_px)
     except (PickPlanningError, CalibrationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/pick/execution")
+def pick_execution_status():
+    return executor.state(service)
+
+
+@app.post("/api/pick/start")
+def pick_execution_start(req: PickStart):
+    return invoke(executor.start, req.ball_board_mm, req.image_size,
+                  req.corners_px, service, req.declaration)
+
+
+@app.post("/api/pick/step")
+def pick_execution_step(req: PickStepRequest):
+    return invoke(executor.step, req.session_id, req.step_index,
+                  req.declaration, service)
+
+
+@app.post("/api/pick/cancel")
+def pick_execution_cancel():
+    return executor.cancel(service)
 
 
 @app.get("/api/ports")
