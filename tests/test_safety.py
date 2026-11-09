@@ -3,7 +3,7 @@ import math
 import unittest
 from control_ui.safety import (
     JOINTS, UnsafeMotion, current_degrees, plan_single_step,
-    plan_home_step, FACTORY_DEGREES,
+    plan_home_step, plan_gripper_step, FACTORY_DEGREES,
 )
 
 
@@ -65,6 +65,38 @@ class SafetyTests(unittest.TestCase):
         target[1] = 2.2
         plan = plan_home_step(feedback(), 1, target)
         self.assertEqual(plan.target_deg, 2.2)
+
+    def test_gripper_uses_dedicated_radians_command(self):
+        plan = plan_gripper_step(feedback(g=math.radians(175)), -15)
+        self.assertEqual(plan.payload["T"], 106)
+        self.assertAlmostEqual(plan.payload["cmd"], math.radians(160), places=4)
+        self.assertGreater(plan.payload["spd"], 0)
+
+    def test_gripper_180_9_allows_only_inward_recovery(self):
+        current = feedback(g=math.radians(180.9))
+        plan = plan_gripper_step(current, -5)
+        self.assertAlmostEqual(plan.target_deg, 175.9, places=1)
+        self.assertEqual(plan.payload["T"], 106)
+        with self.assertRaises(UnsafeMotion):
+            plan_gripper_step(current, 5)
+
+    def test_gripper_180_9_can_open_15_degrees(self):
+        plan = plan_gripper_step(feedback(g=math.radians(180.9)), -15)
+        self.assertAlmostEqual(plan.target_deg, 165.9, places=1)
+
+    def test_gripper_190_refuses_even_inward(self):
+        with self.assertRaises(UnsafeMotion):
+            plan_gripper_step(feedback(g=math.radians(190)), -5)
+
+    def test_gripper_small_lower_boundary_recovery(self):
+        plan = plan_gripper_step(feedback(g=math.radians(64.2)), 5)
+        self.assertAlmostEqual(plan.target_deg, 69.2, places=1)
+        with self.assertRaises(UnsafeMotion):
+            plan_gripper_step(feedback(g=math.radians(64.2)), -5)
+
+    def test_gripper_target_never_exceeds_3_14_radians(self):
+        plan = plan_gripper_step(feedback(g=math.radians(175)), 5)
+        self.assertLessEqual(plan.payload["cmd"], 3.14)
 
     def test_factory_pose(self):
         self.assertEqual(FACTORY_DEGREES[3], 90)
