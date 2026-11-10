@@ -214,8 +214,11 @@ async function confirmEmptyFrame(raw,L){
   "/api/vision/confirm-board?square_mm="+encodeURIComponent(L),raw
  );
  emptyBoardConfirmed=true;
- say("boardConfirmStatus","✓ "+result.message+"（与保存标定的角点中位偏移 "+
-   result.median_reference_difference_px+"px）");
+ say("boardConfirmStatus","✓ "+result.message+"\n与原始标定位置的中位偏差约 "+
+   result.median_reference_difference_mm+"mm。"+
+   (result.motion_stability_confirmed
+     ?"当前位置已通过更严格的运动前位移核验。"
+     :"这点偏差允许继续定位球，但真实运动需要进一步核实相机、棋盘及底座位置。"));
  say("ballResult","空棋盘参考已确认。现在把球放在标定的内部工作区，点击下方「拍摄识别黄球 · 生成轨迹预览」。");
  return result;
 }
