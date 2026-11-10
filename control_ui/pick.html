@@ -345,9 +345,16 @@ $("preview").onclick=()=>act(async()=>{
    :"\n当前位置仅能定位，尚未通过真实运动许可条件；不会驱动机械臂。"));
  // Cached/partially visible chessboard evidence is sufficient for read-only
  // trajectory preview only. It does not grant hardware movement.
- planExecutionEligible=Boolean(result.execution_eligible)&&
-   ["live_54","reference_partial_verified","empty_board_frame_verified"]
-     .includes(latestVision?.checkerboard?.source);
+ const source=latestVision?.checkerboard?.source;
+ const originalBoardAligned=source==="live_54" ||
+   (["reference_partial_verified","empty_board_frame_verified"].includes(source) &&
+    latestVision?.checkerboard?.motion_stable===true);
+ planExecutionEligible=Boolean(result.execution_eligible)&&originalBoardAligned;
+ if(!originalBoardAligned){
+   say("previewStatus",$("previewStatus").textContent+
+     "\n当前棋盘微小位置变化允许定位黄球，但未满足真实运动的更严格核验条件；"
+     +"先核对相机/棋盘/底座固定情况，不会发送动作。");
+ }
  if(result.reachability_warnings?.length){
    say("previewStatus",
      $("previewStatus").textContent+
