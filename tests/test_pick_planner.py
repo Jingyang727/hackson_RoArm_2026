@@ -59,9 +59,17 @@ class TestPickPlan(unittest.TestCase):
                 abs(before["xyz_mm"][2]-after["xyz_mm"][2]),20.01)
 
     def test_outside_measured_work_area_is_not_treated_as_safe(self):
-        for xy in ([200,60],[40,130],[25,25],[0,0]):
+        # P1=(24,24). (25,25) is INSIDE the P1-P4 hull and must not
+        # be mislabeled out-of-bounds. These points really are outside.
+        for xy in ([200,60],[40,130],[20,20],[0,0]):
             with self.subTest(xy=xy),self.assertRaises(PickPlanningError):
                 run_plan(xy)
+
+    def test_point_just_inside_training_hull_remains_xy_eligible(self):
+        result=run_plan([25,25])
+        self.assertTrue(result["ball_inside_training_hull"])
+        # XY coverage alone never certifies a collision-free robot path.
+        self.assertFalse(result["auto_execute"])
 
     def test_no_calibration_no_move_plan(self):
         cal=calibration();cal["fit"]["validated"]=False
