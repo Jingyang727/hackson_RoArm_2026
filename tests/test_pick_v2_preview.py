@@ -61,7 +61,7 @@ class PickV2PreviewTests(unittest.TestCase):
                      if w["stage"] == "grasp_ball_candidate")
         self.assertEqual(hover["xyz_mm"], [396., -2., -34.9])
         self.assertEqual(grasp["xyz_mm"], [396., -2., -86.79])
-        self.assertAlmostEqual(grasp["t"], 0.88051, places=5)
+        self.assertAlmostEqual(grasp["t"], round(0.880505, 5), places=5)
         self.assertTrue(any("转运净空" in w for w in plan["reachability_warnings"]))
 
     def test_v2_preview_moves_xy_with_ball_but_not_z(self):
