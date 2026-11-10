@@ -28,9 +28,10 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <main>
 <section>
 <h2>① 获取黄色球位置</h2>
-<div class="row"><label for="square">棋盘单格 mm</label><input type="number" min="0.1" max="200" step=".1" id="square" value="24"/><button id="camOpen">开启相机</button><button id="detect" disabled>识别当前球</button></div>
+<div class="row"><label for="square">棋盘单格 mm</label><input type="number" min="0.1" max="200" step=".1" id="square" value="24"/><button id="camOpen">开启相机</button><button id="confirmEmpty">① 无球 · 确认棋盘</button><button id="detect" disabled>② 放球 · 定位黄球</button></div>
 <video id="video" autoplay playsinline muted></video><canvas id="photo"></canvas>
-<div id="ballResult" class="notice">尚未识别黄色球；24mm为前次输入值，请先用尺核实。</div>
+<div id="boardConfirmStatus" class="notice" role="status">首次使用：先把黄球拿开，点击「① 无球 · 确认棋盘」。已经保存的机械臂P1～V1标定不会改变。</div>
+<div id="ballResult" class="notice">随后把黄球放回棋盘，点击「② 放球 · 定位黄球」或下方一键轨迹预览。</div>
 </section>
 <section>
 <h2>② 示教关键位置和夹爪</h2>
@@ -69,7 +70,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <h2>③ 生成抓取与放置轨迹预览</h2>
 <p class="muted">使用已保存的机器人XY标定和示教参数，将当前球的位置转换成机器人XY。只有球在四个标定点形成的凸多边形内部、放置点合理且安全高度足够时才生成轨迹。</p>
 <div class="row"><button id="preview" class="primary">拍摄识别黄球 · 生成轨迹预览</button></div>
-<p class="muted">一键打开或复用本页摄像头，取当前一帧定位黄球、验证棋盘位置并生成预览。若缺少示教参数会直接提示，不再显示无法点击的灰色按钮。</p>
+<p class="muted">首次先用无球画面确认棋盘一次；放球后直接点这里。若没有放球，会将当前空棋盘作为参考，而不是错误提示没有黄色球。不会更改原来的五点标定。</p>
 <div id="previewStatus" class="notice">预览不执行任何机械臂运动。</div>
 <pre id="waypoints"></pre>
 <div class="warn">安全策略：将大幅移动拆为高位分段移动；T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。真实执行默认禁用，需显式授权。即使启用也必须逐段人工确认，不会连发下一条动作。</div>
@@ -88,6 +89,7 @@ const $=x=>document.getElementById(x);
 let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false,execution=null,hasPreview=false;
 let pickHealth=null,torqueBusy=false,torqueIntent=null;
 let planExecutionEligible=false;
+let emptyBoardConfirmed=false;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -144,6 +146,7 @@ async function act(fn){if(busy)return;busy=true;updateButtons();
  finally{busy=false;updateButtons()}}
 function updateButtons(){
  $("detect").disabled=busy||!stream;
+ $("confirmEmpty").disabled=busy;
  $("preview").disabled=busy;
  $("preview").textContent=busy?"正在处理…":"拍摄识别黄球 · 生成轨迹预览";
  $("armExecution").disabled=busy||!hasPreview||!planExecutionEligible||!execution?.hardware_execution_enabled;
@@ -171,6 +174,35 @@ async function ensurePickCamera(){
  say("ballResult","相机已就绪："+$("video").videoWidth+"×"+$("video").videoHeight+
   "。可以直接点击下方「拍摄识别黄球 · 生成轨迹预览」。");
 }
+async function capturePickFrame(){
+ await ensurePickCamera();
+ const v=$("video"),c=$("photo");
+ c.width=v.videoWidth;c.height=v.videoHeight;
+ if(!c.width||!c.height)throw Error("摄像头未采集到画面");
+ c.getContext("2d").drawImage(v,0,0);
+ const raw=await new Promise(resolve=>c.toBlob(resolve,"image/png"));
+ if(!raw)throw Error("取图失败");
+ return raw;
+}
+async function confirmEmptyFrame(raw,L){
+ const response=await fetch("/api/vision/confirm-board?square_mm="+encodeURIComponent(L),{
+  method:"POST",headers:{"Content-Type":"image/png"},body:raw
+ });
+ const result=await response.json();
+ if(!response.ok)throw Error(result.detail||"无法确认空棋盘");
+ emptyBoardConfirmed=true;
+ say("boardConfirmStatus","✓ "+result.message+"（与保存标定的角点中位偏移 "+
+   result.median_reference_difference_px+"px）");
+ say("ballResult","空棋盘参考已确认。现在把球放在标定的内部工作区，点击下方「拍摄识别黄球 · 生成轨迹预览」。");
+ return result;
+}
+$("confirmEmpty").onclick=()=>act(async()=>{
+ const L=Number($("square").value);
+ if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写原始标定的单格尺寸");
+ say("boardConfirmStatus","正在确认空棋盘，核对已保存54角点位置……");
+ const raw=await capturePickFrame();
+ await confirmEmptyFrame(raw,L);
+});
 async function detectCurrentBall(){
  await ensurePickCamera();
  latestBall=null;latestVision=null;hasPreview=false;
@@ -187,8 +219,13 @@ async function detectCurrentBall(){
  const result=await response.json();
  if(!response.ok)throw Error(result.detail||"视觉检测请求失败");
  if(!result.ball?.detected){
-  say("ballResult","已取得画面，但没有检测到黄色球。请确保球为黄色且没有被夹爪挡住，调整光线后重试。");
-  throw Error("当前帧未检测到黄色圆形球；可直接再次点击预览按钮重新取图");
+  if(result.checkerboard?.detected && result.checkerboard?.source==="live_54"){
+   // No ball is a VALID first stage, not an error. Capture this same image
+   // as the fresh board reference; do not re-calibrate any robot XYZ points.
+   await confirmEmptyFrame(raw,L);
+   return null;
+  }
+  throw Error("未识别出黄色球，也没看到完整空棋盘。请移开黄球、保证棋盘完整入镜，点击「① 无球 · 确认棋盘」");
  }
  latestBall=result.ball;latestVision=result;
  if(latestBall.center_px){
@@ -198,7 +235,7 @@ async function detectCurrentBall(){
  }
  c.style.display="block";
  const board=result.checkerboard?.detected;
- const verified=result.checkerboard?.source==="reference_partial_verified";
+ const verified=["reference_partial_verified","empty_board_frame_verified"].includes(result.checkerboard?.source);
  const zone=board
    ?(latestBall.inside_inner_board?"球心在棋盘9×6内角点区域内":
      "球心位于外圈格子或内部角点区域之外，不能规划真实抓取")
@@ -207,6 +244,10 @@ async function detectCurrentBall(){
   "，棋盘毫米坐标 "+(latestBall.board_mm_xy?.join(", ")||"暂不可计算")+
   "。\n棋盘核验："+(verified?"通过保存标定附近的实时可见角点核对":"本帧完整检测或尚未检测到")+
   "；"+zone+"。\n"+(result.warnings||[]).filter(w=>!w.includes("尚未建立相机")).join("\n"));
+ if(verified){
+  emptyBoardConfirmed=true;
+  say("boardConfirmStatus","✓ 已核验保存的棋盘参考，并从当前画面确认了未被黄球挡住的角点。");
+ }
  return result;
 }
 $("camOpen").onclick=()=>act(ensurePickCamera);
@@ -250,8 +291,12 @@ $("preview").onclick=()=>act(async()=>{
  // A click works even without a prior 'Open camera' or 'Detect ball' click.
  // It must NOT silently reuse the ball coordinates from an earlier image.
  await detectCurrentBall();
+ if(!latestBall){
+  say("previewStatus","✓ 已从当前无球画面确认棋盘位置。现在放回黄色球，再点击一次预览即可；已保存的五点标定和抓球示教都保留。");
+  return;
+ }
  if(!latestVision?.checkerboard?.detected || !latestBall?.board_mm_xy)
-   throw Error("球已经找到，但本帧未核验棋盘角点。球遮挡角点时请先移走球识别棋盘，再将球放回；绝不使用未核验的旧位置生成轨迹");
+   throw Error("球已定位，但棋盘位置尚未核验。请先拿走球，点击上方「① 无球 · 确认棋盘」一次，再放回球重试；无需重新P1～V1");
  if(!latestBall.inside_inner_board)
    throw Error("球虽然可能在棋盘纸上，但球心不在9×6内角点的安全区域。请移到内部四个标定点覆盖的区域再试");
  if(!saved)
@@ -266,7 +311,10 @@ $("preview").onclick=()=>act(async()=>{
   " mm，共 "+result.number_of_steps+" 步。\n"+
   result.requirements.join("\n"));
  hasPreview=true;
- planExecutionEligible=Boolean(result.execution_eligible);
+ // Cached/partially visible chessboard evidence is sufficient for read-only
+ // trajectory preview only. It does not grant hardware movement.
+ planExecutionEligible=Boolean(result.execution_eligible)&&
+   latestVision?.checkerboard?.source==="live_54";
  if(result.reachability_warnings?.length){
    say("previewStatus",
      $("previewStatus").textContent+
@@ -391,6 +439,13 @@ $("pickTorqueRefresh").onclick=async()=>{
    if(!attach.connected)$("pickTorqueMessage").textContent=attach.reason||"未发现机械臂";
   }
   await refreshPickHealth();
+  try{
+   const ref=await api("/api/vision/board-reference");
+   emptyBoardConfirmed=Boolean(ref.confirmed);
+   say("boardConfirmStatus",ref.confirmed
+      ?"✓ 本次服务已确认无球棋盘。现在直接放黄球检测即可；每帧仍会核验位置。"
+      :"尚未确认本次空棋盘：拿走球，点击「① 无球 · 确认棋盘」一次即可，不用重做机械臂五点标定。");
+  }catch(error){say("boardConfirmStatus","尚未读取棋盘参考："+error.message)}
   const previous=await api("/api/pick/profile");
   profile=previous.profile||{};
   saved=Boolean(previous.saved);
