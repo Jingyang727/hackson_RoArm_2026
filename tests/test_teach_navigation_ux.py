@@ -44,7 +44,7 @@ class NavigationAndTeachUxTests(unittest.TestCase):
         # block must rebuild them again *after* clearing busy, on success
         # and failure, rather than leaving all buttons disabled forever.
         start=html.index("function renderPoses(){")
-        end=html.index('$("#joint").onchange',start)
+        end=html.index('$("joint").onchange',start)
         capture=html[start:end]
         self.assertIn("btn.disabled=busy;",capture)
         self.assertRegex(capture,r'finally\\{\\s*busy=false;[\\s\\S]*?renderPoses\\(\\);renderState\\(\\);')
