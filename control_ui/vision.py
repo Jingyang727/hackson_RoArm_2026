@@ -55,6 +55,53 @@ def find_chessboard(image):
     return grid, h
 
 
+def find_chessboard_near_reference(image, reference):
+    """Detect the known board in a SMALL ROI, not the full 1080p frame.
+
+    The saved 54 corners define where the board is expected. This function
+    only searches the region; a subsequent difference check still must verify
+    that the live corners match the saved coordinates. No XYZ data is changed.
+    """
+    if not isinstance(reference, dict):
+        return None, None
+    height, width = image.shape[:2]
+    if reference.get("image_size") != [width, height]:
+        return None, None
+    try:
+        points = np.asarray(reference.get("corners_px"), dtype=np.float32)
+    except (TypeError, ValueError):
+        return None, None
+    if points.shape != (54, 2) or not np.isfinite(points).all():
+        return None, None
+    grid = points.reshape(6, 9, 2)
+    spacing = np.r_[
+        np.linalg.norm(np.diff(grid, axis=0), axis=2).flatten(),
+        np.linalg.norm(np.diff(grid, axis=1), axis=2).flatten(),
+    ]
+    if len(spacing) == 0 or float(np.median(spacing)) < 5:
+        return None, None
+    padding = max(22, int(np.percentile(spacing, 90) * 1.8))
+    x0 = max(0, int(np.floor(points[:, 0].min())) - padding)
+    y0 = max(0, int(np.floor(points[:, 1].min())) - padding)
+    x1 = min(width, int(np.ceil(points[:, 0].max())) + padding + 1)
+    y1 = min(height, int(np.ceil(points[:, 1].max())) + padding + 1)
+    if x1 - x0 < 80 or y1 - y0 < 80:
+        return None, None
+    detected, _ = find_chessboard(image[y0:y1, x0:x1])
+    if detected is None:
+        return None, None
+    detected = detected + np.array([x0, y0], dtype=np.float32)
+    image_points = np.ascontiguousarray(detected.reshape(-1, 2), dtype=np.float32)
+    target_points = np.array(
+        [(col, row) for row in range(PATTERN[1]) for col in range(PATTERN[0])],
+        dtype=np.float32,
+    )
+    homography, _ = cv2.findHomography(image_points, target_points, method=0)
+    if homography is None or not np.isfinite(homography).all():
+        return None, None
+    return detected, homography
+
+
 def find_yellow_ball(image):
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     # Broad enough for pastel foam balls in ambient white-room lighting.
@@ -277,7 +324,9 @@ def confirm_empty_board(raw, square_mm, saved_reference):
         )
     if square_mm is None or abs(float(saved_reference.get("square_mm", -1)) - float(square_mm)) > 0.05:
         raise VisionError("棋盘单格尺寸与已保存XY标定不一致，请恢复原始单格尺寸")
-    grid, _ = find_chessboard(image)
+    # Full-frame exhaustive SB on a largely empty 1080p image can take a
+    # very long time. The saved reference already tells us where to look.
+    grid, _ = find_chessboard_near_reference(image, saved_reference)
     if grid is None:
         raise VisionError("未看到完整的9×6内部角点。先拿开黄球，保持棋盘完整入镜，再点击确认棋盘")
     stored=np.asarray(saved_reference.get("corners_px"),dtype=np.float32)
@@ -323,26 +372,42 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
         raise VisionError("单格尺寸必须是有效的 0～200 mm 正数")
     image = decode_image(raw)
     height, width = image.shape[:2]
-    grid, h = find_chessboard(image)
     ball = find_yellow_ball(image)
     warnings = []
-    partial = None
-    if grid is None and reference is not None:
-        # Never use a stale stored homography without independent live evidence.
-        if square_mm is not None and abs(float(reference.get("square_mm", -1)) - square_mm) < 0.05:
-            partial = verify_confirmed_empty_board(image, reference, ball)
-            if partial is None:
-                partial = verify_visible_reference_corners(image, reference, ball)
+    grid, h, partial = None, None, None
+    same_reference = (
+        isinstance(reference, dict) and
+        square_mm is not None and
+        abs(float(reference.get("square_mm", -1)) - square_mm) < 0.05 and
+        reference.get("image_size") == [width, height]
+    )
+    if same_reference and ball:
+        # Never do costly EXHAUSTIVE full-frame chessboard detection on an
+        # occluded ball frame. Verify observable evidence from known corners.
+        partial = verify_confirmed_empty_board(image, reference, ball)
+        if partial is None:
+            partial = verify_visible_reference_corners(image, reference, ball)
         if partial:
             grid = partial["corners"]
             image_points = grid.reshape(-1, 2).astype(np.float32)
             targets = np.asarray(
                 [(c, r) for r in range(PATTERN[1]) for c in range(PATTERN[0])],
-                dtype=np.float32
+                dtype=np.float32,
             )
             h, _ = cv2.findHomography(image_points, targets, method=0)
             if h is None or not np.isfinite(h).all():
                 grid, partial, h = None, None, None
+    elif same_reference:
+        # An empty scene should be searched only around the saved chessboard,
+        # and re-check its orientation/position before accepting the mapping.
+        grid, h = find_chessboard_near_reference(image, reference)
+        if grid is not None:
+            stored = np.asarray(reference["corners_px"], dtype=np.float32)
+            delta = np.linalg.norm(grid.reshape(-1, 2) - stored, axis=1)
+            if float(np.median(delta)) > 5 or float(np.percentile(delta, 90)) > 8:
+                grid, h = None, None
+    else:
+        grid, h = find_chessboard(image)
     checker = {
         "detected": grid is not None,
         "pattern_inner": list(PATTERN),
