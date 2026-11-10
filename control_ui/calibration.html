@@ -160,7 +160,7 @@ function render(){
  const ready=Boolean(vision?.checkerboard?.detected)&&Boolean(shot);
  $("begin").disabled=busy||!ready;
  $("analyze").disabled=busy||!stream;
- $("capture").disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+ $("capture").disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault;
  $("captureTop").disabled=$("capture").disabled;
  $("captureTop").textContent="记录当前 "+chosen+" 的 XYZ";
  $("save").disabled=busy||!summary?.ready||modifiedPoints.size>0;
@@ -211,12 +211,13 @@ function render(){
   row.choose.disabled=busy;
   row.record.textContent=captureInProgress===target.id?"读取中…":
     saved&&!dirty?"重新记录 "+target.id:"记录 "+target.id+" XYZ";
-  row.record.disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+  row.record.disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault;
   row.record.title=row.record.disabled
     ?"请先识别棋盘格、连接机械臂并确保没有待完成动作"
     :"读取真实机械臂 XYZ；失败会在此行显示原因";
   const message=captureFeedback.get(target.id);
   const unavailable=!session?"请先识别棋盘并开始标定":
+    !vision?.checkerboard?.detected?"已有记录已恢复，先重新识别棋盘以确认位置":
     !health?.connected?"机械臂当前未连接":
     health?.fault?"动作异常锁定："+(health.fault.message||"请检查机械臂反馈"):
     health?.pending?"上一条动作尚未收到到位确认":
@@ -260,8 +261,9 @@ async function cameras(){
 }
 async function startCamera(){
  if(!navigator.mediaDevices?.getUserMedia)throw Error("无法使用浏览器摄像头");
- if(summary?.records?.length&&!confirm("重新打开相机将需要重新标定，清空本次记录吗？"))return;
- vision=null;shot=null;session=null;summary=null;modifiedPoints.clear();drawOverlay();
+ // Reopening the USB camera must not erase P1/P2 stored in this server.
+ // Require a fresh board scan before any additional point capture.
+ vision=null;shot=null;modifiedPoints.clear();drawOverlay();
  if(stream)stream.getTracks().forEach(t=>t.stop());
  let video={width:{exact:1920},height:{exact:1080},frameRate:{ideal:30}};
  if($("device").value)video.deviceId={exact:$("device").value};
@@ -364,7 +366,6 @@ $("overlay").addEventListener("click",e=>{
 $("cameraStart").onclick=()=>doAction(startCamera);
 $("cameraStop").onclick=stopCamera;
 $("analyze").onclick=()=>doAction(async()=>{
- if(summary?.records?.length&&!confirm("重新识别棋盘会清空已记录的点，确认重做吗？"))return;
  const L=Number($("square").value);
  if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写实测棋盘单格边长 mm");
  const snapshot=captureImage();
@@ -376,14 +377,30 @@ $("analyze").onclick=()=>doAction(async()=>{
  const data=await resp.json();
  if(!resp.ok)throw Error(data.detail||"视觉分析失败");
  if(!data.checkerboard?.detected)throw Error("未识别到完整54个棋盘角点，请调整光线及遮挡");
- // Successful recognition automatically creates the calibration session.
- const started=await api("/api/calibration/start","POST",{
-  square_mm:L,image_size:[snapshot.width,snapshot.height],
-  corners_px:data.checkerboard.corners_px
- });
- shot=snapshot;vision=data;session=started.session_id;summary=started;
- chosen="P1";modifiedPoints.clear();captureFeedback.clear();drawOverlay();drawZoomFrame();
- say("54角点已识别，标定会话已自动开始！视频继续实时播放，P1～V1持续可见。连接串口后，直接点击各点旁边绿色「记录 XYZ」。");
+ // The backend keeps the 4+1 session while this service is running.
+ // Re-scanning a fixed camera/board must not silently erase P1/P2.
+ const existing=Boolean(session&&summary?.records?.length);
+ if(existing){
+  if(Number(summary.square_mm)!==L ||
+     summary.image_size?.[0]!==snapshot.width || summary.image_size?.[1]!==snapshot.height){
+   throw Error("当前棋盘单格边长或摄像头分辨率与原标定会话不同；不能混用记录。请检查设置并使用「重新开始标定」");
+  }
+  if(!confirm("发现已记录 "+summary.records.length+"/5 个点。仅在摄像头、棋盘格和底座均未移动时可以继续。确认保留已有点并重新识别画面？"))return;
+  // Existing board reference fingerprint remains on the server. A relocated
+  // board is rejected later by the pick plan's 54-corner stability check.
+ }else{
+  const started=await api("/api/calibration/start","POST",{
+   square_mm:L,image_size:[snapshot.width,snapshot.height],
+   corners_px:data.checkerboard.corners_px
+  });
+  session=started.session_id;summary=started;
+ }
+ shot=snapshot;vision=data;
+ chosen=existing?(summary.next_id||"P1"):"P1";
+ modifiedPoints.clear();captureFeedback.clear();drawOverlay();drawZoomFrame();
+ say(existing
+  ?"已恢复并保留原有 "+summary.records.length+"/5 点记录；确认标记与实际棋盘位置一致后，继续记录 "+chosen+"。"
+  :"54角点已识别，标定会话已开始！视频保持实时播放，请逐点记录。");
 });
 $("begin").onclick=()=>doAction(async()=>{
  if(session&&summary?.records?.length&&!confirm("开始新标定会清空已记录的全部标定点，继续？"))return;
@@ -417,8 +434,9 @@ async function capturePoint(pointId){
   render();return;
  }
  chosen=pointId;drawOverlay();drawZoomFrame();render();
- if(!session){
-  const message="请先完成54角点识别并开始标定会话。";
+ if(!session||!vision?.checkerboard?.detected){
+  const message=!session?"请先完成54角点识别并开始标定会话。":
+    "已恢复标定记录，先重新识别54个棋盘角点并确认摄像头、棋盘未移动。";
   captureFeedback.set(pointId,{kind:"error",text:"未记录："+message});
   $("captureStatus").className="error";
   $("captureStatus").textContent=pointId+"："+message;
@@ -558,6 +576,14 @@ window.addEventListener("pagehide",stopCamera);
   if(!auto.connected)say(auto.reason||"自动连接未成功；需要时可展开连接设置");
  }
  health=await api("/api/health");
+ try{
+  const previous=await api("/api/calibration/status");
+  if(previous?.session_id&&previous.records?.length){
+   session=previous.session_id;summary=previous;chosen=previous.next_id||"P1";
+   if(Number.isFinite(previous.square_mm))$("square").value=String(previous.square_mm);
+   say("已恢复服务端现有 "+previous.records.length+"/5 个标定点。请重新识别棋盘角点；不要移动摄像头和棋盘。");
+  }
+ }catch(err){say("无法读取旧标定会话："+err.message)}
  const ports=await api("/api/ports");
  $("serialPort").replaceChildren(...ports.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));
  if(health?.port&&ports.some(p=>p.device===health.port))$("serialPort").value=health.port;
