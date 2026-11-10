@@ -41,6 +41,11 @@ class TeachTarget(BaseModel):
     target_deg: float
 
 
+class TeachRelative(BaseModel):
+    joint: int
+    delta_deg: float
+
+
 class TeachCapture(BaseModel):
     stage: str
 
@@ -324,6 +329,11 @@ def teach_poses():
 @app.post("/api/teach/capture")
 def teach_capture(req: TeachCapture):
     return invoke(capture_pose, service, req.stage)
+
+
+@app.post("/api/teach/move-relative")
+def teach_move_relative(req: TeachRelative):
+    return invoke(service.teach_move_relative, req.joint, req.delta_deg)
 
 
 @app.post("/api/teach/move")
