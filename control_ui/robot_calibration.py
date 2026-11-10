@@ -345,6 +345,7 @@ class RobotCalibration:
                 "square_mm": self.square_mm,
                 "image_size": self.image_size,
                 "corners_saved": self.corners_px is not None,
+                "corners_px": [p.copy() for p in self.corners_px] if self.corners_px else None,
                 "records": records,
                 "saved": self.saved,
                 "restored_from": self.restored_from,
