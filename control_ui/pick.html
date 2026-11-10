@@ -681,7 +681,7 @@ $("diagnosePick").onclick=async()=>{
   }
   lines.push(d.ready?"当前单步门槛通过（不代表已验证碰撞安全）":
     "不可直接发动作："+(d.issues||[]).join("；"));
-  say("poseDiagnostics",lines.join("\\n"));
+  say("poseDiagnostics",lines.join("\n"));
  }catch(e){say("poseDiagnostics","只读诊断未完成："+e.message+
     "。请先定位黄球并建立执行会话，检查连接/待完成动作。");}
 };
