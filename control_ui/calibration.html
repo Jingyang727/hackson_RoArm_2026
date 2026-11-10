@@ -680,6 +680,12 @@ window.addEventListener("pagehide",stopCamera);
   const previous=await api("/api/calibration/status");
   if(previous?.session_id){
    session=previous.session_id;summary=previous;chosen=previous.next_id||"P1";
+   for(const record of previous.records||[]){
+    const target=TARGETS.find(t=>t.id===record.id);
+    if(target&&Array.isArray(record.grid)&&record.grid.length===2){
+     target.col=record.grid[0];target.row=record.grid[1];
+    }
+   }
    if(Number.isFinite(previous.square_mm))$("square").value=String(previous.square_mm);
    const recovered=restoreSavedCorners(previous);
    say(recovered?"已恢复 "+previous.records.length+"/5 个点及原始54角点。打开相机即可继续对准，除非相机或棋盘移动，否则不用重新识别。":"已恢复记录，但缺少有效角点；请检查保存数据。");
