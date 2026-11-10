@@ -21,6 +21,7 @@ class FakeElement {
     this.classList = {add() {},remove() {},contains() {return false}};
   }
   addEventListener(type,callback) {this.events[type]=callback}
+  setAttribute(name,value) {this[name]=value}
   replaceChildren(...children) {this.children=children}
   append(...children) {this.children.push(...children)}
   scrollIntoView() {this.scrolled=true}
