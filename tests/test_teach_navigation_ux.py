@@ -38,6 +38,23 @@ class NavigationAndTeachUxTests(unittest.TestCase):
         self.assertIn("剩余",html)
         self.assertNotIn("动作回执："+'" +JSON.stringify(',html)
 
+    def test_fast_teach_light_theme_has_explicit_readable_text_contrast(self):
+        html=(ROOT/"fast_teach.html").read_text(encoding="utf-8")
+        self.assertIn('<body class="teach-page">',html)
+        self.assertIn('id="teach-accessibility-overrides"',html)
+        for selector in (
+            ".teach-page .notice",
+            ".teach-page .pose",
+            ".teach-page .chip",
+            ".teach-page button:disabled",
+            ".teach-page .warning",
+        ):
+            self.assertIn(selector,html)
+        # Accessible teaching theme must be declared after the original
+        # dark local rules, otherwise the dark palette returns.
+        self.assertGreater(html.index("teach-accessibility-overrides"),
+                           html.index(".pose{background:#263b55"))
+
     def test_navigation_helper_is_exposed_by_server(self):
         app=(ROOT/"main.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/assets/nav_status.js")',app)
