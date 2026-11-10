@@ -165,6 +165,15 @@ function workspaceAssessment(){
 function drawWorkspaceOverlay(){
  const v=$("video"),c=$("workspaceOverlay");
  if(!v||!c||!workspaceData?.available||!v.videoWidth||!v.videoHeight)return;
+ if(workspaceData.image_size?.[0]!==v.videoWidth||
+    workspaceData.image_size?.[1]!==v.videoHeight){
+  c.style.display="none";
+  say("workspaceAssessment","不能准确叠加：摄像头当前为 "+
+    v.videoWidth+"×"+v.videoHeight+"，但保存的P1–P4标定使用 "+
+    workspaceData.image_size.join("×")+"。请选回原来的USB摄像头和分辨率；现有标定数据不会被清空。");
+  return;
+ }
+ c.style.display="block";
  const width=v.clientWidth||v.videoWidth, height=v.clientHeight||v.videoHeight;
  if(!width||!height)return;
  const dpr=Math.min(2,window.devicePixelRatio||1);
