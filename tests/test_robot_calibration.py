@@ -48,6 +48,16 @@ class FakeArm:
 
 
 class XYMathTests(unittest.TestCase):
+    def setUp(self):
+        # Never touch the user's actual ~/.evoarm/ files in automated tests.
+        folder=tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        output=Path(folder.name)
+        one=patch("control_ui.robot_calibration.session_path",return_value=output/"session.json")
+        two=patch("control_ui.robot_calibration.default_path",return_value=output/"xy.json")
+        one.start();two.start()
+        self.addCleanup(one.stop);self.addCleanup(two.stop)
+
     def records(self):
         return [{"id": n, "board_mm": [x * SIZE, y * SIZE],
                  "robot_xyz_mm": [*mapped_xy(x, y), 85]} for n, x, y in TARGETS]
@@ -115,6 +125,54 @@ class XYMathTests(unittest.TestCase):
         fake.xyz=[*mapped_xy(7,1),85]
         with self.assertRaises(CalibrationError):
             cal.capture(token,"P2",7,1,fake,sleep_fn=lambda _:None)
+
+    def test_session_recovers_after_restart_without_losing_p1_p2(self):
+        cal, arm=RobotCalibration(),FakeArm()
+        corners=[[100+c*40,100+r*40] for r in range(6) for c in range(9)]
+        token=cal.start(SIZE,[1920,1080],corners)["session_id"]
+        for name,col,row in TARGETS[:2]:
+            arm.xyz=[*mapped_xy(col,row),85]
+            cal.capture(token,name,col,row,arm,sleep_fn=lambda _:None)
+        restored=RobotCalibration()
+        state=restored.summary()
+        self.assertEqual(state["session_id"],token)
+        self.assertEqual([r["id"] for r in state["records"]],["P1","P2"])
+        self.assertFalse(state["saved"])
+        self.assertTrue(state["corners_saved"])
+        self.assertTrue(Path(state["restored_from"]).exists())
+        self.assertEqual(arm.commands,[])
+
+    def test_fifth_point_autosaves_and_restarts_with_validated_final(self):
+        cal, arm=RobotCalibration(),FakeArm()
+        corners=[[100+c*40,100+r*40] for r in range(6) for c in range(9)]
+        token=cal.start(SIZE,[1920,1080],corners)["session_id"]
+        for name,col,row in TARGETS:
+            arm.xyz=[*mapped_xy(col,row),85]
+            result=cal.capture(token,name,col,row,arm,sleep_fn=lambda _:None)
+        self.assertTrue(result["ready"])
+        self.assertTrue(result["saved"])
+        output=Path(result["saved_path"])
+        self.assertTrue(output.exists())
+        self.assertEqual(output.stat().st_mode & 0o777,0o600)
+        recovered=RobotCalibration().summary()
+        self.assertTrue(recovered["ready"])
+        self.assertTrue(recovered["saved"])
+        self.assertEqual(len(recovered["records"]),5)
+        self.assertEqual(len(json.loads(output.read_text())["corners_px"]),54)
+        self.assertEqual(arm.commands,[])
+
+    def test_new_session_does_not_overwrite_previous_final_calibration(self):
+        from control_ui.robot_calibration import default_path
+        cal,arm=RobotCalibration(),FakeArm()
+        corners=[[100+c*40,100+r*40] for r in range(6) for c in range(9)]
+        token=cal.start(SIZE,[1920,1080],corners)["session_id"]
+        for name,col,row in TARGETS:
+            arm.xyz=[*mapped_xy(col,row),85]
+            cal.capture(token,name,col,row,arm,sleep_fn=lambda _:None)
+        old_bytes=default_path().read_bytes()
+        cal.start(SIZE,[1920,1080],corners)
+        self.assertFalse(cal.summary()["saved"])
+        self.assertEqual(default_path().read_bytes(),old_bytes)
 
     def test_not_ready_without_validation(self):
         cal, fake = RobotCalibration(), FakeArm()
