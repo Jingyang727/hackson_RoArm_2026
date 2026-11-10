@@ -98,6 +98,60 @@ def default_path():
     return Path.home() / ".evoarm" / "robot_xy_calibration.json"
 
 
+def session_path():
+    """Separate per-point draft so a process restart never destroys P1–V1."""
+    return Path.home() / ".evoarm" / "robot_xy_session.json"
+
+
+def _write_json_atomic(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(data, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except (OSError, ValueError, TypeError) as exc:
+        raise CalibrationError(f"标定数据写入磁盘失败，不能保证断电后恢复：{exc}") from exc
+
+
+def _check_restored_records(raw, square_mm):
+    if not isinstance(raw, list) or len(raw) > 5:
+        raise CalibrationError("磁盘标定点列表格式错误")
+    restored = {}
+    locations = set()
+    for row in raw:
+        if not isinstance(row, dict) or row.get("id") not in EXPECTED_POINT_IDS:
+            raise CalibrationError("磁盘标定点 ID 不合法")
+        key = row["id"]
+        if key in restored:
+            raise CalibrationError("磁盘标定点包含重复 ID")
+        grid = row.get("grid")
+        if (not isinstance(grid, list) or len(grid) != 2 or
+            any(type(n) is not int for n in grid) or
+            not (0 <= grid[0] <= 8 and 0 <= grid[1] <= 5)):
+            raise CalibrationError("磁盘标定点网格位置无效")
+        if tuple(grid) in locations:
+            raise CalibrationError("磁盘标定点有重复角点")
+        locations.add(tuple(grid))
+        board = row.get("board_mm")
+        xyz = row.get("robot_xyz_mm")
+        pose = row.get("tool_pose_rad")
+        if (not isinstance(board, list) or len(board) != 2 or
+            not isinstance(xyz, list) or len(xyz) != 3 or
+            not isinstance(pose, list) or len(pose) != 2):
+            raise CalibrationError("磁盘标定点坐标格式无效")
+        for name, values in (("棋盘", board), ("机械臂", xyz), ("工具姿态", pose)):
+            for n in values:
+                _finite_number(n, name)
+        if any(abs(board[i] - grid[i] * square_mm) > 0.05 for i in range(2)):
+            raise CalibrationError("磁盘标定点与单格尺寸不一致")
+        restored[key] = row
+    return restored
+
+
 class RobotCalibration:
     def __init__(self):
         self.lock = threading.RLock()
@@ -106,6 +160,66 @@ class RobotCalibration:
         self.image_size = None
         self.corners_px = None
         self.records = {}
+        self.saved = False
+        self.restored_from = None
+        self._restore_existing()
+
+    def _restore_existing(self):
+        """Recover exact prior draft; otherwise restore validated final file.
+
+        Never overwrite a saved calibration with an incomplete new session.
+        Reject malformed JSON rather than trusting it for motor motion.
+        """
+        with self.lock:
+            for candidate, is_final in ((session_path(), False), (default_path(), True)):
+                if not candidate.exists():
+                    continue
+                try:
+                    raw = json.loads(candidate.read_text(encoding="utf-8"))
+                    if not isinstance(raw, dict):
+                        raise CalibrationError("磁盘标定文件必须是对象")
+                    scale = _finite_number(raw.get("square_mm"), "磁盘单格尺寸")
+                    dims = raw.get("image_size")
+                    if not 0.1 <= scale <= 200 or not isinstance(dims, list) or len(dims) != 2 or any(type(v) is not int or v < 240 or v > 4096 for v in dims):
+                        raise CalibrationError("磁盘棋盘尺寸或图像尺寸无效")
+                    corners = raw.get("corners_px")
+                    if corners is not None:
+                        if not isinstance(corners, list) or len(corners) != 54:
+                            raise CalibrationError("保存的54个角点不完整")
+                        for point in corners:
+                            if (not isinstance(point, list) or len(point) != 2 or
+                                any(type(n) not in (int, float) or not math.isfinite(n) for n in point) or
+                                not (0 <= point[0] < dims[0] and 0 <= point[1] < dims[1])):
+                                raise CalibrationError("保存的角点像素坐标无效")
+                    records = _check_restored_records(raw.get("records"), scale)
+                    if is_final and (len(records) != 5 or
+                                     not fit_board_to_robot(list(records.values()))["validated"]):
+                        raise CalibrationError("已保存标定结果未通过重新校验")
+                except (OSError, ValueError, KeyError, TypeError, CalibrationError):
+                    # Do not delete or overwrite the unreadable file.
+                    continue
+                self.session_id = raw.get("session_id") if (not is_final and isinstance(raw.get("session_id"), str) and len(raw["session_id"]) <= 128) else uuid.uuid4().hex
+                self.square_mm = scale
+                self.image_size = dims.copy()
+                self.corners_px = corners
+                self.records = records
+                self.saved = bool(is_final or raw.get("saved", False))
+                self.restored_from = str(candidate)
+                return
+
+    def _persist_session(self):
+        if not self.session_id:
+            return
+        _write_json_atomic(session_path(), {
+            "version": 2,
+            "session_id": self.session_id,
+            "square_mm": self.square_mm,
+            "image_size": self.image_size,
+            "corners_px": self.corners_px,
+            "records": [self.records[k] for k in EXPECTED_POINT_IDS if k in self.records],
+            "saved": self.saved,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
 
     def start(self, square_mm, image_size, corners_px=None):
         value = _finite_number(square_mm, "单格边长")
@@ -134,6 +248,9 @@ class RobotCalibration:
             self.image_size = image_size.copy()
             self.corners_px = validated_corners
             self.records = {}
+            self.saved = False
+            self.restored_from = None
+            self._persist_session()
             return self.summary()
 
     def _session(self, token):
@@ -210,7 +327,15 @@ class RobotCalibration:
                 "tool_pose_rad": [round(pitch, 5), round(roll, 5)],
                 "captured_at": datetime.now(timezone.utc).isoformat(),
             }
-            return self.summary()
+            self.saved = False
+            self._persist_session()
+            result = self.summary()
+            # The final V1 record must survive even if the user cannot reach
+            # a Save button due to layout. Only auto-save a validated 4+1 fit.
+            if result["ready"]:
+                self.save(token)
+                result = self.summary()
+            return result
 
     def summary(self):
         with self.lock:
@@ -221,6 +346,9 @@ class RobotCalibration:
                 "image_size": self.image_size,
                 "corners_saved": self.corners_px is not None,
                 "records": records,
+                "saved": self.saved,
+                "restored_from": self.restored_from,
+                "saved_path": str(default_path()) if self.saved else None,
                 "next_id": next((p for p in EXPECTED_POINT_IDS if p not in self.records), None),
                 "ready": False,
                 "fit": None,
@@ -261,11 +389,9 @@ class RobotCalibration:
                 "note": "Planar board XY->robot XY only; Z, TCP and collisions uncalibrated",
             }
             file = default_path()
-            file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            tmp = file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, file)
+            _write_json_atomic(file, data)
+            self.saved = True
+            self._persist_session()
             return {"saved": True, "path": str(file), "result": result}
 
 
