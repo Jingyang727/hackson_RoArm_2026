@@ -434,6 +434,12 @@ def pick_execution_step(req: PickStepRequest):
                   req.declaration, service)
 
 
+@app.get("/api/pick/diagnose")
+def pick_execution_diagnose():
+    """Read-only T=1051 preflight: no T=104/T=106/T=210 commands."""
+    return invoke(executor.diagnose, service)
+
+
 @app.post("/api/pick/cancel")
 def pick_execution_cancel():
     return executor.cancel(service)
