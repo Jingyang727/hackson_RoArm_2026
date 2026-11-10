@@ -186,10 +186,20 @@ class RobotCalibration:
             if other:
                 baseline = other[0]
                 baseline_pitch, baseline_roll = baseline["tool_pose_rad"]
-                if abs(pitch-baseline_pitch) > math.radians(5) or abs(roll-baseline_roll) > math.radians(5):
-                    raise CalibrationError("请将所有标定点的夹爪姿态保持一致（Pitch/Roll差应≤5°）；否则末端工具偏移会影响XY对齐")
-                if abs(float(sample[2]) - baseline["robot_xyz_mm"][2]) > 15:
-                    raise CalibrationError("各标定点末端Z高度差超过15mm，无法保证是同一工具参考平面")
+                pitch_diff = round(math.degrees(abs(pitch - baseline_pitch)), 1)
+                roll_diff = round(math.degrees(abs(roll - baseline_roll)), 1)
+                if pitch_diff > 5 or roll_diff > 5:
+                    raise CalibrationError(
+                        f"末端姿态与 {baseline['id']} 不一致：Pitch 相差 {pitch_diff}°，"
+                        f"Roll 相差 {roll_diff}°（上限均为5°）。"
+                        "请重新调整到和首次记录相同的夹爪朝向，再点击此点重录；已成功记录的其他点不会丢失"
+                    )
+                z_diff = round(abs(float(sample[2]) - baseline["robot_xyz_mm"][2]), 1)
+                if z_diff > 15:
+                    raise CalibrationError(
+                        f"末端高度与 {baseline['id']} 相差 {z_diff} mm（上限15mm）。"
+                        "请保持与首次标定相近的夹爪高度，再重新记录；其他已成功点会保留"
+                    )
             self.records[point_id] = {
                 "id": point_id,
                 "role": "validate" if point_id == "V1" else "train",
