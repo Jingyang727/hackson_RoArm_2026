@@ -43,6 +43,17 @@ function loadPage(db,initialTorque=1){
       has_session:false,session_id:null,next_index:0,total:0,next_step:null,
       hardware_execution_enabled:false,arm_pending:null,arm_fault:null
     };
+    else if(url==="/api/vision/board-reference")data={
+      confirmed:Boolean(db.boardConfirmed),square_mm:24,
+      image_size:[1920,1080],message:"已确认"
+    };
+    else if(url.startsWith("/api/vision/confirm-board?")){
+      db.boardConfirmed=true;
+      data={
+        confirmed:true,message:"空棋盘已确认，放回黄球后再识别",
+        median_reference_difference_px:1.2,
+      };
+    }
     else if(url==="/api/pick/profile")data={
       profile:db.profile||{},saved:Boolean(db.saved),
       source:db.profile?"/mock/pick_profile.json":null
@@ -52,7 +63,7 @@ function loadPage(db,initialTorque=1){
       data={
         image:{width:1920,height:1080},
         checkerboard:{
-          detected:true,source:"reference_partial_verified",
+          detected:true,source:hasBall?"reference_partial_verified":"live_54",
           corners_px:Array.from({length:54},(_,i)=>[200+(i%9)*25,200+Math.floor(i/9)*25])
         },
         ball:hasBall?{
@@ -168,13 +179,15 @@ test("one click opens camera, detects ball, and previews when saved profile exis
  assert.ok(!p.requests.includes("POST /api/pick/step"));
 });
 
-test("ball recognition failure gives useful guidance and preview button remains clickable",async()=>{
+test("empty board triggers one-time confirmation instead of contradictory missing-ball error",async()=>{
  const p=loadPage({saved:true,ballPresent:false,profile:{grip_z_mm:100}});
  for(let i=0;i<5;i++)await flush();
  assert.equal(p.el("preview").disabled,false);
  await p.el("preview").onclick();
- assert.match(p.el("previewStatus").textContent,/未检测到黄色圆形球/);
- assert.match(p.el("ballResult").textContent,/没有检测到黄色球/);
+ assert.match(p.el("previewStatus").textContent,/已从当前无球画面确认棋盘位置/);
+ assert.match(p.el("ballResult").textContent,/空棋盘参考已确认/);
+ assert.ok(p.requests.some(x=>x.startsWith("POST /api/vision/confirm-board")));
+ assert.equal(p.el("confirmEmpty").disabled,false);
  assert.equal(p.el("preview").disabled,false);
  assert.ok(!p.requests.includes("POST /api/pick/preview"));
 });
@@ -186,4 +199,33 @@ test("unsafe place is rejected by planner instead of bypassing reachability",asy
  assert.match(p.el("previewStatus").textContent,/396.3mm/);
  assert.equal(p.el("preview").disabled,false);
  assert.ok(!p.requests.includes("POST /api/pick/step"));
+});
+
+test("blank board confirmed then ball placed: two clicks complete preview without recalibration",async()=>{
+ const db={saved:true,ballPresent:false,profile:{
+   grip_z_mm:100,place_z_mm:105,travel_z_mm:180,
+   place_xy_mm:[230,10],pitch_rad:0,roll_rad:0,
+   open_g_rad:1.5,close_g_rad:2.75,ball_diameter_mm:39
+ }};
+ const p=loadPage(db);
+ for(let i=0;i<5;i++)await flush();
+ await p.el("preview").onclick();
+ assert.equal(db.boardConfirmed,true);
+ assert.ok(!p.requests.includes("POST /api/pick/preview"));
+ db.ballPresent=true;
+ await p.el("preview").onclick();
+ assert.ok(p.requests.includes("POST /api/pick/preview"));
+ assert.match(p.el("previewStatus").textContent,/共 1 步/);
+ assert.ok(!p.requests.includes("POST /api/calibration/start"),
+   "never re-do robot five-point XY calibration");
+});
+
+test("manual empty-board button is actionable without yellow ball",async()=>{
+ const db={saved:true,ballPresent:false};
+ const p=loadPage(db);
+ for(let i=0;i<5;i++)await flush();
+ await p.el("confirmEmpty").onclick();
+ assert.equal(db.boardConfirmed,true);
+ assert.match(p.el("boardConfirmStatus").textContent,/✓/);
+ assert.ok(p.requests.some(x=>x.startsWith("POST /api/vision/confirm-board")));
 });
