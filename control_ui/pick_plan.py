@@ -208,7 +208,8 @@ def _verify_board_unchanged(calibration_data, image_size, corners_px):
 
 
 def plan_pick_place(ball_board_mm, profile, calibration_data, *,
-                    image_size=None, corners_px=None, step_xy_mm=35):
+                    image_size=None, corners_px=None, step_xy_mm=35,
+                    preview_only=False):
     profile = validate_pick_profile(profile)
     if not isinstance(calibration_data, dict) or not calibration_data.get("fit", {}).get("validated"):
         raise PickPlanningError("没有通过 4+1 验证的机器人 XY 坐标标定")
@@ -230,16 +231,26 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
         raise PickPlanningError("球心未处于已验证标定区域的内部（需离边界≥6mm），禁止坐标外推抓取")
     ball_xy = (M @ np.asarray(board_xy) + t)
     place_xy = np.asarray(profile["place_xy_mm"])
-    # Known point from manual taught place, not inferred from image.
-    for point in [ball_xy, place_xy]:
+    # The 70–370mm circle was an internal conservative SW guard, NOT a
+    # manufacturer-stated RoArm-M3 safety/reachability limit. The actual
+    # 3D IK workspace depends on Z, tool pitch, roll and servo joint limits.
+    # Do NOT apply this invented bound to a purely read-only preview.
+    # Keep execution fail-closed until real IK/collision checks exist.
+    preview_warnings = []
+    for label, point in (("抓取", ball_xy), ("放置", place_xy)):
         radius = float(np.linalg.norm(point))
         if not (70 <= radius <= 370):
-            label = "抓取" if np.array_equal(point, ball_xy) else "放置"
-            raise PickPlanningError(
-                f"{label}位置距基座水平半径 {radius:.1f}mm，"
-                "超出当前受控区 70～370mm。请重新确认这个位置确实可达并重新示教；"
-                "不要仅为通过检查而扩大半径上限"
+            warning = (
+                f"{label}点距基座水平半径 {radius:.1f}mm。软件原先设定的"
+                "70～370mm只是保守试验阈值，并非微雪官方工作空间边界；"
+                "该点的当前Z、末端姿态和沿途可达性尚未经过逆运动学与避障验证"
             )
+            if not preview_only:
+                raise PickPlanningError(
+                    warning + "。暂不能执行真机运动，但可以使用只读轨迹预览检查步骤"
+                )
+            preview_warnings.append(warning + "，仅允许查看预览，不允许创建真机执行会话")
+
     if float(np.linalg.norm(ball_xy - place_xy)) > 280:
         raise PickPlanningError("放置点与抓取点跨度太大，请重新选择较近的安全放置位置")
     # Multi-waypoint travel at manually taught elevated Z; each XY hop bounded.
@@ -283,6 +294,9 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     hand("release_ball",open_g,"松开球，观察是否落在指定位置")
     vertical("retreat",place_xy[0],place_xy[1],profile["place_z_mm"],zhigh,open_g,"分段垂直撤离")
     return {
+      "preview_only": bool(preview_only),
+      "execution_eligible": not preview_warnings,
+      "reachability_warnings": preview_warnings,
       "ball_board_mm": [round(v,2) for v in board_xy],
       "ball_robot_xy_mm": [round(float(v),2) for v in ball_xy],
       "place_robot_xy_mm": [round(float(v),2) for v in place_xy],
@@ -302,7 +316,7 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
 
 
 def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None,
-                           image_size=None, corners_px=None):
+                           image_size=None, corners_px=None, preview_only=False):
     # A new/changed XY session invalidates the old final transform. Do NOT
     # quietly execute a pick using an obsolete, previously validated map.
     if calibration_file is None:
