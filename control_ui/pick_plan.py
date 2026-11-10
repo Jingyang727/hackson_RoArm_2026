@@ -38,6 +38,75 @@ def profile_path():
     return Path.home() / ".evoarm" / "pick_profile.json"
 
 
+def draft_path():
+    return Path.home() / ".evoarm" / "pick_profile_draft.json"
+
+
+def _write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary=path.with_suffix(path.suffix+".tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as output:
+            json.dump(value, output, ensure_ascii=False, indent=2, allow_nan=False)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except (OSError, ValueError, TypeError) as exc:
+        raise PickPlanningError("示教数据无法持久化到本地磁盘："+str(exc)) from exc
+
+
+_PICK_FIELDS={
+    "grip_z_mm", "place_z_mm", "travel_z_mm", "place_xy_mm",
+    "pitch_rad", "roll_rad", "open_g_rad", "close_g_rad",
+    "ball_diameter_mm",
+}
+
+
+def save_pick_draft(partial):
+    """Persist partial teaching after EACH actual feedback read, not only at the end.
+
+    This is a record of measured values, not authorization for robot motion.
+    """
+    if not isinstance(partial, dict) or any(k not in _PICK_FIELDS for k in partial):
+        raise PickPlanningError("示教草稿包含未知字段")
+    clean={}
+    for field, value in partial.items():
+        if field=="place_xy_mm":
+            if not isinstance(value, (list,tuple)) or len(value)!=2:
+                raise PickPlanningError("示教放置 XY 格式不正确")
+            clean[field]=[_num(x,"放置XY") for x in value]
+        else:
+            clean[field]=_num(value,field)
+    _write_json(draft_path(),clean)
+    return {"saved":True,"draft":True,"path":str(draft_path()),"fields":list(clean)}
+
+
+def load_pick_progress():
+    """Prefer unsaved partial draft, else restore completed profile."""
+    for source, is_completed in ((draft_path(),False),(profile_path(),True)):
+        if not source.exists():
+            continue
+        try:
+            data=_read_file(source)
+            if not isinstance(data,dict) or any(key not in _PICK_FIELDS for key in data):
+                continue
+            cleaned={}
+            for key,value in data.items():
+                if key=="place_xy_mm":
+                    if not isinstance(value,(list,tuple)) or len(value)!=2:
+                        raise PickPlanningError("不合法的放置XY草稿")
+                    cleaned[key]=[_num(x,"放置XY") for x in value]
+                else:
+                    cleaned[key]=_num(value,key)
+            if is_completed:
+                cleaned=validate_pick_profile(cleaned)
+            return {"profile":cleaned,"saved":is_completed,"source":str(source)}
+        except (PickPlanningError,OSError,TypeError,ValueError):
+            continue
+    return {"profile":{},"saved":False,"source":None}
+
+
 def _convex_hull(points):
     points = sorted(set((float(x), float(y)) for x, y in points))
     if len(points) < 3:
@@ -225,9 +294,10 @@ def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file
 def save_pick_profile(profile):
     valid=validate_pick_profile(profile)
     path=profile_path()
-    path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    out=path.with_suffix(".tmp")
-    out.write_text(json.dumps(valid,ensure_ascii=False,indent=2),encoding="utf-8")
-    os.chmod(out,0o600)
-    os.replace(out,path)
+    _write_json(path,valid)
+    # A completed and validated profile supersedes the unsaved draft.
+    try:
+        draft_path().unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"saved":True,"path":str(path),"profile":valid}
