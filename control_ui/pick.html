@@ -295,6 +295,7 @@ async function ensurePickCamera(){
  const prefs={width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}};
  stream=await navigator.mediaDevices.getUserMedia({video:prefs,audio:false});
  $("video").srcObject=stream;await $("video").play();
+ drawWorkspaceOverlay();
  say("ballResult","相机已就绪："+$("video").videoWidth+"×"+$("video").videoHeight+
   "。可以直接点击下方「拍摄识别黄球 · 生成轨迹预览」。");
 }
@@ -335,6 +336,7 @@ async function confirmEmptyFrame(raw,L){
   "/api/vision/confirm-board?square_mm="+encodeURIComponent(L),raw
  );
  emptyBoardConfirmed=true;
+ workspaceAssessment();drawWorkspaceOverlay();
  say("boardConfirmStatus","✓ "+result.message+"\n与原始标定位置的中位偏差约 "+
    result.median_reference_difference_mm+"mm。"+
    (result.motion_stability_confirmed
@@ -381,6 +383,7 @@ async function detectCurrentBall(){
   throw Error("未识别出黄色球，也没看到完整空棋盘。请移开黄球、保证棋盘完整入镜，点击「① 无球 · 确认棋盘」");
  }
  latestBall=result.ball;latestVision=result;
+ workspaceAssessment();drawWorkspaceOverlay();
  if(latestBall.center_px){
    const [x,y]=latestBall.center_px;
    ctx.strokeStyle="#fa2367";ctx.lineWidth=6;ctx.beginPath();
@@ -400,6 +403,7 @@ async function detectCurrentBall(){
   "；"+zone+"。\n"+(result.warnings||[]).filter(w=>!w.includes("尚未建立相机")).join("\n"));
  if(verified){
   emptyBoardConfirmed=true;
+  workspaceAssessment();drawWorkspaceOverlay();
   say("boardConfirmStatus","✓ 已核验保存的棋盘参考，并从当前画面确认了未被黄球挡住的角点。");
  }
  return result;
@@ -645,6 +649,7 @@ $("pickTorqueRefresh").onclick=async()=>{
    if(!attach.connected)$("pickTorqueMessage").textContent=attach.reason||"未发现机械臂";
   }
   await refreshPickHealth();
+  await loadWorkspace();
   try{
    const ref=await api("/api/vision/board-reference");
    emptyBoardConfirmed=Boolean(ref.confirmed);
@@ -652,6 +657,7 @@ $("pickTorqueRefresh").onclick=async()=>{
       ?"✓ 本次服务已确认无球棋盘。现在直接放黄球检测即可；每帧仍会核验位置。"
       :"尚未确认本次空棋盘：拿走球，点击「① 无球 · 确认棋盘」一次即可，不用重做机械臂五点标定。");
   }catch(error){say("boardConfirmStatus","尚未读取棋盘参考："+error.message)}
+  workspaceAssessment();drawWorkspaceOverlay();
   const previous=await api("/api/pick/profile");
   profile=previous.profile||{};
   saved=Boolean(previous.saved);
@@ -678,6 +684,7 @@ setInterval(async()=>{
  catch(err){pickHealth={connected:false};renderTorque();updateButtons()}
 },2500);
 
+window.addEventListener("resize",drawWorkspaceOverlay);
 window.addEventListener("pagehide",()=>{if(stream)stream.getTracks().forEach(t=>t.stop())});
 updateExecution().catch(e=>say("executionStatus","查询执行状态失败："+e.message));
 setInterval(async()=>{
