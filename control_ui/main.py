@@ -297,6 +297,89 @@ def pick_page():
     )
 
 
+@app.get("/api/pick/workspace")
+def pick_workspace_geometry():
+    """Read-only calibrated workspace geometry for camera overlay.
+
+    P1–P4 are sampled robot-XY mappings, not a collision-free motion envelope.
+    The outer sheet is an approximate image-space extension of the known
+    9x6 inner chessboard corners, never a motion authorization.
+    """
+    import math
+    state=calibration.summary()
+    if not state.get("saved") or not state.get("ready"):
+        raise HTTPException(status_code=409,detail="还没有已保存的4+1点XY标定")
+    try:
+        stored=json.loads(xy_calibration_path().read_text(encoding="utf-8"))
+        corners=stored["corners_px"]
+        if len(corners)!=54 or stored["image_size"]!=state.get("image_size"):
+            raise ValueError("棋盘角点或图像尺寸不一致")
+        pts=[[float(v) for v in c] for c in corners]
+        if any(len(c)!=2 or not all(math.isfinite(v) for v in c) for c in pts):
+            raise ValueError("角点坐标无效")
+        def at(col,row):
+            return pts[row*9+col]
+        def extended(col,row,near_col,near_row,side_col,side_row):
+            p=at(col,row);q=at(near_col,near_row);r=at(side_col,side_row)
+            return [round(p[k]+(p[k]-q[k])+(p[k]-r[k]),1) for k in (0,1)]
+        boundary=[
+            extended(0,0,1,0,0,1),
+            extended(8,0,7,0,8,1),
+            extended(8,5,7,5,8,4),
+            extended(0,5,1,5,0,4),
+        ]
+        records=[r for r in stored.get("records",[])
+                 if r.get("id") in ("P1","P2","P3","P4")]
+        if len(records)!=4:raise ValueError("P1–P4样本缺失")
+        points=[]
+        for r in records:
+            col,row=r["grid"]
+            if not (type(col) is int and type(row) is int and
+                    0<=col<9 and 0<=row<6):
+                raise ValueError("标定点网格不合法")
+            xyz=r["robot_xyz_mm"];board=r["board_mm"]
+            points.append({
+                "id":r["id"],"pixel":at(col,row),
+                "grid":[col,row],
+                "board_mm":[float(board[0]),float(board[1])],
+                "robot_xy_mm":[float(xyz[0]),float(xyz[1])],
+            })
+        # Convex hull in board-plane, with matching image / robot locations.
+        # Four points suffice; sort by angle about the centroid.
+        cx=sum(p["board_mm"][0] for p in points)/4
+        cy=sum(p["board_mm"][1] for p in points)/4
+        points.sort(key=lambda p:math.atan2(
+            p["board_mm"][1]-cy,p["board_mm"][0]-cx))
+        polygon=[p["board_mm"] for p in points]
+        area=abs(sum(
+            polygon[i][0]*polygon[(i+1)%4][1]-
+            polygon[(i+1)%4][0]*polygon[i][1]
+            for i in range(4)))/2
+        cell=float(stored["square_mm"])
+        board_area=(9*cell)*(6*cell)
+        radii=[math.hypot(*p["robot_xy_mm"]) for p in points]
+        return {
+            "available":True,
+            "image_size":stored["image_size"],
+            "square_mm":cell,
+            "board_outline_px":boundary,
+            "sampled_polygon_px":[p["pixel"] for p in points],
+            "samples":points,
+            "sampled_area_mm2":round(area,1),
+            "board_sheet_area_mm2":round(board_area,1),
+            "sampled_area_percent":round(100*area/board_area,1),
+            "sampled_robot_radius_mm":[round(min(radii),1),round(max(radii),1)],
+            "labels":{
+                "green":"P1–P4采样覆盖：XY映射优先验证区；不代表自动运动安全",
+                "amber":"棋盘可定位：超出实测点，需验证末端高度与路径",
+                "outside":"当前棋盘外：尚无可靠桌面坐标映射",
+            },
+        }
+    except (OSError,KeyError,ValueError,TypeError,IndexError) as exc:
+        raise HTTPException(status_code=409,
+            detail="无法读取已保存工作区几何："+str(exc)) from exc
+
+
 @app.get("/api/pick/profile")
 def pick_profile_load():
     return load_pick_progress()
