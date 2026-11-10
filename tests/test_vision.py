@@ -40,13 +40,32 @@ class ChessboardVisionTests(unittest.TestCase):
         self.assertFalse(result["ball"]["inside_inner_board"])
         self.assertFalse(result["robot_motion_enabled"])
 
-    def test_square_size_enables_board_mm_only(self):
-        result = analyze_image(self.photo, square_mm=20.0)
+    def test_square_size_enables_board_mm_only_within_confirmed_sheet(self):
+        # Original fixture's yellow ball is OUTSIDE the physical chessboard.
+        # A planar homography can extrapolate a grid coordinate there,
+        # but must not present it as a measured millimeter location.
+        outside = analyze_image(self.photo, square_mm=20.0)
+        self.assertTrue(outside["ball"]["detected"])
+        self.assertFalse(outside["ball"]["inside_board_sheet"])
+        self.assertNotIn("board_mm_xy", outside["ball"])
+        self.assertTrue(any("纸面范围之外" in w for w in outside["warnings"]))
+
+        # Put a smaller ball between four inner corners so all 54 corners
+        # remain visible; this point SHOULD return calibrated board millimeters.
+        image = cv2.imdecode(np.frombuffer(self.photo, dtype=np.uint8),
+                             cv2.IMREAD_COLOR)
+        cv2.rectangle(image, (999, 615), (1092, 712), (240, 240, 240), -1)
+        cv2.circle(image, (559, 383), 20, (0, 230, 255), -1)
+        raw = cv2.imencode(".png", image)[1].tobytes()
+        result = analyze_image(raw, square_mm=20.0)
         ball = result["ball"]
+        self.assertTrue(result["checkerboard"]["detected"])
+        self.assertTrue(ball["inside_inner_board"])
+        self.assertTrue(ball["inside_board_sheet"])
         self.assertIn("board_mm_xy", ball)
         self.assertAlmostEqual(ball["board_mm_xy"][0],
                                ball["board_grid_xy"][0] * 20, delta=0.15)
-        self.assertTrue(any("不可直接用于机械臂运动" in w for w in result["warnings"]))
+        self.assertFalse(result["robot_motion_enabled"])
 
     def test_unknown_square_size_does_not_invent_mm(self):
         result = analyze_image(self.photo)
@@ -139,7 +158,7 @@ class ChessboardVisionTests(unittest.TestCase):
             "corners_px":original["checkerboard"]["corners_px"],
         }
         broken={**stored,"corners_px":[[x+22,y+17] for x,y in stored["corners_px"]]}
-        with self.assertRaisesRegex(VisionError,"当前棋盘与已保存标定不一致"):
+        with self.assertRaisesRegex(VisionError,"棋盘与保存位置的差异.*超过确认阈值"):
             confirm_empty_board(raw,24,broken)
         reference,_=confirm_empty_board(raw,24,stored)
         moved=cv2.warpAffine(base,np.float32([[1,0,25],[0,1,20]]),(1280,960))
