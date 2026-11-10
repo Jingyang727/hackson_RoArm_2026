@@ -93,6 +93,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
  <button type="button" data-cal-jog="-5">−5°</button>
  <button type="button" data-cal-jog="5">+5°</button>
  <button type="button" data-cal-jog="10">+10°</button></div>
+ <div class="row"><button id="calRecover" type="button" class="primary" hidden>检查状态并恢复操作</button><span id="calRecoveryHint" class="muted" hidden>仅在机械臂已静止、周围无障碍时使用；恢复不会自动运动。</span></div>
  <div id="calJogStatus" class="notice" role="status">选择 J1–J4 按需调整；J5/J6 尽量保持固定。每次点击立即发送一条相对运动命令，等待反馈后才能继续。</div>
  </details>
 <h2 style="margin-top:16px">实时对准 · 局部放大</h2>
@@ -481,6 +482,10 @@ $("serialConnect").onclick=()=>doAction(async()=>{
 });
 $("refreshXYZ").onclick=()=>doAction(refreshArm);
 function refreshCalibrationJog(){
+ $("calRecover").hidden=!health?.fault;
+ $("calRecover").disabled=busy||!health?.connected;
+ $("calRecoveryHint").hidden=!health?.fault;
+
  const healthReady=health?.connected&&health?.motion_enabled&&health?.armed&&
    !health?.pending&&!health?.fault&&!health?.teach_active&&
    Array.isArray(health?.torque_status)&&health.torque_status.length===6&&
@@ -510,6 +515,21 @@ async function jogCalibration(delta_deg){
  }catch(e){$("calJogStatus").textContent="未执行："+e.message}
  finally{busy=false;render();refreshCalibrationJog()}
 }
+$("calRecover").onclick=async()=>{
+ if(busy||!health?.fault)return;
+ busy=true;render();
+ $("calJogStatus").textContent="正在读取两次关节反馈，确认机械臂静止、扭矩锁定…";
+ try{
+  const result=await api("/api/recover","POST",
+    {declaration:"已检查机械臂静止且运动区域安全"});
+  health=await api("/api/health");
+  $("calJogStatus").textContent="运动异常已解除，没有补发刚才的指令。请点击「解锁运动 120 秒」后继续。";
+  await refreshArm();
+ }catch(e){
+  $("calJogStatus").textContent="暂未恢复："+e.message;
+  try{health=await api("/api/health")}catch(_){}
+ }finally{busy=false;render()}
+};
 $("calUnlock").onclick=async()=>{
  if(busy)return;
  busy=true;
