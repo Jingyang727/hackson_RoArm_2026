@@ -1,6 +1,8 @@
 """Mac-local safe control UI. Bind only to 127.0.0.1."""
 from pathlib import Path
 import json
+import math
+import threading
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -15,6 +17,8 @@ from .pick_execution import executor
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 service = ArmService()
+_board_reference_lock = threading.RLock()
+_confirmed_empty_board = None  # only pixel evidence; no motor control
 
 
 class Connect(BaseModel):
@@ -120,6 +124,67 @@ def camera_page():
     return Path(__file__).with_name("camera.html").read_text(encoding="utf-8")
 
 
+def _saved_visual_reference():
+    """Use only already-validated 4+1 XY calibration, never an unverified draft."""
+    state=calibration.summary()
+    if not state.get("saved") or not state.get("ready"):
+        raise HTTPException(
+            status_code=409,
+            detail="缺少已保存并验收通过的XY标定。这里仅需确认空棋盘，不需重复P1～V1",
+        )
+    try:
+        data=json.loads(xy_calibration_path().read_text(encoding="utf-8"))
+        if not (data.get("fit",{}).get("validated") and
+                len(data.get("records",[]))==5 and
+                len(data.get("corners_px") or [])==54):
+            raise ValueError("磁盘XY标定数据不完整")
+        return {
+            "square_mm":data.get("square_mm"),
+            "image_size":data.get("image_size"),
+            "corners_px":data.get("corners_px"),
+        }
+    except (OSError,ValueError,TypeError) as exc:
+        raise HTTPException(status_code=409,detail="无法读取保存的XY标定："+str(exc)) from exc
+
+
+@app.get("/api/vision/board-reference")
+def board_reference_status():
+    with _board_reference_lock:
+        current=_confirmed_empty_board
+        if current is None:
+            return {"confirmed":False,"message":"请拿走球，点击「确认空棋盘」一次；机械臂五点XY标定不需要重做"}
+        return {
+            "confirmed":True,
+            "image_size":current["image_size"],
+            "square_mm":current["square_mm"],
+            "message":"空棋盘已确认。放回黄球即可检测，系统仍会逐帧核对可见角点",
+        }
+
+
+@app.post("/api/vision/confirm-board")
+async def confirm_board(request: Request, square_mm: float):
+    """Read-only one-time empty-board reference. Never changes XYZ or saved XY."""
+    global _confirmed_empty_board
+    try:
+        from .vision import VisionError, confirm_empty_board
+    except ImportError as exc:
+        raise HTTPException(status_code=503,detail="缺少视觉依赖") from exc
+    if not math.isfinite(square_mm) or not 0<square_mm<=200:
+        raise HTTPException(status_code=422,detail="单格边长不合法")
+    if request.headers.get("content-type","").split(";")[0].strip() not in ("image/png","image/jpeg","image/jpg"):
+        raise HTTPException(status_code=415,detail="需要PNG或JPEG相机帧")
+    with _board_reference_lock:
+        _confirmed_empty_board=None  # a failed reconfirm must not keep stale evidence
+    saved=_saved_visual_reference()
+    try:
+        ref,response=confirm_empty_board(await request.body(),square_mm,saved)
+    except (VisionError,ValueError,TypeError) as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+    with _board_reference_lock:
+        _confirmed_empty_board=ref
+    return response
+
+
 @app.post("/api/vision/analyze")
 async def vision_analyze(request: Request, square_mm: float | None = None, use_reference: bool = False):
     """Analyze ONE browser-uploaded PNG/JPEG frame; never accesses serial robot APIs."""
@@ -139,22 +204,19 @@ async def vision_analyze(request: Request, square_mm: float | None = None, use_r
     raw = await request.body()
     reference = None
     if use_reference:
-        # The reference comes from a verified, persisted 4+1 map, never an
-        # arbitrary browser-supplied set of corners. New unfinished sessions
-        # must not silently reuse a previously saved map.
         try:
-            status = calibration.summary()
-            if status.get("saved") and status.get("ready"):
-                saved = json.loads(xy_calibration_path().read_text(encoding="utf-8"))
-                if (saved.get("fit", {}).get("validated") and
-                        len(saved.get("records", [])) == 5):
-                    reference = {
-                        "square_mm": saved.get("square_mm"),
-                        "image_size": saved.get("image_size"),
-                        "corners_px": saved.get("corners_px"),
-                    }
-        except (OSError, ValueError, TypeError, CalibrationError):
-            reference = None
+            saved=_saved_visual_reference()
+            with _board_reference_lock:
+                cached=_confirmed_empty_board
+                if (cached is not None and
+                        cached["image_size"]==saved["image_size"] and
+                        cached["corners_px"]==saved["corners_px"] and
+                        cached["square_mm"]==saved["square_mm"]):
+                    reference=cached
+                else:
+                    reference=saved
+        except HTTPException:
+            reference=None
     try:
         return analyze_image(raw, square_mm=square_mm, reference=reference)
     except VisionError as exc:
