@@ -38,6 +38,17 @@ class NavigationAndTeachUxTests(unittest.TestCase):
         self.assertIn("动作已完成",html)
         self.assertNotIn("动作回执："+'" +JSON.stringify(',html)
 
+    def test_pose_capture_buttons_reenabled_after_request(self):
+        html=(ROOT/"fast_teach.html").read_text(encoding="utf-8")
+        # Capture rebuilds all six cards with disabled=busy. The finally
+        # block must rebuild them again *after* clearing busy, on success
+        # and failure, rather than leaving all buttons disabled forever.
+        start=html.index("function renderPoses(){")
+        end=html.index('$("#joint").onchange',start)
+        capture=html[start:end]
+        self.assertIn("btn.disabled=busy;",capture)
+        self.assertRegex(capture,r'finally\\{\\s*busy=false;[\\s\\S]*?renderPoses\\(\\);renderState\\(\\);')
+
     def test_fast_teach_light_theme_has_explicit_readable_text_contrast(self):
         html=(ROOT/"fast_teach.html").read_text(encoding="utf-8")
         self.assertIn('<body class="teach-page">',html)
