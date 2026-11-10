@@ -55,6 +55,17 @@ class NavigationAndTeachUxTests(unittest.TestCase):
         self.assertGreater(html.index("teach-accessibility-overrides"),
                            html.index(".pose{background:#263b55"))
 
+    def test_calibration_uses_persisted_reference_and_embedded_jog(self):
+        html=(ROOT/"calibration.html").read_text(encoding="utf-8")
+        self.assertIn("function restoreSavedCorners(state)",html)
+        self.assertIn("restoreSavedCorners(previous)",html)
+        self.assertIn('data-cal-jog="-5"',html)
+        self.assertIn('data-cal-jog="10"',html)
+        self.assertIn('/api/teach/move-relative',html)
+        self.assertNotIn('vision=null;shot=null;modifiedPoints.clear();drawOverlay();',html)
+        self.assertIn("data.checkerboard.corners_px=original",html)
+        self.assertIn("target.col=record.grid[0]",html)
+
     def test_navigation_helper_is_exposed_by_server(self):
         app=(ROOT/"main.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/assets/nav_status.js")',app)
