@@ -147,9 +147,10 @@ function renderState(){
  $("unlock").disabled=busy||!health?.connected||!health?.motion_enabled;
  $("disarm").disabled=busy||!health?.connected;
  $("unlock").textContent=health?.armed?"重新解锁 · 120 秒":"解锁运动 · 120 秒";
- if(knownExpired&&!health?.armed&&!health?.pending)
-   $("motionState").textContent="运动授权已到期，点击「解锁运动 · 120 秒」可继续。";
- if(health?.armed)knownExpired=true;
+ const expiredJustNow=knownExpired&&!health?.armed&&!health?.pending;
+ knownExpired=Boolean(health?.armed);
+ if(expiredJustNow)
+   $("motionState").textContent="运动授权已结束，点击「解锁运动 · 120 秒」可继续。";
  if(health?.pending && activeTeachingCommand)
    $("motionState").textContent="正在执行 "+(health.joints||[]).find(j=>j.id===activeTeachingCommand.joint)?.label+
        "，目标 "+activeTeachingCommand.to_deg.toFixed(1)+"°；等待真实到位反馈…";
