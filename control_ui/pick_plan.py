@@ -332,7 +332,8 @@ def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file
     calibration=_read_file(calibration_file or xy_calibration_path())
     profile=_read_file(profile_file or profile_path())
     return plan_pick_place(ball_board_mm,profile,calibration,
-                           image_size=image_size,corners_px=corners_px)
+                           image_size=image_size,corners_px=corners_px,
+                           preview_only=preview_only)
 
 
 def save_pick_profile(profile):
