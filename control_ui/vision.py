@@ -393,6 +393,11 @@ def confirm_empty_board(raw, square_mm, saved_reference):
         "square_mm":float(square_mm),
         "corners_px":saved_reference["corners_px"],
         "baseline_gray":cv2.cvtColor(image,cv2.COLOR_BGR2GRAY),
+        # Retain alignment with the original RobotXY map. A newly confirmed
+        # empty board can be close enough to localize balls yet too far from
+        # the robot's original 4+1 registration for physical motor execution.
+        "baseline_difference_mm":round(median_mm,2),
+        "baseline_p90_mm":round(p90_mm,2),
     }
     return reference,{
         "confirmed":True,
@@ -467,7 +472,16 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
             dx, dy = partial.get("median_shift_px", [0.0, 0.0])
             shift_mm = math.hypot(dx, dy) / px_per_mm
             checker["live_reference_shift_mm"] = round(shift_mm, 2)
-            checker["motion_stable"] = shift_mm <= 4.0
+            stable_to_original = (
+                float(reference.get("baseline_difference_mm", 0)) <= 4.0 and
+                float(reference.get("baseline_p90_mm", 0)) <= 6.0
+            )
+            checker["motion_stable"] = shift_mm <= 4.0 and stable_to_original
+            if not checker["motion_stable"]:
+                checker["movement_note"] = (
+                    "当前棋盘可以用于定位，但相对原始XY标定的位置变化"
+                    "尚未满足真实运动的严格条件"
+                )
         warnings.append(
             "黄球遮挡部分角点；已使用"
             f"{partial['visible_match_count']}个实时可见棋盘角点核对保存位置，"
