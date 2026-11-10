@@ -50,6 +50,70 @@ class PickExecutor:
                 progress["completed"] = last.get("status") == "feedback_confirmed"
             return progress
 
+    def diagnose(self, arm_service):
+        """Read-only first/next waypoint preflight; never sends a motor command."""
+        with self.lock, arm_service.lock:
+            if self.plan is None or self.cancelled or self.next_index >= len(self.plan["waypoints"]):
+                raise PickExecutionError("没有待检查的抓取会话；请先定位黄球并创建会话")
+            h = arm_service.health()
+            if not h["connected"] or h["pending"] or h["fault"] or h.get("teach_active"):
+                raise PickExecutionError("机械臂未连接、正在运动或存在故障；不能取得稳定的姿态诊断")
+            fb = arm_service.status()
+            stage = self.plan["waypoints"][self.next_index]
+            torque = {k: fb.get("torswitch" + k) for k in "BSETRG"}
+            result = {
+                "read_only": True,
+                "stage": stage["stage"],
+                "step_index": self.next_index,
+                "torque_locked": all(v == 1 for v in torque.values()),
+                "torque_flags": torque,
+                "last_command_status": (arm_service.last_command or {}).get("status"),
+                "checks": [],
+            }
+            if stage["kind"] != "cartesian":
+                result["checks"].append("下一步是夹爪动作，无需比较末端 Pitch/Roll")
+                result["ready"] = result["torque_locked"]
+                return result
+            fields = ("x", "y", "z", "tit", "r")
+            if any(type(fb.get(k)) not in (int, float) or not math.isfinite(fb[k]) for k in fields):
+                raise PickExecutionError("T=1051 缺少有效XYZ/Pitch/Roll反馈")
+            cur = [fb[k] for k in "xyz"]
+            xyz = stage["xyz_mm"]
+            dp = math.degrees(fb["tit"] - stage["t"])
+            # Roll is periodic: e.g. +179° and -179° differ by only 2°.
+            dr = math.degrees(math.atan2(math.sin(fb["r"] - stage["r"]),
+                                          math.cos(fb["r"] - stage["r"])))
+            dx = math.dist(cur[:2], xyz[:2])
+            dz = abs(cur[2] - xyz[2])
+            zhigh = self.plan["waypoints"][0]["xyz_mm"][2]
+            issues = []
+            if not result["torque_locked"]:
+                issues.append("六关节扭矩并未全部锁定")
+            if abs(dp) > 12 or abs(dr) > 12:
+                issues.append("末端姿态超过当前单步12°门槛：请在无遮挡高位重新核对姿态；不能靠增大扭矩解决")
+            if dx > 42 or dz > 25:
+                issues.append("当前XYZ与目标单步距离过大；需确认安全的高位起点")
+            if dx > 3 and (cur[2] < zhigh - 8 or xyz[2] < zhigh - 8):
+                issues.append("当前或目标Z不满足水平移动所需的示教安全高度")
+            if self.next_index == 0 and cur[2] < zhigh - 8:
+                issues.append("初始末端低于示教安全高度")
+            result.update({
+                "current_xyz_mm": [round(v, 2) for v in cur],
+                "target_xyz_mm": xyz,
+                "current_pitch_deg": round(math.degrees(fb["tit"]), 2),
+                "taught_pitch_deg": round(math.degrees(stage["t"]), 2),
+                "pitch_delta_deg": round(dp, 2),
+                "current_roll_deg": round(math.degrees(fb["r"]), 2),
+                "taught_roll_deg": round(math.degrees(stage["r"]), 2),
+                "roll_delta_deg": round(dr, 2),
+                "xy_delta_mm": round(dx, 2),
+                "z_delta_mm": round(dz, 2),
+                "travel_z_mm": zhigh,
+                "issues": issues,
+                "ready": not issues,
+            })
+            return result
+
     def start(self, ball_board_mm, image_size, corners_px, arm_service, declaration):
         with self.lock, arm_service.lock:
             if os.getenv("EVOARM_ENABLE_PICK", "0") != "1":
@@ -120,8 +184,19 @@ class PickExecutor:
                 target=stage["xyz_mm"]
                 if type(fb.get("tit")) not in (int,float) or type(fb.get("r")) not in (int,float):
                     raise PickExecutionError("末端姿态反馈缺失：必须使用 tit Pitch 和 r Roll")
-                if abs(fb["tit"]-stage["t"])>math.radians(12) or abs(fb["r"]-stage["r"])>math.radians(12):
-                    raise PickExecutionError("末端Pitch/Roll与示教姿态差超过12°，禁止突然调整姿态")
+                pitch_diff=math.degrees(fb["tit"]-stage["t"])
+                roll_diff=math.degrees(math.atan2(
+                    math.sin(fb["r"]-stage["r"]),
+                    math.cos(fb["r"]-stage["r"])))
+                if abs(pitch_diff)>12 or abs(roll_diff)>12:
+                    raise PickExecutionError(
+                        "末端姿态不匹配：当前Pitch "
+                        f"{math.degrees(fb['tit']):.1f}° / 示教{math.degrees(stage['t']):.1f}°"
+                        f"（差{pitch_diff:+.1f}°）；当前Roll "
+                        f"{math.degrees(fb['r']):.1f}° / 示教{math.degrees(stage['r']):.1f}°"
+                        f"（最短角差{roll_diff:+.1f}°）。单段门槛12°。"
+                        "请点「姿态诊断」检查XYZ与扭矩，确认安全后手动微调或重新示教，"
+                        "不要提高扭矩或直接放宽角度限制。")
                 delta_xy=math.dist(current[:2],target[:2])
                 delta_z=abs(current[2]-target[2])
                 if delta_xy>42 or delta_z>25:
