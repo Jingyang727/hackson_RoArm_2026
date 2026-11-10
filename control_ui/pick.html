@@ -68,7 +68,8 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <section class="wide">
 <h2>③ 生成抓取与放置轨迹预览</h2>
 <p class="muted">使用已保存的机器人XY标定和示教参数，将当前球的位置转换成机器人XY。只有球在四个标定点形成的凸多边形内部、放置点合理且安全高度足够时才生成轨迹。</p>
-<div class="row"><button id="preview" class="primary" disabled>生成抓取-放置轨迹预览</button></div>
+<div class="row"><button id="preview" class="primary">拍摄识别黄球 · 生成轨迹预览</button></div>
+<p class="muted">一键打开或复用本页摄像头，取当前一帧定位黄球、验证棋盘位置并生成预览。若缺少示教参数会直接提示，不再显示无法点击的灰色按钮。</p>
 <div id="previewStatus" class="notice">预览不执行任何机械臂运动。</div>
 <pre id="waypoints"></pre>
 <div class="warn">安全策略：将大幅移动拆为高位分段移动；T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。真实执行默认禁用，需显式授权。即使启用也必须逐段人工确认，不会连发下一条动作。</div>
@@ -142,7 +143,8 @@ async function act(fn){if(busy)return;busy=true;updateButtons();
  finally{busy=false;updateButtons()}}
 function updateButtons(){
  $("detect").disabled=busy||!stream;
- $("preview").disabled=busy||!saved||!latestBall?.board_mm_xy||!latestBall?.inside_inner_board;
+ $("preview").disabled=busy;
+ $("preview").textContent=busy?"正在处理…":"拍摄识别黄球 · 生成轨迹预览";
  $("armExecution").disabled=busy||!hasPreview||!execution?.hardware_execution_enabled;
  const isActive=execution?.has_session&&!execution?.cancelled;
  const previousDone=execution?.next_index===0||
@@ -157,34 +159,57 @@ function updateButtons(){
  !Number($("diameter").value);
  renderTorque();
 }
-$("camOpen").onclick=()=>act(async()=>{
+async function ensurePickCamera(){
+ if(stream && $("video").videoWidth>0)return;
+ if(!navigator.mediaDevices?.getUserMedia)
+   throw Error("此浏览器不支持摄像头；请通过本机 127.0.0.1 地址访问");
  if(stream){stream.getTracks().forEach(x=>x.stop());stream=null}
  const prefs={width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}};
  stream=await navigator.mediaDevices.getUserMedia({video:prefs,audio:false});
  $("video").srcObject=stream;await $("video").play();
- say("ballResult","相机已开启 "+$("video").videoWidth+"×"+$("video").videoHeight+"。请在已标定区域内放入黄色球并点击检测。");
-});
-$("detect").onclick=()=>act(async()=>{
- latestBall=null;latestVision=null;
- const L=Number($("square").value);if(!Number.isFinite(L)||L<=0||L>200)throw Error("填写有效的实际单格边长");
+ say("ballResult","相机已就绪："+$("video").videoWidth+"×"+$("video").videoHeight+
+  "。可以直接点击下方「拍摄识别黄球 · 生成轨迹预览」。");
+}
+async function detectCurrentBall(){
+ await ensurePickCamera();
+ latestBall=null;latestVision=null;hasPreview=false;
+ const L=Number($("square").value);
+ if(!Number.isFinite(L)||L<=0||L>200)throw Error("请输入正确的棋盘单格边长，当前标定为24mm");
  const v=$("video"),c=$("photo");c.width=v.videoWidth;c.height=v.videoHeight;
- if(!c.width)throw Error("相机未采集图像");
+ if(!c.width||!c.height)throw Error("摄像头尚未产生有效视频画面，请检查浏览器权限");
  const ctx=c.getContext("2d");ctx.drawImage(v,0,0);
- const raw=await new Promise(resolve=>c.toBlob(resolve,"image/png"));if(!raw)throw Error("截图失败");
- const resp=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L),{method:"POST",headers:{"Content-Type":"image/png"},body:raw});
- const result=await resp.json();if(!resp.ok)throw Error(result.detail||"检测失败");
- if(!result.ball?.detected)throw Error("未发现黄色圆形球");
+ const raw=await new Promise(resolve=>c.toBlob(resolve,"image/png"));
+ if(!raw)throw Error("取图失败");
+ const response=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L)+"&use_reference=true",{
+  method:"POST",headers:{"Content-Type":"image/png"},body:raw
+ });
+ const result=await response.json();
+ if(!response.ok)throw Error(result.detail||"视觉检测请求失败");
+ if(!result.ball?.detected){
+  say("ballResult","已取得画面，但没有检测到黄色球。请确保球为黄色且没有被夹爪挡住，调整光线后重试。");
+  throw Error("当前帧未检测到黄色圆形球；可直接再次点击预览按钮重新取图");
+ }
  latestBall=result.ball;latestVision=result;
  if(latestBall.center_px){
-   const [x,y]=latestBall.center_px;ctx.strokeStyle="#f43e82";ctx.lineWidth=6;
-   ctx.beginPath();ctx.arc(x,y,Math.max(latestBall.radius_px,15),0,2*Math.PI);ctx.stroke();
+   const [x,y]=latestBall.center_px;
+   ctx.strokeStyle="#fa2367";ctx.lineWidth=6;ctx.beginPath();
+   ctx.arc(x,y,Math.max(latestBall.radius_px,15),0,2*Math.PI);ctx.stroke();
  }
  c.style.display="block";
- say("ballResult","球心像素 "+latestBall.center_px.join(", ")+"，棋盘毫米位置 "+
-   (latestBall.board_mm_xy?.join(", ")||"不可用")+
-   (latestBall.inside_inner_board?"（内部角点区域内）":"（超出棋盘格区域，不允许抓取规划）")+
-   "。\n注意：这是球面图像中心的平面投影，尚未经三维视差补偿。");
-});
+ const board=result.checkerboard?.detected;
+ const verified=result.checkerboard?.source==="reference_partial_verified";
+ const zone=board
+   ?(latestBall.inside_inner_board?"球心在棋盘9×6内角点区域内":
+     "球心位于外圈格子或内部角点区域之外，不能规划真实抓取")
+   :"未检测到完整棋盘角点，也无法核验旧标定。球可能遮挡角点：请先暂时移走球，让棋盘完整可见后拍一帧，再放回球继续检测";
+ say("ballResult","球心像素 "+latestBall.center_px.join(", ")+
+  "，棋盘毫米坐标 "+(latestBall.board_mm_xy?.join(", ")||"暂不可计算")+
+  "。\n棋盘核验："+(verified?"通过保存标定附近的实时可见角点核对":"本帧完整检测或尚未检测到")+
+  "；"+zone+"。\n"+(result.warnings||[]).filter(w=>!w.includes("尚未建立相机")).join("\n"));
+ return result;
+}
+$("camOpen").onclick=()=>act(ensurePickCamera);
+$("detect").onclick=()=>act(detectCurrentBall);
 document.querySelectorAll("[data-teach]").forEach(button=>button.onclick=()=>act(async()=>{
  const kind=button.dataset.teach;const sample=await api("/api/pick/teach");
  if(kind==="grab"){
@@ -219,8 +244,17 @@ $("save").onclick=()=>act(async()=>{
    "可以生成抓放轨迹预览；这不会自动运动。"));
 });
 $("preview").onclick=()=>act(async()=>{
- if(!latestBall?.board_mm_xy)throw Error("请重新识别黄色球");
- if(!latestVision?.checkerboard?.detected)throw Error("必须看到完整棋盘格54角点并确认相机未移动");
+ say("previewStatus","正在获取本页摄像头画面并识别黄球、核验棋盘位置……");
+ hasPreview=false;
+ // A click works even without a prior 'Open camera' or 'Detect ball' click.
+ // It must NOT silently reuse the ball coordinates from an earlier image.
+ await detectCurrentBall();
+ if(!latestVision?.checkerboard?.detected || !latestBall?.board_mm_xy)
+   throw Error("球已经找到，但本帧未核验棋盘角点。球遮挡角点时请先移走球识别棋盘，再将球放回；绝不使用未核验的旧位置生成轨迹");
+ if(!latestBall.inside_inner_board)
+   throw Error("球虽然可能在棋盘纸上，但球心不在9×6内角点的安全区域。请移到内部四个标定点覆盖的区域再试");
+ if(!saved)
+   throw Error("球已识别，但示教参数还未保存。请在上方点击「验证并保存示教参数」；先前的XY标定不会丢失");
  const result=await api("/api/pick/preview","POST",{
    ball_board_mm:latestBall.board_mm_xy,
    image_size:[latestVision.image.width,latestVision.image.height],
@@ -355,6 +389,14 @@ $("pickTorqueRefresh").onclick=async()=>{
   $("pickSaveState").textContent=previous.source
     ?(saved?"完整示教参数已恢复："+previous.source:"已恢复未完成的示教草稿："+previous.source)
     :"每次成功读取示教姿态后都会自动存草稿，可切换页面继续。";
+  // Auto-preview only when camera permission was already granted; never
+  // prompt on initial page load and never send robot motion commands.
+  if(navigator.permissions?.query){
+   try{
+    const permission=await navigator.permissions.query({name:"camera"});
+    if(permission.state==="granted")await ensurePickCamera();
+   }catch(error){say("ballResult","摄像头尚未自动打开；点击下方一键预览时会再尝试。")}
+  }
  }catch(err){
   $("pickTorqueMessage").textContent="初始化失败："+err.message;
  }
