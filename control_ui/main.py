@@ -1,5 +1,6 @@
 """Mac-local safe control UI. Bind only to 127.0.0.1."""
 from pathlib import Path
+import json
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -7,7 +8,7 @@ from pydantic import BaseModel
 
 from .service import ArmService
 from .safety import UnsafeMotion
-from .robot_calibration import CalibrationError, calibration
+from .robot_calibration import CalibrationError, calibration, default_path as xy_calibration_path
 from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile, save_pick_draft, load_pick_progress
 from .pick_teach import observe_tool_pose
 from .pick_execution import executor
@@ -120,7 +121,7 @@ def camera_page():
 
 
 @app.post("/api/vision/analyze")
-async def vision_analyze(request: Request, square_mm: float | None = None):
+async def vision_analyze(request: Request, square_mm: float | None = None, use_reference: bool = False):
     """Analyze ONE browser-uploaded PNG/JPEG frame; never accesses serial robot APIs."""
     try:
         from .vision import VisionError, analyze_image
@@ -136,8 +137,26 @@ async def vision_analyze(request: Request, square_mm: float | None = None):
     if int(request.headers.get("content-length", "0") or "0") > 12_000_000:
         raise HTTPException(status_code=413, detail="图像超过12MB")
     raw = await request.body()
+    reference = None
+    if use_reference:
+        # The reference comes from a verified, persisted 4+1 map, never an
+        # arbitrary browser-supplied set of corners. New unfinished sessions
+        # must not silently reuse a previously saved map.
+        try:
+            status = calibration.summary()
+            if status.get("saved") and status.get("ready"):
+                saved = json.loads(xy_calibration_path().read_text(encoding="utf-8"))
+                if (saved.get("fit", {}).get("validated") and
+                        len(saved.get("records", [])) == 5):
+                    reference = {
+                        "square_mm": saved.get("square_mm"),
+                        "image_size": saved.get("image_size"),
+                        "corners_px": saved.get("corners_px"),
+                    }
+        except (OSError, ValueError, TypeError, CalibrationError):
+            reference = None
     try:
-        return analyze_image(raw, square_mm=square_mm)
+        return analyze_image(raw, square_mm=square_mm, reference=reference)
     except VisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
