@@ -196,6 +196,12 @@ class ArmService:
                 )
                 raise
             self.last_torque_status = [result.get("torswitch" + k) for k in "BSETRG"]
+            # A T=210 response can time out after the torque state has changed.
+            # The *next genuine T=1051 reply* is authoritative: reconcile the
+            # fail-closed teach flag only when all six hardware flags are valid.
+            # This does not send T=210 or cause any motor motion.
+            if all(v in (0, 1) for v in self.last_torque_status):
+                self.teach_active = not all(v == 1 for v in self.last_torque_status)
             if pending is None:
                 return result
             try:
