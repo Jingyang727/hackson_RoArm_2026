@@ -20,7 +20,12 @@ button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}input[type=
 #overlay.ready{pointer-events:auto}
 #zoom{display:block;width:100%;aspect-ratio:5/3;border:1px solid #5c6d82;border-radius:9px;background:#071321}
 #zoomNote{font-size:12px;color:#b7c5d7;padding:7px 0}
-.sticky-panel{position:sticky;top:10px;z-index:0}
+.sticky-panel{position:static;top:auto;z-index:auto}
+.camera-panel{position:relative;z-index:auto;min-width:0;align-self:start}
+#view{max-height:65vh}
+#calibrationResults{border:1px solid #dbe9e5;border-radius:12px;padding:14px;margin:14px 0;background:#f8fcfb}
+#calibrationSaveState{font-size:12px;color:#26715d;margin-top:5px}
+#calibrationResults #save{width:100%;min-height:42px}
 .controls-panel{position:relative;z-index:5;min-width:0}
 #torqueCard{position:relative;z-index:10;isolation:isolate;pointer-events:auto}
 #torqueCard button{pointer-events:auto;position:relative;z-index:1}
@@ -54,13 +59,13 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
-<div class="topbar"><nav class="nav-links"><a href="/">控制台</a><a href="/camera">俯视相机</a><strong>XY 标定</strong><a href="/pick">抓放示教</a></nav><span id="connectionChip" class="connection-chip offline">正在连接</span></div>
+<div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration" class="active" aria-current="page">XY 标定</a><a href="/pick">抓放</a></nav><span id="connectionChip" class="connection-chip offline">正在连接</span></div>
 <div id="connectionToast" class="connection-toast" hidden role="alert"></div>
 <h1>棋盘格 → RoArm-M3 坐标标定</h1>
 <p class="muted">4 个拟合点 + 1 个独立验证点。先人工把夹爪中心对准棋盘角点，再读取机械臂末端 XYZ。此页面<strong>不发送任何抓取、XYZ 移动或复位指令</strong>。</p>
 <details class="safety-details"><summary>标定说明与安全注意事项</summary><p class="muted">标定时需固定相机、棋盘和底座，末端不接触桌面。5点保持工具姿态和高度一致。扭矩释放后所有关节失去主动保持力，操作时必须托住大臂。</p></details>
 <main>
-<section class="panel sticky-panel">
+<section class="panel camera-panel">
 <h2>① 实时俯视大画面 · 标定角点持续显示</h2>
 <div class="row">
 <label for="device">摄像头</label><select id="device"></select>
@@ -92,6 +97,13 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="row"><button id="capture" class="primary" disabled>记录当前选中点的 XYZ</button></div>
 <div id="statusLine" class="muted">点击各点旁边的绿色「记录 XYZ」即可。</div>
 <div class="muted">每次记录会连续读取两组真实反馈，检查机械臂是否静止。仅记录当前关节姿态和坐标，不会移动机械臂。要修正某一点，重新选择它再记录即可。</div>
+<div id="calibrationResults">
+<h2>标定结果与保存</h2>
+<div id="result" class="notice">至少需要4个拟合点和1个独立验证点。</div>
+<div class="row"><button id="save" class="primary" disabled>保存 XY 标定</button></div>
+<div id="calibrationSaveState" role="status">标定点将自动写入本地草稿。5点通过验收后自动保存正式结果。</div>
+<small>仅完成 XY；夹爪 TCP、抓取 Z 与运动路径仍须单独示教。</small>
+</div>
 <h2 style="margin-top:16px">手动示教</h2>
 <div class="warning" id="torqueCard">
 <strong>可选：手动示教 / 释放扭矩</strong>
@@ -111,12 +123,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 </div>
 </div>
 </section>
-<section class="panel wide">
-<h2>标定结果</h2>
-<div id="result" class="notice">至少需要4个分散的拟合点和1个独立验证点才能验收。</div>
-<div class="row"><button id="save" class="primary" disabled>保存已通过验收的二维XY标定</button></div>
-<div class="muted">即使验收通过，也<strong>只有桌面棋盘XY到机械臂XY的映射</strong>。工具中心点（TCP）、夹爪姿态、球体高度、桌面Z和路径避障都还未标定，暂不执行自动抓球。</div>
-</section>
+
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -164,6 +171,12 @@ function render(){
  $("captureTop").disabled=$("capture").disabled;
  $("captureTop").textContent="记录当前 "+chosen+" 的 XYZ";
  $("save").disabled=busy||!summary?.ready||modifiedPoints.size>0;
+ $("save").textContent=summary?.saved?"已保存 · 再次保存":"保存 XY 标定";
+ $("calibrationSaveState").textContent=summary?.saved
+   ?"已保存至 "+(summary.saved_path||"~/.evoarm/robot_xy_calibration.json")+"。重启后可自动恢复。"
+   :summary?.records?.length
+    ?"已自动暂存 "+summary.records.length+"/5 点；通过误差验收后会自动保存正式标定。"
+    :"每个成功记录的点都会自动暂存到 Mac 本地，重启后可恢复。";
  $("cameraStart").disabled=busy||Boolean(stream);
  $("cameraStop").disabled=busy||!stream;
  $("torqueOff").disabled=busy||!health?.connected||!health?.teach_enabled||health?.teach_active;
@@ -565,7 +578,9 @@ $("save").onclick=()=>doAction(async()=>{
  if(!session)throw Error("无标定会话");
  if(modifiedPoints.size)throw Error("存在角点移动后未重新记录："+[...modifiedPoints].join(", "));
  const result=await api("/api/calibration/save","POST",{session_id:session});
- say("已保存到 "+result.path+"；目前仅是二维XY映射，不能自动抓球。");
+ summary=result.result;
+ $("calibrationSaveState").textContent="标定已保存："+result.path;
+ say("已保存到 "+result.path+"。其他抓取参数仍需要示教。");
 });
 $("square").onchange=()=>{if(session){say("棋盘单格尺寸变更后必须重新识别角点并开始标定，原记录不可沿用。");session=null;summary=null;vision=null;modifiedPoints.clear();drawOverlay()}render()};
 window.addEventListener("pagehide",stopCamera);
