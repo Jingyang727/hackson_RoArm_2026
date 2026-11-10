@@ -496,16 +496,25 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
             px = np.array([[ball["center_px"]]], dtype=np.float32)
             coordinates = cv2.perspectiveTransform(px, h)[0, 0]
             gx, gy = (float(coordinates[0]), float(coordinates[1]))
-            inside = 0 <= gx <= PATTERN[0] - 1 and 0 <= gy <= PATTERN[1] - 1
+            inner = 0 <= gx <= PATTERN[0] - 1 and 0 <= gy <= PATTERN[1] - 1
+            # An ordinary 9x6 INNER-corner grid has one surrounding ring
+            # of physical squares. We may report the ball's table-plane
+            # projection there, but this is OUTSIDE trained four-point hull.
+            on_sheet = -1 <= gx <= PATTERN[0] and -1 <= gy <= PATTERN[1]
             ball["board_grid_xy"] = [round(gx, 3), round(gy, 3)]
-            ball["inside_inner_board"] = inside
-            if square_mm is not None:
+            ball["inside_inner_board"] = inner
+            ball["inside_board_sheet"] = on_sheet
+            if square_mm is not None and on_sheet:
                 ball["board_mm_xy"] = [round(gx * square_mm, 1), round(gy * square_mm, 1)]
-            if not inside:
+            if not on_sheet:
                 warnings.append(
-                    "球心不在9×6内角点围成的安全区域内。"
-                    "即使球在棋盘纸最外圈黑白格上，也不代表位于内部标定凸包；"
-                    "当前坐标仅供观察，不可直接用于机械臂运动或自动抓取"
+                    "球心位于当前棋盘可确认的纸面范围之外，不能可靠地"
+                    "将像素外推为桌面毫米坐标；需要额外标定桌面工作区"
+                )
+            elif not inner:
+                warnings.append(
+                    "球心位于棋盘最外圈格子：可以定位及查看准备结果，"
+                    "但四点标定区域外的真实抓取需要额外验证"
                 )
     else:
         warnings.append("当前未检测到黄色圆形物体，请检查光照、遮挡或HSV阈值")
