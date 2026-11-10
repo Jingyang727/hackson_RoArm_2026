@@ -354,6 +354,10 @@ $("preview").onclick=()=>act(async()=>{
      "\n\n【尚不能驱动机械臂】\n"+
      result.reachability_warnings.join("\n"));
  }
+ if(result.operator_cautions?.length){
+  say("previewStatus",$("previewStatus").textContent+
+    "\n\n【逐段移动提示】\n"+result.operator_cautions.join("\n"));
+ }
  $("waypoints").textContent=result.waypoints.map((w,i)=>
   (i+1)+". "+w.stage+" "+w.kind+" "+
   (w.xyz_mm?"XYZ="+w.xyz_mm.join(", "):"夹爪角="+w.g)+
@@ -388,9 +392,20 @@ $("armExecution").onclick=()=>act(async()=>{
   "目标："+first.stage+"；XYZ="+first.xyz_mm.join(", ")+" mm。\n"+
   "请确认底座和相机固定，桌面、显示器、线缆和夹爪扫掠区都没有障碍物；"+
   "当前末端处于示教安全高位附近、扭矩已锁定，且随时可以切断电源。"+
-  "\n本次只发送第一段，后续每段仍需人工确认。确认执行吗？"
+  "\n本次只发送第一段，后续每段仍需人工确认。\n"+
+  (readyPlan.operator_cautions?.length
+    ?"注意："+readyPlan.operator_cautions.join("；")+"\n":"")+
+  "确认执行吗？"
  );
  if(!approved)return;
+ // The user has explicitly approved this physical action. Request the same
+ // short-lived motion lease as the console, without forcing a tab switch.
+ const health=await api("/api/health");
+ if(!health.armed){
+   await api("/api/unlock-once","POST",{
+     declaration:"已检查设备并清空运动区域"
+   });
+ }
  // One operator confirmation leads directly to ONE bounded physical step,
  // not a second 'create session' click and not unattended autoplay.
  execution=await api("/api/pick/start","POST",{
@@ -415,6 +430,12 @@ $("runNext").onclick=()=>act(async()=>{
  const target=next.xyz_mm?"XYZ="+next.xyz_mm.join(","):"夹爪="+next.g+"rad";
  if(!confirm("将实际驱动机械臂进行这一步：\n"+next.stage+"\n"+target+
    "\n"+next.reason+"\n\n确认关节、桌面、线缆和周围空间无碰撞风险，并保持能立即切断电源？"))return;
+ const health=await api("/api/health");
+ if(!health.armed){
+   await api("/api/unlock-once","POST",{
+     declaration:"已检查设备并清空运动区域"
+   });
+ }
  const sent=await api("/api/pick/step","POST",{
    session_id:execution.session_id,step_index:execution.next_index,
    declaration:"已目视确认本步的运动空间与位置"
