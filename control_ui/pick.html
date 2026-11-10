@@ -158,7 +158,7 @@ function updateButtons(){
    (execution?.last_command_status?.status==="feedback_confirmed"&&
     execution.last_command_status.pick_session_id===execution?.session_id);
  $("runNext").disabled=busy||!isActive||!execution?.next_step||
-   !execution?.arm_armed||!!execution?.arm_pending||!!execution?.arm_fault||!previousDone;
+   !!execution?.arm_pending||!!execution?.arm_fault||!previousDone;
  $("cancelExecution").disabled=busy||!isActive;
  document.querySelectorAll("[data-teach]").forEach(b=>b.disabled=busy||!torqueLocked()||!!pickHealth?.pending||!!pickHealth?.fault);
  $("save").disabled=busy||!["grip_z_mm","travel_z_mm","place_z_mm","place_xy_mm",
