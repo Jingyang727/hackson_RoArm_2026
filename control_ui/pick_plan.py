@@ -505,7 +505,8 @@ def preview_v2_poses(ball_board_mm, calibration_data, poses, *,
 
 
 def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None,
-                           image_size=None, corners_px=None, preview_only=False):
+                           image_size=None, corners_px=None, preview_only=False,
+                           execution_intent=False):
     # A new/changed XY session invalidates the old final transform. Do NOT
     # quietly execute a pick using an obsolete, previously validated map.
     if calibration_file is None:
@@ -525,11 +526,13 @@ def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file
     if profile_file is None:
         from .fast_teach import pose_path, read_poses
         if pose_path().exists():
-            if not preview_only:
+            if execution_intent:
                 raise PickPlanningError(
                     "检测到新版六组示教姿态，旧版抓取执行器尚未支持v2的TCP/IK/安全轨迹；"
                     "已拒绝运动，禁止回退使用旧pick_profile.json"
                 )
+            # All ordinary callers, including older code which omitted
+            # preview_only, get an explicitly non-executable v2 preview.
             return preview_v2_poses(
                 ball_board_mm, calibration, read_poses().get("poses"),
                 image_size=image_size, corners_px=corners_px
