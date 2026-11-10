@@ -102,6 +102,20 @@ class XYMathTests(unittest.TestCase):
                 self.assertEqual(len(saved_data["corners_px"]),54)
                 self.assertEqual(fake.commands, [])
 
+    def test_session_status_restores_persisted_54_corners_and_selected_points(self):
+        cal, fake = RobotCalibration(), FakeArm()
+        reference = [[100+c*40, 100+r*40] for r in range(6) for c in range(9)]
+        token = cal.start(SIZE, [1920, 1080], reference)["session_id"]
+        self.assertEqual(cal.summary()["corners_px"], reference)
+        fake.xyz = [*mapped_xy(1, 1), 85]
+        cal.capture(token, "P1", 1, 1, fake, sleep_fn=lambda _: None)
+        restarted = RobotCalibration()
+        status = restarted.summary()
+        self.assertEqual(status["session_id"], token)
+        self.assertEqual(status["corners_px"], reference)
+        self.assertEqual(status["records"][0]["id"], "P1")
+        self.assertEqual(status["records"][0]["grid"], [1, 1])
+
     def test_capture_moving_or_duplicate_refused(self):
         cal, fake = RobotCalibration(), FakeArm()
         token = cal.start(SIZE, [1920, 1080])["session_id"]
