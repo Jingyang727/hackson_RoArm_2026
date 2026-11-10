@@ -147,6 +147,31 @@ def find_yellow_ball(image):
     }
 
 
+def reference_board_tolerance_mm(reference):
+    """Convert image displacement to approximate plane displacement.
+
+    The stored 9×6 adjacent-corner spacing is tied to the measured square
+    dimension. Keep a finite conservative ceiling; do not mistake px for mm.
+    """
+    if not isinstance(reference, dict):
+        return None
+    try:
+        pts = np.asarray(reference["corners_px"], dtype=np.float64).reshape(6, 9, 2)
+        pitch_mm = float(reference["square_mm"])
+        if not (0.1 < pitch_mm <= 200) or not np.isfinite(pts).all():
+            return None
+        segments = np.concatenate((
+            np.linalg.norm(np.diff(pts, axis=0), axis=2).ravel(),
+            np.linalg.norm(np.diff(pts, axis=1), axis=2).ravel(),
+        ))
+        pixel_pitch = float(np.median(segments))
+        if pixel_pitch < 5 or not math.isfinite(pixel_pitch):
+            return None
+        return pixel_pitch / pitch_mm
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
 def verify_visible_reference_corners(image, reference, ball=None):
     """Independently cross-check visible chessboard intersections from a saved
     54-corner reference when a ball blocks the full chessboard detector.
@@ -336,11 +361,19 @@ def confirm_empty_board(raw, square_mm, saved_reference):
     diffs=np.linalg.norm(stored-live,axis=1)
     median=float(np.median(diffs))
     p90=float(np.percentile(diffs,90))
-    if median>5 or p90>8:
+    px_per_mm=reference_board_tolerance_mm(saved_reference)
+    if px_per_mm is None:
+        raise VisionError("无法确定棋盘像素比例，不能验证已保存的位置")
+    median_mm=median/px_per_mm
+    p90_mm=p90/px_per_mm
+    # The previous hard-coded 5px/8px had no physical meaning. Allow a small
+    # measured alignment drift for board RECOGNITION; actual motor execution
+    # keeps a separate, stricter gate.
+    if median_mm>8 or p90_mm>12:
         raise VisionError(
-            f"当前棋盘与已保存标定不一致（角点中位偏移{median:.1f}px，"
-            f"90分位{p90:.1f}px）。检查是不是切换了摄像头、分辨率，"
-            "或移动了棋盘/支架；不能沿用旧XY标定"
+            f"棋盘与保存位置的差异约为：中位{median_mm:.1f}mm，"
+            f"90分位{p90_mm:.1f}mm。超过确认阈值（8/12mm）。"
+            "请核对相机、棋盘或底座是否移动；旧XY文件仍保留"
         )
     visible_ball=find_yellow_ball(image)
     if visible_ball:
@@ -361,6 +394,9 @@ def confirm_empty_board(raw, square_mm, saved_reference):
         "square_mm":float(square_mm),
         "corners_count":54,
         "median_reference_difference_px":round(median,2),
+        "median_reference_difference_mm":round(median_mm,2),
+        "p90_reference_difference_mm":round(p90_mm,2),
+        "motion_stability_confirmed":median_mm<=4 and p90_mm<=6,
         "message":"空棋盘已确认。现在把黄球放回棋盘，点击下方一键识别和轨迹预览；不用重新机械臂五点标定",
     }
 
@@ -404,7 +440,10 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
         if grid is not None:
             stored = np.asarray(reference["corners_px"], dtype=np.float32)
             delta = np.linalg.norm(grid.reshape(-1, 2) - stored, axis=1)
-            if float(np.median(delta)) > 5 or float(np.percentile(delta, 90)) > 8:
+            scale = reference_board_tolerance_mm(reference)
+            if (scale is None or
+                float(np.median(delta)) / scale > 8 or
+                float(np.percentile(delta, 90)) / scale > 12):
                 grid, h = None, None
     else:
         grid, h = find_chessboard(image)
