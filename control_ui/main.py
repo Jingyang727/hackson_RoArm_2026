@@ -14,6 +14,7 @@ from .safety import UnsafeMotion
 from .robot_calibration import CalibrationError, calibration, default_path as xy_calibration_path
 from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile, save_pick_draft, load_pick_progress
 from .pick_teach import observe_tool_pose
+from .fast_teach import read_poses, capture_pose
 from .pick_execution import executor
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
@@ -33,6 +34,15 @@ class Unlock(BaseModel):
 class Step(BaseModel):
     joint: int
     delta: float
+
+
+class TeachTarget(BaseModel):
+    joint: int
+    target_deg: float
+
+
+class TeachCapture(BaseModel):
+    stage: str
 
 
 class GripperMove(BaseModel):
@@ -287,6 +297,29 @@ def calibration_save(req: CalibrationSave):
 @app.post("/api/teach/torque")
 def teach_torque(req: TeachTorque):
     return invoke(service.set_torque, req.enabled, req.declaration)
+
+
+@app.get("/teach", response_class=HTMLResponse)
+def fast_teaching_page():
+    return HTMLResponse(
+        content=Path(__file__).with_name("fast_teach.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/api/teach/poses")
+def teach_poses():
+    return invoke(read_poses)
+
+
+@app.post("/api/teach/capture")
+def teach_capture(req: TeachCapture):
+    return invoke(capture_pose, service, req.stage)
+
+
+@app.post("/api/teach/move")
+def teach_move(req: TeachTarget):
+    return invoke(service.teach_move_to, req.joint, req.target_deg)
 
 
 @app.get("/pick", response_class=HTMLResponse)
