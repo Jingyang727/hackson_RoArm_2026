@@ -119,16 +119,20 @@ class TestPickPlan(unittest.TestCase):
         with self.assertRaisesRegex(PickPlanningError, "超出"):
             validate_pick_profile(p)
 
-    def test_user_place_xy_still_rejected_if_outside_current_reach(self):
+    def test_manually_taught_place_396mm_not_blocked_by_old_370mm_rule(self):
         p = profile()
         p.update({"grip_z_mm": -116.18, "place_z_mm": -103.87,
                   "travel_z_mm": -38.82,
                   "place_xy_mm": [285.35, 275.04]})
         self.assertTrue(validate_pick_profile(p))
-        with self.assertRaisesRegex(PickPlanningError, "放置点距基座水平半径"):
-            run_plan([96,60], prof=p)
+        candidate = run_plan([96, 60], prof=p)
+        self.assertEqual(candidate["place_robot_xy_mm"], [285.35, 275.04])
+        self.assertFalse(candidate["auto_execute"])
+        self.assertTrue(any("396.3" in message
+            for message in candidate["operator_cautions"]))
+        self.assertTrue(all(w["requires_operator_confirm"] for w in candidate["waypoints"]))
 
-    def test_preview_only_allows_actual_taught_396mm_place_but_blocks_execution(self):
+    def test_supervised_path_allows_longer_transfer_only_in_short_segments(self):
         p = profile()
         p.update({
             "grip_z_mm": -116.18, "place_z_mm": -103.87,
@@ -139,23 +143,36 @@ class TestPickPlan(unittest.TestCase):
         })
         preview = plan_pick_place([96, 60], p, calibration(),
             image_size=[1920,1080], corners_px=corners(), preview_only=True)
-        self.assertEqual(preview["place_robot_xy_mm"], [285.35, 275.04])
-        self.assertTrue(preview["preview_only"])
-        self.assertFalse(preview["execution_eligible"])
+        self.assertTrue(preview["execution_eligible"])
         self.assertFalse(preview["auto_execute"])
-        self.assertTrue(any("396.3" in text for text in preview["reachability_warnings"]))
+        self.assertTrue(any("396.3" in text for text in preview["operator_cautions"]))
         self.assertTrue(preview["waypoints"])
         self.assertTrue(all(w["requires_operator_confirm"] for w in preview["waypoints"]))
-        with self.assertRaisesRegex(PickPlanningError, "试验阈值"):
-            run_plan([96, 60], prof=p)
+        real_plan=run_plan([96, 60], prof=p)
+        points=[w for w in real_plan["waypoints"] if w["kind"]=="cartesian"]
+        for old,new in zip(points,points[1:]):
+            if abs(old["xyz_mm"][2]-new["xyz_mm"][2])<0.01:
+                self.assertLessEqual(
+                    math.dist(old["xyz_mm"][:2],new["xyz_mm"][:2]),35.1
+                )
 
-    def test_preview_only_also_explains_arbitrary_transfer_span_limit(self):
-        p = profile()
-        p["place_xy_mm"] = [210.0, 295.0]
-        preview = plan_pick_place([96, 60], p, calibration(),
-            image_size=[1920,1080], corners_px=corners(), preview_only=True)
-        self.assertFalse(preview["execution_eligible"])
-        self.assertTrue(any("280mm" in text for text in preview["reachability_warnings"]))
+    def test_span_280mm_is_advisory_not_hardstop(self):
+        p=profile()
+        p["place_xy_mm"]=[210.0,295.0]
+        preview=plan_pick_place([96,60],p,calibration(),
+            image_size=[1920,1080],corners_px=corners(),preview_only=True)
+        self.assertTrue(preview["execution_eligible"])
+        self.assertTrue(any("跨距" in text for text in preview["operator_cautions"]))
+
+    def test_training_hull_edge_no_longer_requires_six_mm_inset(self):
+        p=profile()
+        cal=calibration()
+        training=[r["board_mm"] for r in cal["records"] if r["id"]!="V1"]
+        boundary=training[0]
+        result=plan_pick_place(boundary,p,cal,image_size=[1920,1080],
+            corners_px=corners(),preview_only=True)
+        self.assertTrue(result["ball_inside_training_hull"])
+        self.assertFalse(result["auto_execute"])
 
     def test_save_then_preview_from_files_never_drives_arm(self):
         import json
