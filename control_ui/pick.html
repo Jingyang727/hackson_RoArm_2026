@@ -87,6 +87,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 const $=x=>document.getElementById(x);
 let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false,execution=null,hasPreview=false;
 let pickHealth=null,torqueBusy=false,torqueIntent=null;
+let planExecutionEligible=false;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -145,7 +146,7 @@ function updateButtons(){
  $("detect").disabled=busy||!stream;
  $("preview").disabled=busy;
  $("preview").textContent=busy?"正在处理…":"拍摄识别黄球 · 生成轨迹预览";
- $("armExecution").disabled=busy||!hasPreview||!execution?.hardware_execution_enabled;
+ $("armExecution").disabled=busy||!hasPreview||!planExecutionEligible||!execution?.hardware_execution_enabled;
  const isActive=execution?.has_session&&!execution?.cancelled;
  const previousDone=execution?.next_index===0||
    (execution?.last_command_status?.status==="feedback_confirmed"&&
@@ -265,6 +266,14 @@ $("preview").onclick=()=>act(async()=>{
   " mm，共 "+result.number_of_steps+" 步。\n"+
   result.requirements.join("\n"));
  hasPreview=true;
+ planExecutionEligible=Boolean(result.execution_eligible);
+ if(result.reachability_warnings?.length){
+   say("previewStatus",
+     $("previewStatus").textContent+
+     "\n\n【仅供查看，不允许真机执行】\n"+
+     result.reachability_warnings.join("\n")+
+     "\n370mm是程序曾使用的内部阈值，不是厂商官方限制。要真机运动必须另行验证逆运动学与障碍物。");
+ }
  $("waypoints").textContent=result.waypoints.map((w,i)=>
   (i+1)+". "+w.stage+" "+w.kind+" "+
   (w.xyz_mm?"XYZ="+w.xyz_mm.join(", "):"夹爪角="+w.g)+
