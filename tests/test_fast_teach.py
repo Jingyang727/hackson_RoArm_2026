@@ -45,6 +45,29 @@ class FastTeachingTests(unittest.TestCase):
                 svc.teach_move_to(4,25.0)  # pending, no second command
             self.assertEqual(len(svc.arm.commands),1)
 
+    def test_relative_button_uses_latest_feedback_and_single_command(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION":"1"}):
+            svc=self.setup_arm()
+            svc.arm.raw["b"]=math.radians(20.04)
+            response=svc.teach_move_relative(1,5)
+            self.assertEqual(response["status"],"sent_not_verified")
+            self.assertAlmostEqual(svc.arm.commands[0]["angle"],25.04,2)
+            self.assertEqual(len(svc.arm.commands),1)
+            with self.assertRaises(UnsafeMotion):
+                svc.teach_move_relative(1,10)  # pending command
+            self.assertEqual(len(svc.arm.commands),1)
+
+    def test_relative_only_accepts_preset_steps_and_joint_limits(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION":"1"}):
+            svc=self.setup_arm()
+            for delta in (-30,-3,0,3,30):
+                with self.assertRaises(UnsafeMotion):
+                    svc.teach_move_relative(1,delta)
+            svc.arm.raw["b"]=math.radians(73)
+            with self.assertRaises(UnsafeMotion):
+                svc.teach_move_relative(1,5)  # outside training limit
+            self.assertEqual(svc.arm.commands,[])
+
     def test_excessive_delta_and_joint_limit_send_nothing(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION":"1"}):
             svc=self.setup_arm()
