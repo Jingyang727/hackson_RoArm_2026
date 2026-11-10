@@ -106,7 +106,10 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <button id="armExecution" class="primary" disabled>确认开始抓取 · 实际移动</button>
 <button id="runNext" disabled>确认移动下一段</button>
 <button id="cancelExecution" disabled>禁止后续动作</button>
+<button id="refreshExecution" type="button">刷新机械臂状态</button>
 </div>
+<div id="pickActionHint" class="notice" role="status" aria-live="polite">正在检查扭矩、连接和执行会话…</div>
+<div class="row"><button id="recoverTorque" type="button" disabled>恢复扭矩锁定 · 手动确认</button></div>
 <div id="executionStatus" class="notice">尚未准备真实运动；必须由你确认，系统不会自动执行全部动作。</div>
 </section>
 </main>
@@ -118,6 +121,7 @@ let planExecutionEligible=false;
 let readyPlan=null;
 let emptyBoardConfirmed=false;
 let workspaceData=null;
+let lastMotionError="";
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -265,27 +269,94 @@ function paintProfile(){
  if(profile.close_g_rad!==undefined)say("closeShow",profile.close_g_rad+" rad");
  if(profile.ball_diameter_mm!==undefined)$("diameter").value=profile.ball_diameter_mm;
 }
-async function act(fn){if(busy)return;busy=true;updateButtons();
- try{await fn()}catch(e){say("teachInfo","操作未完成："+e.message);say("previewStatus","操作未完成："+e.message)}
- finally{busy=false;updateButtons()}}
+async function act(fn,context="general"){
+ if(busy)return;
+ busy=true;updateButtons();
+ try{
+  await fn();
+  if(context==="motion")lastMotionError="";
+ }catch(err){
+  const message=err?.message||String(err);
+  if(context==="motion"){
+   lastMotionError="运动未执行或未确认："+message;
+   say("executionStatus",lastMotionError);
+   // After a failed first dispatch the session may exist at 0/N.
+   // Fetch the actual backend state instead of assuming no session.
+   try{execution=await api("/api/pick/execution")}
+   catch(e){lastMotionError+="；状态刷新失败："+e.message}
+   try{pickHealth=await api("/api/health")}
+   catch(e){/* do not hide original error */}
+  }else{
+   say("teachInfo","操作未完成："+message);
+   say("previewStatus","操作未完成："+message);
+  }
+ }finally{
+  busy=false;updateButtons();
+ }
+}
+function motionBlockedBy(){
+ if(!pickHealth?.connected)return "机械臂未连接，请检查 USB 连接和右上角状态。";
+ if(pickHealth?.teach_active||!torqueLocked())
+   return "六关节尚未确认全部锁定；请托住大臂，点击下方「恢复扭矩锁定」，手动确认后再继续。";
+ if(pickHealth?.fault)return "机械臂反馈异常："+(pickHealth.fault.message||"需复核")+"；禁止继续动作。";
+ if(pickHealth?.pending)return "上一步动作正在等待真实位置反馈，不要重复下发。";
+ if(!pickHealth?.motion_enabled)return "后端未开启 EVOARM_ENABLE_MOTION=1。";
+ if(!execution?.hardware_execution_enabled)return "真实抓球未开启 EVOARM_ENABLE_PICK=1。";
+ return "";
+}
+function paintActionHint(){
+ const label=$("pickActionHint"),block=motionBlockedBy();
+ const active=Boolean(execution?.has_session&&!execution?.cancelled);
+ const next=execution?.next_step;
+ if(lastMotionError){
+  label.textContent=lastMotionError+"\n"+(block?"当前阻碍："+block:
+    active&&next?"会话仍在，检查安全条件后可继续第 "+(execution.next_index+1)+" 步。":"");
+ }else if(block){
+  label.textContent="暂不能运动："+block;
+ }else if(execution?.arm_pending){
+  label.textContent="已下发一条运动指令，正在等待设备反馈。请勿重复点击。";
+ }else if(execution?.arm_fault){
+  label.textContent="机械臂动作异常："+execution.arm_fault.message+"，禁止继续。";
+ }else if(active&&next){
+  label.textContent="执行会话仍在，进度 "+execution.next_index+"/"+execution.total+
+   "。下一步："+next.stage+"。请直接点击「"+
+   (execution.next_index===0?"继续确认第1步":"确认移动下一段")+"」，不必重新开始。";
+ }else if(hasPreview&&planExecutionEligible){
+  label.textContent="黄球已定位。确认机械臂处于安全高位、运动空间无遮挡后，可开始第一段。";
+ }else if(hasPreview){
+  label.textContent="黄球已定位，但当前图像或真实运动状态还不满足执行条件；可查看上方具体提示。";
+ }else{
+  label.textContent="先定位黄球；已经创建的执行会话可以在这里继续，不必重做示教。";
+ }
+ $("recoverTorque").disabled=busy||torqueBusy||!pickHealth?.connected||
+   !pickHealth?.teach_enabled||!!pickHealth?.pending||
+   !(pickHealth?.teach_active||!torqueLocked());
+}
 function updateButtons(){
  $("detect").disabled=busy||!stream;
  $("confirmEmpty").disabled=busy;
  $("preview").disabled=busy;
  $("preview").textContent=busy?"正在定位…":"定位黄球 · 准备抓取";
- $("armExecution").disabled=busy||!hasPreview||!planExecutionEligible;
- const isActive=execution?.has_session&&!execution?.cancelled;
- const previousDone=execution?.next_index===0||
+ const active=Boolean(execution?.has_session&&!execution?.cancelled);
+ const priorConfirmed=execution?.next_index===0||
    (execution?.last_command_status?.status==="feedback_confirmed"&&
     execution.last_command_status.pick_session_id===execution?.session_id);
- $("runNext").disabled=busy||!isActive||!execution?.next_step||
-   !!execution?.arm_pending||!!execution?.arm_fault||!previousDone;
- $("cancelExecution").disabled=busy||!isActive;
- document.querySelectorAll("[data-teach]").forEach(b=>b.disabled=busy||!torqueLocked()||!!pickHealth?.pending||!!pickHealth?.fault);
+ const blocked=motionBlockedBy();
+ $("armExecution").disabled=busy||active||!hasPreview||!planExecutionEligible||
+   !!blocked||!!execution?.arm_pending||!!execution?.arm_fault;
+ $("armExecution").textContent=active?"已有会话 · 请从下方继续":"确认开始抓取 · 实际移动";
+ $("runNext").disabled=busy||!active||!execution?.next_step||!!blocked||
+   !!execution?.arm_pending||!!execution?.arm_fault||!priorConfirmed;
+ $("runNext").textContent=execution?.next_index===0?"继续确认第1步":"确认移动下一段";
+ $("cancelExecution").disabled=busy||!active;
+ $("refreshExecution").disabled=busy||torqueBusy;
+ document.querySelectorAll("[data-teach]").forEach(button=>button.disabled=
+   busy||!torqueLocked()||!!pickHealth?.pending||!!pickHealth?.fault);
  $("save").disabled=busy||!["grip_z_mm","travel_z_mm","place_z_mm","place_xy_mm",
  "pitch_rad","roll_rad","open_g_rad","close_g_rad"].every(x=>profile[x]!==undefined)||
  !Number($("diameter").value);
  renderTorque();
+ paintActionHint();
 }
 async function ensurePickCamera(){
  if(stream && $("video").videoWidth>0)return;
