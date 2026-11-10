@@ -114,7 +114,7 @@ class SupervisedPickTests(unittest.TestCase):
             self.assertEqual(svc.arm.commands,[])
 
     def test_diagnose_reports_pose_mismatch_without_motion(self):
-        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \\
+        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \
              patch("control_ui.pick_execution.build_from_saved_files",return_value=plan()):
             svc=self.service()
             svc.arm.current["tit"]=math.radians(25)
@@ -133,7 +133,7 @@ class SupervisedPickTests(unittest.TestCase):
     def test_roll_wraparound_is_not_a_large_orientation_difference(self):
         p=plan()
         p["waypoints"][0]["r"]=math.radians(-179)
-        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \\
+        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \
              patch("control_ui.pick_execution.build_from_saved_files",return_value=p):
             svc=self.service()
             svc.arm.current["r"]=math.radians(179)
