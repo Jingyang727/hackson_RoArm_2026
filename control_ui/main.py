@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from .service import ArmService
@@ -98,6 +98,15 @@ def invoke(fn, *args):
         return fn(*args)
     except (UnsafeMotion, ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/assets/theme.css")
+def shared_theme():
+    return Response(
+        content=Path(__file__).with_name("theme.css").read_text(encoding="utf-8"),
+        media_type="text/css",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
