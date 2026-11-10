@@ -125,7 +125,7 @@ class TestPickPlan(unittest.TestCase):
                   "travel_z_mm": -38.82,
                   "place_xy_mm": [285.35, 275.04]})
         self.assertTrue(validate_pick_profile(p))
-        with self.assertRaisesRegex(PickPlanningError, "放置位置距基座水平半径"):
+        with self.assertRaisesRegex(PickPlanningError, "放置点距基座水平半径"):
             run_plan([96,60], prof=p)
 
     def test_preview_only_allows_actual_taught_396mm_place_but_blocks_execution(self):
