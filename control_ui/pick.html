@@ -59,7 +59,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 </section>
 <section>
 <h2>② 示教关键位置和夹爪</h2>
-<div class="notice"><strong>新版快速示教：</strong>可在同一页面通过目标角度滑块调整关节、记录 Home / Grasp / Hover / Place 和夹爪开合。<a href="/teach">打开快速示教工作台</a>。新快照独立存储，尚未接入本页旧版自动抓取路径。</div>
+<div class="notice"><strong>新版快速示教：</strong>可在同一页面通过目标角度滑块调整关节、记录 Home / Grasp / Hover / Place 和夹爪开合。<a href="/teach">打开快速示教工作台</a>。已接入本页的视觉动态XY只读预览；正式运动仍需完成TCP、姿态过渡、IK和避障验证，不会回退到旧版参数执行。</div>
 <div id="pickTorqueCard">
 <div class="row" style="justify-content:space-between">
 <strong>扭矩示教</strong><span id="pickTorqueState" class="muted">正在读取实际状态</span>
@@ -541,7 +541,7 @@ $("preview").onclick=()=>act(async()=>{
  if(!(latestBall.inside_board_sheet ?? latestBall.inside_inner_board))
    throw Error("球心不在已标定的棋盘纸面范围内。若希望在整张桌面任意位置抓取，需要先扩展相机到桌面的定位范围");
  if(!saved)
-   throw Error("球已识别，但示教参数还未保存。请在上方点击「验证并保存示教参数」；先前的XY标定不会丢失");
+   throw Error("球已识别，但尚无可用示教参数。请在「快速示教」记录六组姿态；无需重做XY标定");
  const result=await api("/api/pick/preview","POST",{
    ball_board_mm:latestBall.board_mm_xy,
    image_size:[latestVision.image.width,latestVision.image.height],
@@ -786,11 +786,17 @@ $("pickTorqueRefresh").onclick=async()=>{
   workspaceAssessment();drawWorkspaceOverlay();
   const previous=await api("/api/pick/profile");
   profile=previous.profile||{};
-  saved=Boolean(previous.saved);
+  // v2 is the authoritative read-only preview source whenever present.
+  // The separate legacy form is not required again for six saved poses.
+  saved=Boolean(previous.v2_ready||previous.saved);
   paintProfile();
-  $("pickSaveState").textContent=previous.source
-    ?(saved?"完整示教参数已恢复："+previous.source:"已恢复未完成的示教草稿："+previous.source)
-    :"每次成功读取示教姿态后都会自动存草稿，可切换页面继续。";
+  $("pickSaveState").textContent=previous.v2_ready
+    ?"✓ 已读取六组新版示教："+previous.v2_source+"。可直接定位黄球并预览动态XY；真实运动需额外TCP/IK验证。"
+    :previous.v2_source
+     ?"新版示教未齐："+(previous.v2_missing||[]).join("、")+"；不会回退旧数据驱动机械臂。"
+     :previous.source
+      ?(saved?"旧版示教参数已恢复："+previous.source:"已恢复未完成的旧版示教草稿："+previous.source)
+      :"每次成功读取示教姿态后都会自动存草稿，可切换页面继续。";
   // Auto-preview only when camera permission was already granted; never
   // prompt on initial page load and never send robot motion commands.
   if(navigator.permissions?.query){
