@@ -31,7 +31,7 @@ class FakeElement {
   }}
 }
 
-function makePage({initiallyConnected=true}={}) {
+function makePage({initiallyConnected=true,previousSession=null}={}) {
   const html = fs.readFileSync(path.join(__dirname,"..","control_ui","calibration.html"),"utf8");
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
   const elements = new Map(ids.map(id=>[id,new FakeElement(id)]));
@@ -52,6 +52,9 @@ function makePage({initiallyConnected=true}={}) {
     requests.push(method+" "+url);
     let data;
     if(url==="/api/ports") data=[{device:"/dev/mock-usb"}];
+    else if(url==="/api/calibration/status") data=previousSession || {
+      session_id:null,records:[],square_mm:24,fit:null,ready:false
+    };
     else if(url==="/api/auto-connect"){
       autoConnectCalls++;connected=true;
       data={connected:true,port:"/dev/mock-usb",reused:false};
@@ -121,7 +124,7 @@ function makePage({initiallyConnected=true}={}) {
     el,requests,
     torquePosts:()=>torquePosts,statusGets:()=>statusGets,
     autoConnectCalls:()=>autoConnectCalls,
-    primeSession:()=>vm.runInContext('session="test-session";summary={records:[],ready:false,fit:null,message:""};render()',sandbox),
+    primeSession:()=>vm.runInContext('session="test-session";summary={records:[],ready:false,fit:null,message:""};vision={checkerboard:{detected:true,corners_px:Array.from({length:54},(_,i)=>[100+(i%9)*40,100+Math.floor(i/9)*40])}};shot={width:1920,height:1080};render()',sandbox),
     refresh:()=>vm.runInContext("render()",sandbox),
     pointRow:(index)=>el("targets").children[index],
     captured:()=>captures.slice(),
@@ -224,4 +227,22 @@ test("P1 P2 remain recorded; P3 reject shows local reason and retry succeeds; P4
    assert.match(feedback(i),/已记录/);
  }
  assert.match(page.el("captureStatus").textContent,/V1 记录成功/);
+});
+
+test("existing P1 and P2 are recovered after page refresh without starting a new session",async()=>{
+ const oldRecords=[
+   {id:"P1",grid:[1,1],robot_xyz_mm:[210,30,110]},
+   {id:"P2",grid:[7,1],robot_xyz_mm:[245,30,110]},
+ ];
+ const page=makePage({previousSession:{
+   session_id:"existing-session",records:oldRecords,
+   next_id:"P3",square_mm:24,image_size:[1920,1080],
+   message:"继续标定",fit:null,ready:false
+ }});
+ for(let i=0;i<5;i++)await flush();
+ assert.match(page.pointRow(0).children[0].textContent,/✓/);
+ assert.match(page.pointRow(1).children[0].textContent,/✓/);
+ assert.equal(page.pointRow(2).children[1].children[1].disabled,true,
+   "recovered session must require a fresh board scan before capturing more points");
+ assert.equal(page.requests.filter(v=>v==="POST /api/calibration/start").length,0);
 });
