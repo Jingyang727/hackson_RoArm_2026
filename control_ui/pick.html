@@ -123,6 +123,102 @@ async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
  const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
 }
+function inPolygon(point, vertices){
+ if(!point||!Array.isArray(vertices)||vertices.length<3)return false;
+ let inside=false;
+ for(let i=0,j=vertices.length-1;i<vertices.length;j=i++){
+  const a=vertices[i],b=vertices[j];
+  if((a[1]>point[1])!==(b[1]>point[1]) &&
+     point[0] < (b[0]-a[0])*(point[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;
+ }
+ return inside;
+}
+function workspaceZone(pixel){
+ if(!workspaceData?.available||!pixel)return "unknown";
+ if(inPolygon(pixel,workspaceData.sampled_polygon_px))return "sampled";
+ if(inPolygon(pixel,workspaceData.board_outline_px))return "sheet";
+ return "outside";
+}
+function workspaceAssessment(){
+ if(!workspaceData?.available)return;
+ const area=Number(workspaceData.sampled_area_percent||0);
+ const radius=workspaceData.sampled_robot_radius_mm||[];
+ let text="已使用本地保存的 P1–P4 实测坐标绘制区域：绿色覆盖棋盘约 "+area.toFixed(1)+
+  "%；四个样本在机械臂坐标系中的水平半径约 "+radius.join("～")+" mm。";
+ if(area<45)text+="\n实测覆盖不到棋盘一半：绿色区域外不代表无法抓取，只是未通过这些点直接验证。";
+ text+="\n机械臂能否在指定 Z/Pitch 下抓取，还需验证可达性、TCP和桌面间隙。";
+ text+=emptyBoardConfirmed
+  ?"\n已确认本次空棋盘；摄像头或棋盘移动后需重新确认。"
+  :"\n当前绿色/黄色轮廓是上次标定参考，先确认空棋盘位置再用于定位。";
+ if(latestBall?.center_px){
+  const zone=workspaceZone(latestBall.center_px);
+  text+="\n上次识别的球心："+(zone==="sampled"?"在绿色实测区":
+    zone==="sheet"?"在黄色可定位区":
+    zone==="outside"?"在当前棋盘区域外":"尚未确定")+"。";
+ }
+ say("workspaceAssessment",text);
+}
+function drawWorkspaceOverlay(){
+ const v=$("video"),c=$("workspaceOverlay");
+ if(!v||!c||!workspaceData?.available||!v.videoWidth||!v.videoHeight)return;
+ const width=v.clientWidth||v.videoWidth, height=v.clientHeight||v.videoHeight;
+ if(!width||!height)return;
+ const dpr=Math.min(2,window.devicePixelRatio||1);
+ c.width=Math.round(width*dpr);c.height=Math.round(height*dpr);
+ const ctx=c.getContext("2d");
+ if(!ctx||typeof ctx.fill!=="function"||typeof ctx.stroke!=="function")return;
+ const scale=Math.min(c.width/v.videoWidth,c.height/v.videoHeight);
+ const xOffset=(c.width-v.videoWidth*scale)/2;
+ const yOffset=(c.height-v.videoHeight*scale)/2;
+ const point=p=>[xOffset+p[0]*scale,yOffset+p[1]*scale];
+ const polygon=(points,fill,stroke,dashed=false)=>{
+  if(!points?.length)return;
+  ctx.beginPath();
+  const first=point(points[0]);ctx.moveTo(first[0],first[1]);
+  for(const p of points.slice(1)){const q=point(p);ctx.lineTo(q[0],q[1])}
+  ctx.closePath();ctx.fillStyle=fill;ctx.fill();
+  ctx.setLineDash?.(dashed?[8*dpr,5*dpr]:[]);
+  ctx.strokeStyle=stroke;ctx.lineWidth=2.3*dpr;ctx.stroke();
+  ctx.setLineDash?.([]);
+ };
+ // A translucent sketch over the live camera: these are mapped regions,
+ // not a manufacturer-specified reachability or collision-free envelope.
+ polygon(workspaceData.board_outline_px,"rgba(244,186,53,.16)",
+   "#f2bd4a",!emptyBoardConfirmed);
+ polygon(workspaceData.sampled_polygon_px,"rgba(25,191,137,.23)",
+   "#2fe3aa",!emptyBoardConfirmed);
+ ctx.font=`${Math.round(12*dpr)}px system-ui`;
+ ctx.textBaseline="middle";
+ for(const sample of workspaceData.samples||[]){
+  const p=point(sample.pixel);
+  ctx.beginPath();ctx.arc(p[0],p[1],4*dpr,0,Math.PI*2);
+  ctx.fillStyle="#10e4a5";ctx.fill();
+  const label=sample.id;
+  ctx.lineWidth=3*dpr;ctx.strokeStyle="#0e2830";ctx.strokeText?.(label,p[0]+6*dpr,p[1]-9*dpr);
+  ctx.fillStyle="#fff";ctx.fillText(label,p[0]+6*dpr,p[1]-9*dpr);
+ }
+ if(latestBall?.center_px){
+  const cxy=point(latestBall.center_px);
+  const zone=workspaceZone(latestBall.center_px);
+  ctx.beginPath();ctx.arc(cxy[0],cxy[1],Math.max(7*dpr,Number(latestBall.radius_px||0)*scale),0,2*Math.PI);
+  ctx.strokeStyle=zone==="sampled"?"#2fe3aa":zone==="sheet"?"#f2bd4a":"#fb7185";
+  ctx.lineWidth=3*dpr;ctx.stroke();
+  ctx.fillStyle="#fff";
+  ctx.fillText("上次球心",cxy[0]+10*dpr,cxy[1]+12*dpr);
+ }
+}
+async function loadWorkspace(){
+ try{
+  const workspace=await api("/api/pick/workspace");
+  if(!workspace.available)throw Error("未取得工作区坐标");
+  workspaceData=workspace;
+  workspaceAssessment();drawWorkspaceOverlay();
+ }catch(err){
+  workspaceData=null;
+  say("workspaceAssessment","无法加载 P1–P4 放球区域："+err.message+
+    "。不影响已保存文件；请确认 XY 标定已经保存并通过验收。");
+ }
+}
 function torqueLocked(){
  const f=pickHealth?.torque_status;
  return Boolean(pickHealth?.connected && !pickHealth?.teach_active &&
