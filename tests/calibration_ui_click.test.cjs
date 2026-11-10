@@ -43,6 +43,9 @@ function makePage({initiallyConnected=true}={}) {
   let teachActive = false;
   let torquePosts = 0;
   let statusGets = 0;
+  let rejectedPoint="P3";
+  let recordedPoints=[];
+  const captures=[];
   const requests = [];
   const apiFetch = async (url,opts={}) => {
     const method=opts.method||"GET";
@@ -64,6 +67,22 @@ function makePage({initiallyConnected=true}={}) {
         T:1051,x:200,y:30,z:120,
         ...Object.fromEntries([...("BSETRG")].map(k=>["torswitch"+k,torque]))
       };
+    }
+    else if(url==="/api/calibration/capture") {
+      const req=JSON.parse(opts.body);
+      captures.push(req.point_id);
+      if(req.point_id===rejectedPoint){
+        return {ok:false,status:409,json:async()=>({detail:
+          "末端姿态与 P1 不一致：Pitch 相差 11.0°，Roll 相差 0.0°（上限均为5°）"
+        })};
+      }
+      recordedPoints=recordedPoints.filter(r=>r.id!==req.point_id);
+      recordedPoints.push({
+        id:req.point_id,grid:[req.col,req.row],
+        robot_xyz_mm:[200+req.col,30+req.row,110]
+      });
+      data={records:recordedPoints.slice(),ready:false,fit:null,
+            message:"还有待完成的标定点"};
     }
     else if(url==="/api/teach/torque") {
       const payload=JSON.parse(opts.body);
@@ -92,12 +111,22 @@ function makePage({initiallyConnected=true}={}) {
     requestAnimationFrame:()=>0,cancelAnimationFrame:()=>{},
     confirm:()=>true,
   };
-  vm.runInNewContext(script,sandbox,{filename:"calibration.html",timeout:5000});
+  vm.createContext(sandbox);
+  vm.runInContext(script,sandbox,{filename:"calibration.html",timeout:5000});
   const el=id=>{
     assert.ok(elements.has(id),"DOM id missing: "+id);
     return elements.get(id);
   };
-  return {el,requests,torquePosts:()=>torquePosts,statusGets:()=>statusGets,autoConnectCalls:()=>autoConnectCalls};
+  return {
+    el,requests,
+    torquePosts:()=>torquePosts,statusGets:()=>statusGets,
+    autoConnectCalls:()=>autoConnectCalls,
+    primeSession:()=>vm.runInContext('session="test-session";summary={records:[],ready:false,fit:null,message:""};render()',sandbox),
+    refresh:()=>vm.runInContext("render()",sandbox),
+    pointRow:(index)=>el("targets").children[index],
+    captured:()=>captures.slice(),
+    allowPoint:(point)=>{if(rejectedPoint===point)rejectedPoint=null},
+  };
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -160,4 +189,39 @@ test("new calibration tab automatically reuses/opens single shared serial connec
   assert.match(freshPage.el("connectionChip").textContent,/已连接/);
   assert.ok(!freshPage.requests.includes("POST /api/connect"),
     "page should use backend shared auto-connect, not repeatedly POST manual connect");
+});
+
+test("P1 P2 remain recorded; P3 reject shows local reason and retry succeeds; P4 and V1 can save",async()=>{
+ const page=makePage();
+ await flush();await flush();await flush();
+ page.primeSession();
+ assert.equal(page.el("targets").children.length,5);
+ const record=index=>page.pointRow(index).children[1].children[1];
+ const feedback=index=>page.pointRow(index).children[2].textContent;
+ const stableP3=record(2);
+ for(const index of [0,1]) await record(index).onclick();
+ assert.match(page.pointRow(0).children[0].textContent,/✓/);
+ assert.match(page.pointRow(1).children[0].textContent,/✓/);
+
+ // Simulate periodic /api/health repaint DURING a mouse press; same DOM node
+ // must survive, or the browser may discard the click.
+ page.refresh();page.refresh();
+ assert.strictEqual(record(2),stableP3);
+ assert.strictEqual(record(4),page.pointRow(4).children[1].children[1]);
+
+ await record(2).onclick();
+ assert.match(feedback(2),/Pitch 相差 11\.0/);
+ assert.match(page.el("captureStatus").textContent,/P3 记录失败/);
+ assert.doesNotMatch(page.pointRow(2).children[0].textContent,/✓/);
+ assert.match(page.pointRow(0).children[0].textContent,/✓/);
+ assert.match(page.pointRow(1).children[0].textContent,/✓/);
+
+ page.allowPoint("P3");
+ for(const index of [2,3,4])await record(index).onclick();
+ assert.deepEqual(page.captured(),["P1","P2","P3","P3","P4","V1"]);
+ for(let i=0;i<5;i++){
+   assert.match(page.pointRow(i).children[0].textContent,/✓/, "missing checkmark "+i);
+   assert.match(feedback(i),/已记录/);
+ }
+ assert.match(page.el("captureStatus").textContent,/V1 记录成功/);
 });
