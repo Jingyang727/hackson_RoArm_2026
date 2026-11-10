@@ -48,7 +48,7 @@ body.teach-page{background:#f5f7fa;color:#182331}
 <section>
  <h2>① 连接与运动授权</h2>
  <div id="connection" class="notice">正在读取机械臂状态…</div>
- <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">解锁运动 · 120 秒</button><button id="disarm">禁止后续动作</button></div>
+ <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">解锁运动 · 120 秒</button><button id="disarm">禁止后续动作</button><button id="recover" class="primary" hidden>检查状态并恢复操作</button></div>
  <p class="muted">解锁后，点击 ±5° / ±10° 就能直接移动所选关节；每次等真实反馈再继续。网页“禁止后续动作”不能代替断电急停。</p>
  <div id="motionState" class="notice">尚无运动指令。</div>
 </section>
@@ -173,6 +173,8 @@ function renderState(){
  document.querySelectorAll("[data-relative]").forEach(b=>b.disabled=busy||Boolean(reason));
  $("moveReason").textContent=busy?"正在执行/读取反馈…":reason?("暂不能执行："+reason):"可以执行：本次只发送一条运动指令，目标不会随反馈刷新。";
  $("unlock").disabled=busy||!health?.connected||!health?.motion_enabled;
+ $("recover").hidden=!health?.fault;
+ $("recover").disabled=busy||!health?.connected;
  $("disarm").disabled=busy||!health?.connected;
  $("unlock").textContent=health?.armed?"重新解锁 · 120 秒":"解锁运动 · 120 秒";
  const expiredJustNow=knownExpired&&!health?.armed&&!health?.pending;
@@ -245,6 +247,19 @@ $("connect").onclick=async()=>{try{await api("/api/auto-connect","POST",{});awai
 $("unlock").onclick=async()=>{
  try{await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});await refresh()}
  catch(e){showError(e)}
+};
+$("recover").onclick=async()=>{
+ if(busy||!health?.fault)return;
+ busy=true;renderState();
+ try{
+  $("motionState").textContent="正在检查机械臂是否静止、六关节扭矩是否全部锁定…";
+  await api("/api/recover","POST",{declaration:"已检查机械臂静止且运动区域安全"});
+  health=await api("/api/health");
+  activeTeachingCommand=null;
+  $("motionState").textContent="异常已解除，未发送任何运动。请再次解锁120秒后继续示教。";
+  await refresh();
+ }catch(e){showError(e);try{health=await api("/api/health")}catch(_){}}
+ finally{busy=false;renderState()}
 };
 $("disarm").onclick=async()=>{
  try{await api("/api/disarm","POST",{});await refresh()}catch(e){showError(e)}
