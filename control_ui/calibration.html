@@ -216,8 +216,15 @@ function render(){
     ?"请先识别棋盘格、连接机械臂并确保没有待完成动作"
     :"读取真实机械臂 XYZ；失败会在此行显示原因";
   const message=captureFeedback.get(target.id);
-  row.feedback.className="point-feedback"+(message?" "+message.kind:"");
-  row.feedback.textContent=message?.text||"";
+  const unavailable=!session?"请先识别棋盘并开始标定":
+    !health?.connected?"机械臂当前未连接":
+    health?.fault?"动作异常锁定："+(health.fault.message||"请检查机械臂反馈"):
+    health?.pending?"上一条动作尚未收到到位确认":
+    busy&&captureInProgress!==target.id?"正在记录其他点，结束后再试":null;
+  const visible=message || (!saved&&unavailable
+    ?{kind:"waiting",text:"暂不可记录："+unavailable}:null);
+  row.feedback.className="point-feedback"+(visible?" "+visible.kind:"");
+  row.feedback.textContent=visible?.text||"";
  }
  const t=TARGETS.find(x=>x.id===chosen);
  $("selected").textContent="当前 "+t.id+"：请把夹爪两指中心（或固定指示尖端）人工对准红色高亮角点 "+
