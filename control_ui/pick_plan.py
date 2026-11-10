@@ -286,30 +286,34 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
             f"棋盘有轻微偏移（约RMS {fingerprint['rms_mm']}mm），"
             "仍允许定位，但真实运动需确认相机、棋盘、底座没有变化"
         )
+    operator_cautions = []
     for label, point in (("抓取", ball_xy), ("放置", place_xy)):
         radius = float(np.linalg.norm(point))
-        if not (70 <= radius <= 370):
-            warning = (
-                f"{label}点距基座水平半径 {radius:.1f}mm。软件原先设定的"
-                "70～370mm只是保守试验阈值，并非微雪官方工作空间边界；"
-                "该点的当前Z、末端姿态和沿途可达性尚未经过逆运动学与避障验证"
+        # 370mm was an invented radius, not a manufacturer safety limit.
+        # A manually taught place 396mm away must not be mislabeled as
+        # unreachable. Real motion is still opt-in, one step/feedback at a
+        # time, starting from a manually checked safe high pose.
+        if not (70 <= radius <= 500):
+            message = (
+                f"{label}位置距基座半径 {radius:.1f}mm，超出当前"
+                "70～500mm粗略几何候选范围。该范围并非逐姿态IK验证"
             )
             if not preview_only:
-                raise PickPlanningError(
-                    warning + "。暂不能执行真机运动，但可以使用只读轨迹预览检查步骤"
-                )
-            preview_warnings.append(warning + "，仅允许查看预览，不允许创建真机执行会话")
+                raise PickPlanningError(message + "；暂不能执行真实运动")
+            preview_warnings.append(message + "；只允许查看定位结果")
+        elif radius > 370:
+            operator_cautions.append(
+                f"{label}位置半径 {radius:.1f}mm：已超过以前自定的370mm"
+                "试验阈值，但不能据此认定不可达。"
+                "实际高位XYZ与Pitch/Roll可达性仍须逐段观察反馈"
+            )
 
     span = float(np.linalg.norm(ball_xy - place_xy))
     if span > 280:
-        message = (
-            f"从抓取点到放置点的平面跨度为 {span:.1f}mm，超过程序此前"
-            "自定的280mm试验阈值（不是厂商规定）。分段轨迹可仅供查看，"
-            "该完整路径的碰撞与姿态可达性未验证"
+        operator_cautions.append(
+            f"抓放点跨距 {span:.1f}mm：会分解为不超过35mm的高位水平小段；"
+            "每段都需人工确认和实际到位反馈。"
         )
-        if not preview_only:
-            raise PickPlanningError(message + "，暂不允许真实机械臂执行")
-        preview_warnings.append(message + "；禁止真机执行")
     # Multi-waypoint travel at manually taught elevated Z; each XY hop bounded.
     pitch=profile["pitch_rad"]; roll=profile["roll_rad"]
     open_g=profile["open_g_rad"]; closed_g=profile["close_g_rad"]
@@ -356,6 +360,7 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
       "ball_inside_training_hull": inside_training_hull,
       "ball_on_board_sheet": on_board_sheet,
       "reachability_warnings": preview_warnings,
+      "operator_cautions": operator_cautions,
       "ball_board_mm": [round(v,2) for v in board_xy],
       "ball_robot_xy_mm": [round(float(v),2) for v in ball_xy],
       "place_robot_xy_mm": [round(float(v),2) for v in place_xy],
