@@ -113,6 +113,41 @@ class SupervisedPickTests(unittest.TestCase):
                 exe.step(token,0,"已目视确认本步的运动空间与位置",svc)
             self.assertEqual(svc.arm.commands,[])
 
+    def test_diagnose_reports_pose_mismatch_without_motion(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \\
+             patch("control_ui.pick_execution.build_from_saved_files",return_value=plan()):
+            svc=self.service()
+            svc.arm.current["tit"]=math.radians(25)
+            exe=PickExecutor()
+            result=exe.start([100,50],[1920,1080],[[0,0]]*54,svc,
+                             "已核对标定、示教参数、桌面与工作空间")
+            diagnostic=exe.diagnose(svc)
+            self.assertFalse(diagnostic["ready"])
+            self.assertAlmostEqual(diagnostic["pitch_delta_deg"],25.0)
+            self.assertEqual(svc.arm.commands,[])
+            with self.assertRaisesRegex(PickExecutionError,"当前Pitch"):
+                exe.step(result["session_id"],0,
+                         "已目视确认本步的运动空间与位置",svc)
+            self.assertEqual(svc.arm.commands,[])
+
+    def test_roll_wraparound_is_not_a_large_orientation_difference(self):
+        p=plan()
+        p["waypoints"][0]["r"]=math.radians(-179)
+        with patch.dict(os.environ, {"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}), \\
+             patch("control_ui.pick_execution.build_from_saved_files",return_value=p):
+            svc=self.service()
+            svc.arm.current["r"]=math.radians(179)
+            exe=PickExecutor()
+            result=exe.start([100,50],[1920,1080],[[0,0]]*54,svc,
+                             "已核对标定、示教参数、桌面与工作空间")
+            diagnostic=exe.diagnose(svc)
+            self.assertAlmostEqual(diagnostic["roll_delta_deg"],-2.0)
+            self.assertTrue(diagnostic["ready"])
+            # Only a simulated arm is used here; this is not a hardware approval.
+            exe.step(result["session_id"],0,
+                     "已目视确认本步的运动空间与位置",svc)
+            self.assertEqual(len(svc.arm.commands),1)
+
     def test_cancel_prevents_further_motor_commands(self):
         with patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1"}),\
              patch("control_ui.pick_execution.build_from_saved_files",return_value=plan()):
