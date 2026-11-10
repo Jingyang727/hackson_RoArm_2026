@@ -169,7 +169,7 @@ $("copy").onclick=async()=>{
   health=await api("/api/health");
   if(!health.connected)await api("/api/auto-connect","POST",{});
   health=await api("/api/health");
-  rebuildJointOptions();await refresh();
+  rebuildJointOptions();await refresh();syncSlider(selectedAngle());
   const data=await api("/api/teach/poses");poses=data.poses;renderPoses();
  }catch(e){showError(e)}
  setInterval(async()=>{
