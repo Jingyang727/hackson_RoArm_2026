@@ -116,6 +116,15 @@ def invoke(fn, *args):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/assets/nav_status.js")
+def shared_navigation_status_script():
+    return Response(
+        content=Path(__file__).with_name("nav_status.js").read_text(encoding="utf-8"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/assets/theme.css")
 def shared_theme():
     return Response(
