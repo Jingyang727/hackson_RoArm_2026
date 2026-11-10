@@ -100,7 +100,90 @@ def find_yellow_ball(image):
     }
 
 
-def analyze_image(raw: bytes, square_mm: float | None = None) -> dict:
+def verify_visible_reference_corners(image, reference, ball=None):
+    """Independently cross-check visible chessboard intersections from a saved
+    54-corner reference when a ball blocks the full chessboard detector.
+
+    This is deliberately NOT 'trust old corners': it requires many fresh,
+    spatially distributed live corner features close to the saved locations.
+    Unknown camera movement, occlusion or stale references return None.
+    Nothing in this module can issue robot motor commands.
+    """
+    if not isinstance(reference, dict):
+        return None
+    height, width = image.shape[:2]
+    if reference.get("image_size") != [width, height]:
+        return None
+    raw = reference.get("corners_px")
+    try:
+        stored = np.asarray(raw, dtype=np.float32)
+    except (ValueError, TypeError):
+        return None
+    if stored.shape != (54, 2) or not np.isfinite(stored).all():
+        return None
+    if np.any(stored[:, 0] < 16) or np.any(stored[:, 0] >= width - 16):
+        return None
+    if np.any(stored[:, 1] < 16) or np.any(stored[:, 1] >= height - 16):
+        return None
+    # Match fresh, live strong corner features to expected inner-corner sites.
+    # Mask away the yellow object and nearby pixels to avoid treating the ball
+    # edge as a checkerboard intersection.
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    roi = np.zeros((height, width), dtype=np.uint8)
+    for x, y in stored:
+        cv2.circle(roi, (int(round(x)), int(round(y))), 11, 255, -1)
+    if ball and ball.get("center_px"):
+        bx, by = ball["center_px"]
+        radius = max(15, float(ball.get("radius_px", 0)) * 1.4)
+        cv2.circle(roi, (int(round(bx)), int(round(by))),
+                   int(math.ceil(radius)), 0, -1)
+    features = cv2.goodFeaturesToTrack(
+        gray, maxCorners=250, qualityLevel=0.04,
+        minDistance=5, mask=roi, blockSize=5
+    )
+    if features is None:
+        return None
+    features = features.reshape(-1, 2)
+    matches = []
+    seen = set()
+    for index, expected in enumerate(stored):
+        delta = np.linalg.norm(features - expected, axis=1)
+        nearby = np.flatnonzero(delta <= 9.0)
+        if not len(nearby):
+            continue
+        nearest = min(nearby, key=lambda i: float(delta[i]))
+        if int(nearest) in seen:
+            continue
+        seen.add(int(nearest))
+        matches.append((index, features[nearest] - expected, float(delta[nearest])))
+    # 32/54 minimum also tolerates a small foam ball masking multiple corners.
+    # At least five fresh corners must survive in EACH quarter of the board.
+    if len(matches) < 32:
+        return None
+    quadrants = [0, 0, 0, 0]
+    for index, _, _ in matches:
+        row, col = divmod(index, 9)
+        quadrants[int(row >= 3) * 2 + int(col >= 4)] += 1
+    if min(quadrants) < 5:
+        return None
+    distances = np.asarray([d for _, _, d in matches], dtype=np.float32)
+    shifts = np.asarray([offset for _, offset, _ in matches], dtype=np.float32)
+    median_shift = np.median(shifts, axis=0)
+    # Deliberately much tighter than a movable-camera re-registration.
+    if (float(np.median(distances)) > 5.0 or
+        float(np.percentile(distances, 90)) > 8.0 or
+        float(np.linalg.norm(median_shift)) > 4.0):
+        return None
+    return {
+        "corners": stored.reshape(6, 9, 2).copy(),
+        "visible_match_count": len(matches),
+        "median_corner_error_px": round(float(np.median(distances)), 2),
+        "median_shift_px": [round(float(v), 2) for v in median_shift],
+        "reference_verified": True,
+    }
+
+
+def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) -> dict:
     if square_mm is not None and (
         isinstance(square_mm, bool) or not math.isfinite(square_mm) or square_mm <= 0 or square_mm > 200
     ):
@@ -110,7 +193,34 @@ def analyze_image(raw: bytes, square_mm: float | None = None) -> dict:
     grid, h = find_chessboard(image)
     ball = find_yellow_ball(image)
     warnings = []
-    checker = {"detected": grid is not None, "pattern_inner": list(PATTERN)}
+    partial = None
+    if grid is None and reference is not None:
+        # A moving camera or missing live corner evidence must NEVER fall back
+        # blindly to the saved transform, even if a file exists.
+        if square_mm is not None and abs(float(reference.get("square_mm", -1)) - square_mm) < 0.05:
+            partial = verify_visible_reference_corners(image, reference, ball)
+        if partial:
+            grid = partial["corners"]
+            image_points = grid.reshape(-1, 2).astype(np.float32)
+            targets = np.asarray(
+                [(c, r) for r in range(PATTERN[1]) for c in range(PATTERN[0])],
+                dtype=np.float32
+            )
+            h, _ = cv2.findHomography(image_points, targets, method=0)
+            if h is None or not np.isfinite(h).all():
+                grid, partial, h = None, None, None
+    checker = {
+        "detected": grid is not None,
+        "pattern_inner": list(PATTERN),
+        "source": "reference_partial_verified" if partial else ("live_54" if grid is not None else "not_detected"),
+    }
+    if partial:
+        checker.update({k: v for k, v in partial.items() if k != "corners"})
+        warnings.append(
+            "完整棋盘识别受到球体遮挡；本帧已用"
+            f"{partial['visible_match_count']}个未被遮挡的实时角点核对保存位置。"
+            "相机或棋盘移动时必须重新进行完整标定"
+        )
     if grid is not None:
         pixel_corners = grid.reshape(-1, 2)
         ideal = np.array(
@@ -136,7 +246,11 @@ def analyze_image(raw: bytes, square_mm: float | None = None) -> dict:
             "fit_error_grid_median": round(float(np.median(error_squares)), 5),
         })
     else:
-        warnings.append("未检测到9×6棋盘格内部角点；检查图案、照明和完整性")
+        warnings.append(
+            "本帧未识别到全部54个内角点，也无法安全核实保存的标定参考。"
+            "球可能遮挡了棋盘角点；请暂时移开球完成一次棋盘识别，"
+            "再把球放回去。无法确认棋盘位置时禁止抓取规划"
+        )
     if ball:
         if ball["near_edge"]:
             warnings.append("黄色球距离画面边界过近，请移向画面内部，避免后续抓取定位不稳定")
@@ -151,7 +265,9 @@ def analyze_image(raw: bytes, square_mm: float | None = None) -> dict:
                 ball["board_mm_xy"] = [round(gx * square_mm, 1), round(gy * square_mm, 1)]
             if not inside:
                 warnings.append(
-                    "黄色球位于棋盘格内部角点区域之外：坐标是外推估算，不可直接用于机械臂运动"
+                    "球心不在9×6内角点围成的安全区域内。"
+                    "即使球在棋盘纸最外圈黑白格上，也不代表位于内部标定凸包；"
+                    "当前坐标仅供观察，禁止自动抓取"
                 )
     else:
         warnings.append("当前未检测到黄色圆形物体，请检查光照、遮挡或HSV阈值")
