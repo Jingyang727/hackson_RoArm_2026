@@ -89,6 +89,45 @@ class TestPickPlan(unittest.TestCase):
         with self.assertRaises(PickPlanningError):
             validate_pick_profile(p)
 
+    def test_negative_robot_base_z_profile_can_be_saved_and_previewed(self):
+        # Actual Mac teaching sample: negative Z is valid in base coordinates.
+        p = {
+          "grip_z_mm": -116.18, "pitch_rad": 1.24252,
+          "roll_rad": 0.0092, "travel_z_mm": -38.82,
+          "place_z_mm": -103.87, "place_xy_mm": [230.0, 10.0],
+          "open_g_rad": 2.34392, "close_g_rad": 2.53260,
+          "ball_diameter_mm": 34.7,
+        }
+        valid = validate_pick_profile(p)
+        self.assertEqual(valid["grip_z_mm"], -116.18)
+        self.assertEqual(valid["travel_z_mm"], -38.82)
+        plan = run_plan([96,60], prof=p)
+        self.assertEqual(plan["waypoints"][0]["xyz_mm"][2], -38.82)
+        points = [w for w in plan["waypoints"] if w["kind"]=="cartesian"]
+        self.assertEqual(min(w["xyz_mm"][2] for w in points), -116.18)
+        for prev, next_step in zip(points,points[1:]):
+            self.assertLessEqual(abs(next_step["xyz_mm"][2] - prev["xyz_mm"][2]), 20.01)
+
+    def test_signed_z_does_not_bypass_lift_clearance_or_range(self):
+        p = profile()
+        p.update({"grip_z_mm": -116.18, "place_z_mm": -103.87,
+                  "travel_z_mm": -70.0})
+        with self.assertRaisesRegex(PickPlanningError, "净抬升"):
+            validate_pick_profile(p)
+        p["travel_z_mm"] = -38.82
+        p["grip_z_mm"] = -410.0
+        with self.assertRaisesRegex(PickPlanningError, "超出"):
+            validate_pick_profile(p)
+
+    def test_user_place_xy_still_rejected_if_outside_current_reach(self):
+        p = profile()
+        p.update({"grip_z_mm": -116.18, "place_z_mm": -103.87,
+                  "travel_z_mm": -38.82,
+                  "place_xy_mm": [285.35, 275.04]})
+        self.assertTrue(validate_pick_profile(p))
+        with self.assertRaisesRegex(PickPlanningError, "放置位置距基座水平半径"):
+            run_plan([96,60], prof=p)
+
     def test_save_then_preview_from_files_never_drives_arm(self):
         import json
         with tempfile.TemporaryDirectory() as td:
