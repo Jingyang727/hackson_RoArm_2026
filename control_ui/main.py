@@ -434,7 +434,21 @@ def pick_workspace_geometry():
 
 @app.get("/api/pick/profile")
 def pick_profile_load():
-    return load_pick_progress()
+    legacy = load_pick_progress()
+    # Expose which source the preview will actually use; don't make users
+    # repeat the legacy pick-profile workflow after completing v2 teaching.
+    from .fast_teach import pose_path
+    if pose_path().exists():
+        snapshot = read_poses()
+        stages = ("home", "hover", "grasp", "place", "gripper_open", "gripper_close")
+        legacy["v2_ready"] = all(k in snapshot.get("poses", {}) for k in stages)
+        legacy["v2_source"] = str(pose_path())
+        legacy["v2_missing"] = [k for k in stages if k not in snapshot.get("poses", {})]
+    else:
+        legacy["v2_ready"] = False
+        legacy["v2_source"] = None
+        legacy["v2_missing"] = []
+    return legacy
 
 
 @app.post("/api/pick/draft")
