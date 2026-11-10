@@ -14,7 +14,21 @@ button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}input{width:
 label{font-size:13px}.primary{background:#166d58;border-color:#269982}
 .notice{padding:12px;background:#263953;border-radius:9px;line-height:1.7;margin-top:10px;white-space:pre-wrap}
 .warn{padding:12px;background:#482e35;border:1px solid #98666a;border-radius:9px;line-height:1.7}
-#video{width:100%;max-height:44vh;background:#0a1320;object-fit:contain}#photo{width:100%;height:auto;display:none}
+#pickCameraStage{position:relative;width:100%;min-width:0;overflow:hidden;
+ background:#111e2d;border:1px solid #d7e3ea;border-radius:11px}
+#video{display:block;width:100%;max-height:56vh;background:#0a1320;object-fit:contain}
+#workspaceOverlay{position:absolute;inset:0;width:100%;height:100%;
+ pointer-events:none;z-index:2}
+#photo{width:100%;height:auto;display:none}
+#workspaceLegend{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;font-size:12px}
+.zone-legend{display:inline-flex;gap:6px;align-items:center;padding:5px 8px;
+ background:#f7f9fc;border-radius:8px;color:#334155}
+.zone-dot{display:inline-block;width:10px;height:10px;border-radius:3px;
+ background:#15b88d}
+.zone-dot.amber{background:#f2bc45}
+.zone-dot.grey{background:#8e9dad}
+#workspaceAssessment{font-size:12px;white-space:pre-wrap;line-height:1.7}
+@media(min-width:850px){main{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)}}
 pre{white-space:pre-wrap;word-wrap:break-word;font-size:12px;max-height:420px;overflow:auto}
 table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #3c5068;text-align:left}
 @media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}}
@@ -29,7 +43,17 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <section>
 <h2>① 获取黄色球位置</h2>
 <div class="row"><label for="square">棋盘单格 mm</label><input type="number" min="0.1" max="200" step=".1" id="square" value="24"/><button id="camOpen">开启相机</button><button id="confirmEmpty">① 无球 · 确认棋盘</button><button id="detect" disabled>② 放球 · 定位黄球</button></div>
-<video id="video" autoplay playsinline muted></video><canvas id="photo"></canvas>
+<div id="pickCameraStage">
+ <video id="video" autoplay playsinline muted></video>
+ <canvas id="workspaceOverlay" aria-hidden="true"></canvas>
+</div>
+<canvas id="photo"></canvas>
+<div id="workspaceLegend" aria-label="棋盘放球区域">
+ <span class="zone-legend"><i class="zone-dot"></i>绿色 · P1–P4 实测 XY 区</span>
+ <span class="zone-legend"><i class="zone-dot amber"></i>黄色 · 棋盘可定位，动作待验证</span>
+ <span class="zone-legend"><i class="zone-dot grey"></i>棋盘之外 · 尚未映射</span>
+</div>
+<div id="workspaceAssessment" class="notice" role="status" aria-live="polite">正在从已保存的 XY 标定加载真实放球区域…</div>
 <div id="boardConfirmStatus" class="notice" role="status">首次使用：先把黄球拿开，点击「① 无球 · 确认棋盘」。已经保存的机械臂P1～V1标定不会改变。</div>
 <div id="ballResult" class="notice">随后把黄球放回棋盘，点击「② 放球 · 定位黄球」或下方一键轨迹预览。</div>
 </section>
@@ -93,6 +117,7 @@ let pickHealth=null,torqueBusy=false,torqueIntent=null;
 let planExecutionEligible=false;
 let readyPlan=null;
 let emptyBoardConfirmed=false;
+let workspaceData=null;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
