@@ -509,8 +509,7 @@ async function jogCalibration(delta_deg){
  try{
   const joint=Number($("calJoint").value);
   const result=await api("/api/teach/move-relative","POST",{joint,delta_deg});
-  $("calJogStatus").textContent="已发送 "+(delta_deg>0?"+":"")+delta_deg+
-    "°，目标 "+Number(result.to_deg).toFixed(1)+"°；等待真实反馈…";
+  $("calJogStatus").textContent="正在调整关节，等待完成反馈…";
   health=await api("/api/health");
  }catch(e){$("calJogStatus").textContent="未执行："+e.message}
  finally{busy=false;render();refreshCalibrationJog()}
