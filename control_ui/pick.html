@@ -85,10 +85,56 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <script>
 const $=x=>document.getElementById(x);
 let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false,execution=null,hasPreview=false;
+let pickHealth=null,torqueBusy=false,torqueIntent=null;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
  const res=await fetch(url,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
  const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
+}
+function torqueLocked(){
+ const f=pickHealth?.torque_status;
+ return Boolean(pickHealth?.connected && !pickHealth?.teach_active &&
+   Array.isArray(f) && f.length===6 && f.every(x=>x===1));
+}
+function renderTorque(){
+ const connected=Boolean(pickHealth?.connected);
+ const chip=$("pickConnectionChip");
+ chip.textContent=connected?"已连接 · "+(pickHealth.port||"RoArm"):"机械臂未连接";
+ chip.classList.toggle("offline",!connected);
+ const f=pickHealth?.torque_status;
+ const mode=Array.isArray(f)&&f.length===6
+   ?f.every(x=>x===1)?"全部锁定":f.every(x=>x===0)?"全部释放":"部分关节状态不一致"
+   :"扭矩状态未知";
+ $("pickTorqueState").textContent=mode;
+ $("pickTorqueRelease").disabled=torqueBusy||busy||!connected||!pickHealth?.teach_enabled||
+   !!pickHealth?.pending||!!pickHealth?.fault||!torqueLocked();
+ $("pickTorqueLock").disabled=torqueBusy||busy||!connected||!pickHealth?.teach_enabled||
+   !!pickHealth?.pending||!(pickHealth?.teach_active||mode!=="全部锁定");
+ $("pickTorqueRefresh").disabled=torqueBusy||busy||!connected;
+ $("pickTorqueConfirm").disabled=torqueBusy||!$("pickTorqueAck").checked;
+ if(!pickHealth?.teach_enabled){
+   $("pickTorqueMessage").textContent="手动示教默认关闭。需要时启动服务加 EVOARM_ENABLE_TEACH=1。";
+ }
+}
+async function refreshPickHealth(){
+ pickHealth=await api("/api/health");
+ renderTorque();updateButtons();
+}
+async function saveDraft(){
+ const diameter=Number($("diameter").value);
+ const values={...profile};
+ if(Number.isFinite(diameter)&&diameter>0)values.ball_diameter_mm=diameter;
+ const result=await api("/api/pick/draft","POST",{values});
+ $("pickSaveState").textContent="示教草稿自动保存："+result.path;
+}
+function paintProfile(){
+ if(profile.grip_z_mm!==undefined)
+  say("grabShow",profile.grip_z_mm+" mm，Pitch "+Number(profile.pitch_rad).toFixed(3)+"，Roll "+Number(profile.roll_rad).toFixed(3));
+ if(profile.travel_z_mm!==undefined)say("travelShow",profile.travel_z_mm+" mm");
+ if(profile.place_z_mm!==undefined)say("placeShow",profile.place_xy_mm.join(", ")+", "+profile.place_z_mm+" mm");
+ if(profile.open_g_rad!==undefined)say("openShow",profile.open_g_rad+" rad");
+ if(profile.close_g_rad!==undefined)say("closeShow",profile.close_g_rad+" rad");
+ if(profile.ball_diameter_mm!==undefined)$("diameter").value=profile.ball_diameter_mm;
 }
 async function act(fn){if(busy)return;busy=true;updateButtons();
  try{await fn()}catch(e){say("teachInfo","操作未完成："+e.message);say("previewStatus","操作未完成："+e.message)}
@@ -104,10 +150,11 @@ function updateButtons(){
  $("runNext").disabled=busy||!isActive||!execution?.next_step||
    !execution?.arm_armed||!!execution?.arm_pending||!!execution?.arm_fault||!previousDone;
  $("cancelExecution").disabled=busy||!isActive;
+ document.querySelectorAll("[data-teach]").forEach(b=>b.disabled=busy||!torqueLocked()||!!pickHealth?.pending||!!pickHealth?.fault);
  $("save").disabled=busy||!["grip_z_mm","travel_z_mm","place_z_mm","place_xy_mm",
  "pitch_rad","roll_rad","open_g_rad","close_g_rad"].every(x=>profile[x]!==undefined)||
  !Number($("diameter").value);
- document.querySelectorAll("[data-teach]").forEach(b=>b.disabled=busy);
+ renderTorque();
 }
 $("camOpen").onclick=()=>act(async()=>{
  if(stream){stream.getTracks().forEach(x=>x.stop());stream=null}
@@ -152,15 +199,21 @@ document.querySelectorAll("[data-teach]").forEach(button=>button.onclick=()=>act
  }else if(kind==="close"){
    profile.close_g_rad=sample.gripper_rad;say("closeShow",sample.gripper_rad+" rad");
  }
- saved=false;hasPreview=false;say("teachInfo","已读取真实反馈 "+kind+"。请持续确认夹爪姿态和周围空间。");
+ saved=false;hasPreview=false;
+ await saveDraft();
+ say("teachInfo","已记录并自动保存 "+kind+"。可随时切换页面，进度不会丢失。");
 }));
-$("diameter").onchange=()=>{saved=false;updateButtons()};
+$("diameter").onchange=async()=>{
+ saved=false;hasPreview=false;updateButtons();
+ try{await saveDraft()}catch(err){say("pickSaveState","草稿保存失败："+err.message)}
+};
 $("save").onclick=()=>act(async()=>{
  const diameter=Number($("diameter").value);
  if(!Number.isFinite(diameter)||diameter<=0)throw Error("请先实测黄色球直径");
  const result=await api("/api/pick/profile","POST",{...profile,ball_diameter_mm:diameter});
  saved=Boolean(result.saved);hasPreview=false;
- say("teachInfo","已保存示教参数到 "+result.path+"。请再生成路径预览，不会自动运动。");
+ $("pickSaveState").textContent="完整示教参数已保存："+result.path;
+ say("teachInfo","已保存示教参数，可以生成轨迹预览。不会自动运动。");
 });
 $("preview").onclick=()=>act(async()=>{
  if(!latestBall?.board_mm_xy)throw Error("请重新识别黄色球");
@@ -226,6 +279,90 @@ $("cancelExecution").onclick=()=>act(async()=>{
  const result=await api("/api/pick/cancel","POST",{});await updateExecution();
  say("executionStatus",result.notice);
 });
+function openTorquePrompt(enabled){
+ if(busy||torqueBusy)return;
+ torqueIntent=enabled;$("pickTorqueAck").checked=false;
+ $("pickTorquePrompt").hidden=false;
+ $("pickTorquePromptTitle").textContent=enabled?"锁定全部六关节扭矩":"释放全部六关节扭矩";
+ $("pickTorquePromptText").textContent=enabled
+  ?"舵机锁定时可能突然移动。请托住大臂并清空夹爪周围空间。"
+  :"释放后肩肘可能因为重力突然下沉！请先托住整条机械臂，并清空下方障碍物。";
+ $("pickTorqueMessage").textContent="等待你的页面内安全确认；当前还没有发送指令。";
+ renderTorque();
+}
+$("pickTorqueRelease").onclick=()=>openTorquePrompt(false);
+$("pickTorqueLock").onclick=()=>openTorquePrompt(true);
+$("pickTorqueAck").onchange=renderTorque;
+$("pickTorqueCancel").onclick=()=>{
+ torqueIntent=null;$("pickTorquePrompt").hidden=true;
+ $("pickTorqueAck").checked=false;
+ $("pickTorqueMessage").textContent="已取消，本次没有发送扭矩指令。";
+ renderTorque();
+};
+$("pickTorqueConfirm").onclick=async()=>{
+ if(torqueBusy||torqueIntent===null||!$("pickTorqueAck").checked)return;
+ const enabled=torqueIntent;torqueIntent=null;
+ $("pickTorquePrompt").hidden=true;$("pickTorqueAck").checked=false;
+ torqueBusy=true;
+ $("pickTorqueMessage").textContent="正在切换并验证真实扭矩状态，请持续托住机械臂……";
+ renderTorque();updateButtons();
+ try{
+  const declaration=enabled?"已托住机械臂并确认重新锁定":"已托住机械臂并确认释放全部关节";
+  const result=await api("/api/teach/torque","POST",{enabled,declaration});
+  $("pickTorqueMessage").textContent=(result.verified?"已确认：":"尚未确认：")+result.message+
+    "\nT=210发送 "+(result.command_sent?"1":"0")+" 次，状态读取 "+result.verification_attempts+" 次。";
+ }catch(err){
+  $("pickTorqueMessage").textContent="操作结果未知："+err.message+
+    "。请托住机械臂，点击「刷新状态」查询。不要重复尝试释放。";
+ }
+ try{pickHealth=await api("/api/health")}
+ catch(err){$("pickTorqueMessage").textContent+="\n无法读取连接状态："+err.message}
+ torqueBusy=false;renderTorque();updateButtons();
+};
+$("pickTorqueRefresh").onclick=async()=>{
+ if(torqueBusy)return;
+ torqueBusy=true;
+ $("pickTorqueMessage").textContent="正在读取六个关节的实际状态……";
+ renderTorque();
+ try{
+  const result=await api("/api/status");
+  const values="BSETRG".split("").map(k=>result["torswitch"+k]);
+  const label=values.every(v=>v===1)?"全部锁定":values.every(v=>v===0)?"全部释放":"不一致或未知";
+  $("pickTorqueMessage").textContent="本次实际反馈："+label+"（"+values.join(", ")+")。";
+ }catch(err){
+  $("pickTorqueMessage").textContent="状态读取失败："+err.message+
+    "。状态未确认，请托住机械臂。";
+ }
+ try{pickHealth=await api("/api/health")}
+ catch(err){pickHealth={connected:false};$("pickTorqueMessage").textContent+="\n设备连接失败："+err.message}
+ torqueBusy=false;renderTorque();updateButtons();
+};
+(async()=>{
+ try{
+  let health=await api("/api/health");
+  if(!health.connected){
+   const attach=await api("/api/auto-connect","POST",{});
+   if(!attach.connected)$("pickTorqueMessage").textContent=attach.reason||"未发现机械臂";
+  }
+  await refreshPickHealth();
+  const previous=await api("/api/pick/profile");
+  profile=previous.profile||{};
+  saved=Boolean(previous.saved);
+  paintProfile();
+  $("pickSaveState").textContent=previous.source
+    ?(saved?"完整示教参数已恢复："+previous.source:"已恢复未完成的示教草稿："+previous.source)
+    :"每次成功读取示教姿态后都会自动存草稿，可切换页面继续。";
+ }catch(err){
+  $("pickTorqueMessage").textContent="初始化失败："+err.message;
+ }
+ updateButtons();
+})();
+setInterval(async()=>{
+ if(busy||torqueBusy)return;
+ try{pickHealth=await api("/api/health");renderTorque();updateButtons()}
+ catch(err){pickHealth={connected:false};renderTorque();updateButtons()}
+},2500);
+
 window.addEventListener("pagehide",()=>{if(stream)stream.getTracks().forEach(t=>t.stop())});
 updateExecution().catch(e=>say("executionStatus","查询执行状态失败："+e.message));
 setInterval(async()=>{
