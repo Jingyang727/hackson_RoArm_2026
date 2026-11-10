@@ -25,7 +25,7 @@ input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
 <section>
  <h2>① 连接与运动授权</h2>
  <div id="connection" class="notice">正在读取机械臂状态…</div>
- <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">检查工作区后授权 120 秒</button><button id="disarm">禁止后续动作</button></div>
+ <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">解锁运动 · 120 秒</button><button id="disarm">禁止后续动作</button></div>
  <p class="muted">授权一次后可连续进行单关节示教，无须每步弹窗。运动指令一次仅发一条，必须等真实反馈后再继续。网页“停止”不能代替断电急停。</p>
  <div id="motionState" class="notice">尚无运动指令。</div>
 </section>
@@ -43,6 +43,7 @@ input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
  <button data-nudge="10">+10°</button><button data-nudge="20">+20°</button>
  </div>
  <button id="move" class="primary">执行到目标角度</button>
+ <div id="moveReason" class="muted" role="status">检查运动授权与实时反馈后可以执行。</div>
  <button id="refresh">刷新真实反馈</button>
  <p class="muted">滑块只设置目标，松开时不会自动运动。每次执行最多改变 30°，超过时请先到中间点；速度仍由现有后端控制，非自动避障。</p>
 </section>
@@ -59,6 +60,7 @@ input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
 const $=id=>document.getElementById(id);
 const stageLabels={home:"Home · 待机姿态",grasp:"Grasp · 实际抓球",hover:"Hover · 球上方预备",place:"Place · 放置姿态",gripper_open:"Gripper · 张开角度",gripper_close:"Gripper · 闭合角度"};
 let health=null,feedback=null,poses=null,busy=false,poll=null;
+let activeTeachingCommand=null,lastPresentedCommand=null,knownExpired=false;
 async function api(path,method="GET",body){
  const res=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
  const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
@@ -94,19 +96,70 @@ function chooseJoint(){
  $("angleInput").min=j.min;$("angleInput").max=j.max;
  syncSlider(selectedAngle()??Math.min(j.max,Math.max(j.min,0)));
 }
+function motionBlockReason(){
+ if(!health?.connected)return "先连接机械臂";
+ if(!health?.motion_enabled)return "当前服务是只读模式，请设置 EVOARM_ENABLE_MOTION=1 后重启";
+ if(health?.fault)return "运动反馈异常，先检查机械臂并使用控制台的异常复核";
+ if(health?.pending)return "上一条动作尚未获得到位反馈";
+ if(health?.teach_active)return "关节扭矩已释放，请先恢复锁定";
+ if(!Array.isArray(health?.torque_status)||health.torque_status.length!==6||
+    !health.torque_status.every(x=>x===1))return "六关节扭矩未全部锁定";
+ if(!health?.armed)return "运动未解锁或授权已过期，请点击「解锁运动 · 120 秒」";
+ if(!(health.allowed_joints||[]).includes(Number($("joint").value)))return "当前关节未获得后端运动授权";
+ if(!finite(selectedAngle()))return "尚未取得该关节的真实角度反馈";
+ return "";
+}
+function formatMotionReceipt(cmd){
+ const j=(health?.joints||[]).find(x=>x.id===cmd?.joint);
+ const label=j?.label||("J"+cmd.joint);
+ const from=finite(cmd.from_deg)?cmd.from_deg.toFixed(1):"—";
+ const to=finite(cmd.to_deg)?cmd.to_deg.toFixed(1):"—";
+ const actual=selectedAngle();
+ const actualText=finite(actual)?actual.toFixed(1):"—";
+ const error=finite(actual)&&finite(cmd.to_deg)?Math.abs(cmd.to_deg-actual):
+   (finite(cmd.error_deg)?cmd.error_deg:null);
+ const errorText=finite(error)?error.toFixed(1)+"°":"未知";
+ if(cmd.status==="feedback_confirmed"){
+  if(finite(error)&&error>0.5)
+   return label+" "+from+"° → 目标 "+to+"°；实际 "+actualText+
+     "°。动作反馈已确认，但仍差 "+errorText+"。可保留目标并再次点击执行，或调整目标。";
+  return label+" "+from+"° → "+actualText+"°；到达目标附近，误差 "+errorText+"。";
+ }
+ if(cmd.status==="settled_with_offset")
+   return label+" 已停稳但未到目标，剩余误差 "+errorText+"。请检查后重新解锁。";
+ if(cmd.status==="unverified_fault")
+   return label+" 未确认到位，请检查机械臂和故障详情。";
+ return label+" 目标 "+to+"°；执行状态 "+(cmd.status||"未知")+"。";
+}
 function renderState(){
- const ready=health?.connected&&health?.motion_enabled&&health?.armed&&
-  !health?.pending&&!health?.fault&&!health?.teach_active&&
-  (health?.torque_status||[]).every(x=>x===1);
+ const reason=motionBlockReason();
  $("connection").textContent=(health?.connected?"已连接 "+(health.port||""):"未连接")+
   "；运动模式 "+(health?.motion_enabled?"开启":"只读")+
-  "；授权 "+(health?.armed?"有效，剩余"+health.arm_seconds_left+"秒":"未解锁")+
+  "；授权 "+(health?.armed?"有效，剩余 "+health.arm_seconds_left+" 秒":"未解锁/已过期")+
   "；扭矩 "+((health?.torque_status||[]).length===6&&health.torque_status.every(v=>v===1)?"六关节锁定":"未完全确认");
- $("move").disabled=busy||!ready||!(health?.allowed_joints||[]).includes(Number($("joint").value));
+ $("move").disabled=busy||Boolean(reason);
+ $("moveReason").textContent=busy?"正在执行/读取反馈…":reason?("暂不能执行："+reason):"可以执行：本次只发送一条运动指令，目标不会随反馈刷新。";
  $("unlock").disabled=busy||!health?.connected||!health?.motion_enabled;
  $("disarm").disabled=busy||!health?.connected;
- if(health?.pending)$("motionState").textContent="正在等待到位反馈："+JSON.stringify(health.pending);
- if(health?.fault)$("motionState").textContent="检测到运动异常："+JSON.stringify(health.fault);
+ $("unlock").textContent=health?.armed?"重新解锁 · 120 秒":"解锁运动 · 120 秒";
+ if(knownExpired&&!health?.armed&&!health?.pending)
+   $("motionState").textContent="运动授权已到期，点击「解锁运动 · 120 秒」可继续。";
+ if(health?.armed)knownExpired=true;
+ if(health?.pending && activeTeachingCommand)
+   $("motionState").textContent="正在执行 "+(health.joints||[]).find(j=>j.id===activeTeachingCommand.joint)?.label+
+       "，目标 "+activeTeachingCommand.to_deg.toFixed(1)+"°；等待真实到位反馈…";
+ if(health?.fault)$("motionState").textContent="动作异常："+(health.fault.message||health.fault.description||"请检查并复核");
+ if(activeTeachingCommand&&!health?.pending&&health?.last_command){
+  const c=health.last_command;
+  if(c.joint===activeTeachingCommand.joint&&
+     Math.abs((c.to_deg??NaN)-activeTeachingCommand.to_deg)<0.01&&
+     ["feedback_confirmed","settled_with_offset","unverified_fault"].includes(c.status)){
+   const key=c.sent_at+"|"+c.status+"|"+c.error_deg;
+   if(key!==lastPresentedCommand){
+    lastPresentedCommand=key;$("motionState").textContent=formatMotionReceipt(c);
+   }
+  }
+ }
 }
 async function refresh(){
  health=await api("/api/health");
@@ -135,11 +188,11 @@ function renderPoses(){
   };wrap.append(btn);return wrap;
  }));
 }
-$("joint").onchange=()=>{chooseJoint();renderState()};
+$("joint").onchange=()=>{activeTeachingCommand=null;chooseJoint();renderState()};
 $("angle").oninput=()=>syncSlider(Number($("angle").value));
 $("angleInput").oninput=()=>{const v=Number($("angleInput").value);if(finite(v))syncSlider(v)};
 document.querySelectorAll("[data-nudge]").forEach(btn=>btn.onclick=()=>syncSlider(Number($("angleInput").value)+Number(btn.dataset.nudge)));
-$("refresh").onclick=async()=>{try{await refresh();syncSlider(selectedAngle())}catch(e){showError(e)}};
+$("refresh").onclick=async()=>{try{await refresh()}catch(e){showError(e)}};
 $("connect").onclick=async()=>{try{await api("/api/auto-connect","POST",{});await refresh()}catch(e){showError(e)}};
 $("unlock").onclick=async()=>{
  try{await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});await refresh()}
@@ -155,7 +208,10 @@ $("move").onclick=async()=>{
  busy=true;renderState();
  try{
   const r=await api("/api/teach/move","POST",{joint,target_deg});
-  $("motionState").textContent="已发送 J"+joint+" "+r.from_deg+"° → "+r.to_deg+"°，等待真实反馈";
+  activeTeachingCommand={...r,joint,to_deg:target_deg};
+  lastPresentedCommand=null;
+  $("motionState").textContent="已发送 "+(spec()?.label||"J"+joint)+
+    "；目标 "+target_deg.toFixed(1)+"°，等待实际角度反馈…";
   await refresh();
  }catch(e){showError(e)}
  finally{busy=false;renderState()}
@@ -175,11 +231,7 @@ $("copy").onclick=async()=>{
  setInterval(async()=>{
   if(busy)return;
   try{
-   const wasPending=Boolean(health?.pending);
    await refresh();
-   if(wasPending&&!health?.pending&&health?.last_command){
-    $("motionState").textContent="动作回执："+JSON.stringify(health.last_command);
-   }
   }catch(e){showError(e)}
  },1500);
 })();
