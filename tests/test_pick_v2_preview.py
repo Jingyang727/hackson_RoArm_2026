@@ -99,10 +99,16 @@ class PickV2PreviewTests(unittest.TestCase):
                     corners_px=self.corners, preview_only=True,
                 )
                 self.assertEqual(read_only["source"], "pick_poses_v2.json")
+                legacy_caller = build_from_saved_files(
+                    [96, 48], image_size=[640, 480],
+                    corners_px=self.corners, preview_only=False,
+                )
+                self.assertEqual(legacy_caller["source"], "pick_poses_v2.json")
+                self.assertFalse(legacy_caller["execution_eligible"])
                 with self.assertRaisesRegex(PickPlanningError, "拒绝运动"):
                     build_from_saved_files(
                         [96, 48], image_size=[640, 480],
-                        corners_px=self.corners, preview_only=False,
+                        corners_px=self.corners, execution_intent=True,
                     )
 
 
