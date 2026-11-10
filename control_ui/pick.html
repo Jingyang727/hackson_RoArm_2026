@@ -23,7 +23,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <body>
 <div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY 标定</a><a href="/pick" class="active" aria-current="page">抓放</a></nav><span id="pickConnectionChip" class="connection-chip offline">正在连接</span></div>
 <h1>黄色球抓取 / 放置示教</h1>
-<p class="muted">按照实际反馈记录抓取高度、末端姿态、夹爪开合和固定放置点。生成路径并审查每一步；<strong>当前仅提供预览，不发送自动 XYZ 运动</strong>。硬件抓取必须完成逐段真机验证后才会开启。</p>
+<p class="muted">按照实际反馈记录抓取高度、末端姿态、夹爪开合和固定放置点。放球后直接定位目标；位置与运动条件通过校验后，点击确认即可发出第一段真实运动。后续每段仍需人工确认，不会自动连发。</p>
 <details class="safety-details"><summary>抓取与标定说明</summary><p class="muted">先完成 <a href="/calibration">机械臂 XY 标定</a>。仅在通过标定的工作区抓球，摄像头和底座须保持固定。真实抓取还需要验证球体视差、工具姿态和高度。</p></details>
 <main>
 <section>
@@ -67,21 +67,23 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <div class="row"><button id="save" class="primary" disabled>验证并保存示教参数</button></div>
 </section>
 <section class="wide">
-<h2>③ 生成抓取与放置轨迹预览</h2>
-<p class="muted">使用已保存的机器人XY标定和示教参数，将当前球的位置转换成机器人XY。只有球在四个标定点形成的凸多边形内部、放置点合理且安全高度足够时才生成轨迹。</p>
-<div class="row"><button id="preview" class="primary">拍摄识别黄球 · 生成轨迹预览</button></div>
-<p class="muted">首次先用无球画面确认棋盘一次；放球后直接点这里。若没有放球，会将当前空棋盘作为参考，而不是错误提示没有黄色球。不会更改原来的五点标定。</p>
-<div id="previewStatus" class="notice">预览不执行任何机械臂运动。</div>
+<h2>③ 定位黄球，确认后准备抓取</h2>
+<p class="muted">直接使用已保存的XY标定与示教参数，识别黄球并显示目标坐标。四点区域外仍可以定位，但未经验证的机械臂移动不会启动。</p>
+<div class="row"><button id="preview" class="primary">定位黄球 · 准备抓取</button></div>
+<p class="muted">无球时确认一次棋盘位置；放球后直接点击「定位黄球」。这一步不会驱动机械臂。</p>
+<div id="previewStatus" class="notice" role="status">尚未定位黄球。定位成功后，确认按钮将在下方出现。</div>
+<details class="safety-details"><summary>高级信息 · 查看分段运动目标</summary>
 <pre id="waypoints"></pre>
+</details>
 <div class="warn">安全策略：将大幅移动拆为高位分段移动；T=104 含逆运动学和插值，但并不能替代碰撞检查、球体中心校正、TCP 标定和夹持确认。真实执行默认禁用，需显式授权。即使启用也必须逐段人工确认，不会连发下一条动作。</div>
-<h2 style="margin-top:16px">④ 可选：真机逐段验收（非一键自动执行）</h2>
-<p class="muted">先用主控制台解锁，然后逐段执行。启动变量除 EVOARM_ENABLE_MOTION=1 外，还需要 EVOARM_ENABLE_PICK=1。初始位置必须已经由人工摆到安全高位，且距离球上方第一段目标不超过42mm。本功能没有软件碰撞检测，不可让末端或夹爪触碰桌面。</p>
+<h2 style="margin-top:16px">④ 确认移动机械臂</h2>
+<p class="muted">准备就绪后点击「确认开始抓取」，会发送第一段真实动作。后续每段到位后由你点击继续。需先开启运动授权和 EVOARM_ENABLE_PICK=1；初始夹爪必须处于已示教的安全高位附近。系统不能替代碰撞检测，请确保周围无人、无遮挡并保留独立断电方式。</p>
 <div class="row">
-<button id="armExecution" class="primary" disabled>创建实机逐段执行会话</button>
-<button id="runNext" disabled>人工确认并执行下一步</button>
+<button id="armExecution" class="primary" disabled>确认开始抓取 · 实际移动</button>
+<button id="runNext" disabled>确认移动下一段</button>
 <button id="cancelExecution" disabled>禁止后续动作</button>
 </div>
-<div id="executionStatus" class="notice">未开启真机执行；这里的按钮只允许在已完成标定和示教的前提下使用。</div>
+<div id="executionStatus" class="notice">尚未准备真实运动；必须由你确认，系统不会自动执行全部动作。</div>
 </section>
 </main>
 <script>
@@ -89,6 +91,7 @@ const $=x=>document.getElementById(x);
 let stream=null,latestBall=null,latestVision=null,frame=null,profile={},saved=false,busy=false,execution=null,hasPreview=false;
 let pickHealth=null,torqueBusy=false,torqueIntent=null;
 let planExecutionEligible=false;
+let readyPlan=null;
 let emptyBoardConfirmed=false;
 function say(id,value){$(id).textContent=value}
 async function api(url,method="GET",body){
@@ -148,8 +151,8 @@ function updateButtons(){
  $("detect").disabled=busy||!stream;
  $("confirmEmpty").disabled=busy;
  $("preview").disabled=busy;
- $("preview").textContent=busy?"正在处理…":"拍摄识别黄球 · 生成轨迹预览";
- $("armExecution").disabled=busy||!hasPreview||!planExecutionEligible||!execution?.hardware_execution_enabled;
+ $("preview").textContent=busy?"正在定位…":"定位黄球 · 准备抓取";
+ $("armExecution").disabled=busy||!hasPreview||!planExecutionEligible;
  const isActive=execution?.has_session&&!execution?.cancelled;
  const previousDone=execution?.next_index===0||
    (execution?.last_command_status?.status==="feedback_confirmed"&&
@@ -233,7 +236,7 @@ $("confirmEmpty").onclick=()=>act(async()=>{
 });
 async function detectCurrentBall(){
  await ensurePickCamera();
- latestBall=null;latestVision=null;hasPreview=false;
+ latestBall=null;latestVision=null;hasPreview=false;planExecutionEligible=false;readyPlan=null;
  const L=Number($("square").value);
  if(!Number.isFinite(L)||L<=0||L>200)throw Error("请输入正确的棋盘单格边长，当前标定为24mm");
  const v=$("video"),c=$("photo");c.width=v.videoWidth;c.height=v.videoHeight;
@@ -263,9 +266,10 @@ async function detectCurrentBall(){
  const board=result.checkerboard?.detected;
  const verified=["reference_partial_verified","empty_board_frame_verified"].includes(result.checkerboard?.source);
  const zone=board
-   ?(latestBall.inside_inner_board?"球心在棋盘9×6内角点区域内":
-     "球心位于外圈格子或内部角点区域之外，不能规划真实抓取")
-   :"未检测到完整棋盘角点，也无法核验旧标定。球可能遮挡角点：请先暂时移走球，让棋盘完整可见后拍一帧，再放回球继续检测";
+   ?(latestBall.inside_inner_board?"球心在棋盘内部":
+     latestBall.inside_board_sheet?"球心在最外圈棋盘格内，定位可用；真实移动需验证工作区":
+     "球心超出当前棋盘纸面，无法可靠定位")
+   :"未核验当前棋盘位置；可先用无球画面确认棋盘，再放回球";
  say("ballResult","球心像素 "+latestBall.center_px.join(", ")+
   "，棋盘毫米坐标 "+(latestBall.board_mm_xy?.join(", ")||"暂不可计算")+
   "。\n棋盘核验："+(verified?"通过保存标定附近的实时可见角点核对":"本帧完整检测或尚未检测到")+
@@ -323,8 +327,8 @@ $("preview").onclick=()=>act(async()=>{
  }
  if(!latestVision?.checkerboard?.detected || !latestBall?.board_mm_xy)
    throw Error("球已定位，但棋盘位置尚未核验。请先拿走球，点击上方「① 无球 · 确认棋盘」一次，再放回球重试；无需重新P1～V1");
- if(!latestBall.inside_inner_board)
-   throw Error("球虽然可能在棋盘纸上，但球心不在9×6内角点的安全区域。请移到内部四个标定点覆盖的区域再试");
+ if(!(latestBall.inside_board_sheet ?? latestBall.inside_inner_board))
+   throw Error("球心不在已标定的棋盘纸面范围内。若希望在整张桌面任意位置抓取，需要先扩展相机到桌面的定位范围");
  if(!saved)
    throw Error("球已识别，但示教参数还未保存。请在上方点击「验证并保存示教参数」；先前的XY标定不会丢失");
  const result=await api("/api/pick/preview","POST",{
@@ -332,21 +336,23 @@ $("preview").onclick=()=>act(async()=>{
    image_size:[latestVision.image.width,latestVision.image.height],
    corners_px:latestVision.checkerboard.corners_px
  });
- say("previewStatus","球位置机械臂XY："+result.ball_robot_xy_mm.join(", ")+
-  " mm → 放置XY："+result.place_robot_xy_mm.join(", ")+
-  " mm，共 "+result.number_of_steps+" 步。\n"+
-  result.requirements.join("\n"));
+ readyPlan=result;
  hasPreview=true;
+ say("previewStatus","已定位黄球：机械臂 XY ("+result.ball_robot_xy_mm.join(", ")+
+  ") mm；放置目标 XY ("+result.place_robot_xy_mm.join(", ")+
+  ") mm。"+(result.execution_eligible
+   ?"\n目标已准备。确认真实移动前请清空桌面障碍物，确保机械臂初始位姿安全。"
+   :"\n当前位置仅能定位，尚未通过真实运动许可条件；不会驱动机械臂。"));
  // Cached/partially visible chessboard evidence is sufficient for read-only
  // trajectory preview only. It does not grant hardware movement.
  planExecutionEligible=Boolean(result.execution_eligible)&&
-   latestVision?.checkerboard?.source==="live_54";
+   ["live_54","reference_partial_verified","empty_board_frame_verified"]
+     .includes(latestVision?.checkerboard?.source);
  if(result.reachability_warnings?.length){
    say("previewStatus",
      $("previewStatus").textContent+
-     "\n\n【仅供查看，不允许真机执行】\n"+
-     result.reachability_warnings.join("\n")+
-     "\n370mm是程序曾使用的内部阈值，不是厂商官方限制。要真机运动必须另行验证逆运动学与障碍物。");
+     "\n\n【尚不能驱动机械臂】\n"+
+     result.reachability_warnings.join("\n"));
  }
  $("waypoints").textContent=result.waypoints.map((w,i)=>
   (i+1)+". "+w.stage+" "+w.kind+" "+
@@ -371,15 +377,37 @@ function describeExecution(){
 }
 async function updateExecution(){execution=await api("/api/pick/execution");describeExecution();updateButtons()}
 $("armExecution").onclick=()=>act(async()=>{
- if(!hasPreview||!latestVision?.checkerboard?.detected)throw Error("请先完成路径预览");
- if(!confirm("真正的机械臂会运动！确认固定底座、清空扫掠区域、已标定球体抓取Z和末端姿态、已将末端人工移动到球附近的高位安全姿态？"))return;
+ if(!hasPreview || !readyPlan || !planExecutionEligible)
+   throw Error("黄球尚未通过本次定位与真实运动条件核验，请先点击「定位黄球」");
+ if(!execution?.hardware_execution_enabled)
+   throw Error("真实抓取尚未启用：请在启动服务时设置 EVOARM_ENABLE_PICK=1，并保持 EVOARM_ENABLE_MOTION=1。此按钮不会偷偷开启真实运动");
+ const first=readyPlan.waypoints?.[0];
+ if(!first?.xyz_mm)throw Error("缺少第一段真实运动目标，请重新定位");
+ const approved=confirm(
+  "即将真实驱动机械臂移动第一段！\n"+
+  "目标："+first.stage+"；XYZ="+first.xyz_mm.join(", ")+" mm。\n"+
+  "请确认底座和相机固定，桌面、显示器、线缆和夹爪扫掠区都没有障碍物；"+
+  "当前末端处于示教安全高位附近、扭矩已锁定，且随时可以切断电源。"+
+  "\n本次只发送第一段，后续每段仍需人工确认。确认执行吗？"
+ );
+ if(!approved)return;
+ // One operator confirmation leads directly to ONE bounded physical step,
+ // not a second 'create session' click and not unattended autoplay.
  execution=await api("/api/pick/start","POST",{
    ball_board_mm:latestBall.board_mm_xy,
    image_size:[latestVision.image.width,latestVision.image.height],
    corners_px:latestVision.checkerboard.corners_px,
    declaration:"已核对标定、示教参数、桌面与工作空间"
  });
- describeExecution();
+ if(!execution?.next_step)
+   throw Error("执行会话已创建，但没有可执行的第一段");
+ const sent=await api("/api/pick/step","POST",{
+   session_id:execution.session_id,step_index:execution.next_index,
+   declaration:"已目视确认本步的运动空间与位置"
+ });
+ say("executionStatus","已向机械臂发送第一段 "+sent.stage+
+   "；等待真实位置反馈。到位后可由你确认下一段。");
+ await updateExecution();
 });
 $("runNext").onclick=()=>act(async()=>{
  if(!execution?.next_step)throw Error("没有下一步");
