@@ -107,10 +107,12 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <button id="runNext" disabled>确认移动下一段</button>
 <button id="cancelExecution" disabled>禁止后续动作</button>
 <button id="refreshExecution" type="button">刷新机械臂状态</button>
+<button id="diagnosePick" type="button">姿态诊断 · 不运动</button>
 </div>
 <div id="pickActionHint" class="notice" role="status" aria-live="polite">正在检查扭矩、连接和执行会话…</div>
 <div class="row"><button id="recoverTorque" type="button" disabled>恢复扭矩锁定 · 手动确认</button></div>
 <div id="executionStatus" class="notice">尚未准备真实运动；必须由你确认，系统不会自动执行全部动作。</div>
+<div id="poseDiagnostics" class="notice" role="status" aria-live="polite">开始抓取前可以读取实际 Pitch/Roll、XYZ、示教值及扭矩状态；不会发送运动命令。</div>
 </section>
 </main>
 <script>
@@ -663,6 +665,26 @@ $("cancelExecution").onclick=()=>act(async()=>{
  const result=await api("/api/pick/cancel","POST",{});await updateExecution();
  say("executionStatus",result.notice);
 });
+$("diagnosePick").onclick=async()=>{
+ if(busy)return;
+ try{
+  const d=await api("/api/pick/diagnose");
+  const lines=["只读姿态诊断 · "+d.stage+" · 第"+(d.step_index+1)+"步",
+    "扭矩："+(d.torque_locked?"全部已锁定":"并非全部锁定"),
+    "上一动作状态："+(d.last_command_status||"无")];
+  if(d.current_xyz_mm){
+    lines.push("当前XYZ："+d.current_xyz_mm.join(", ")+" mm");
+    lines.push("目标XYZ："+d.target_xyz_mm.join(", ")+" mm");
+    lines.push("XY距离："+d.xy_delta_mm+" mm；Z差："+d.z_delta_mm+" mm");
+    lines.push("Pitch 当前/示教/差："+d.current_pitch_deg+"° / "+d.taught_pitch_deg+"° / "+d.pitch_delta_deg+"°");
+    lines.push("Roll 当前/示教/最短差："+d.current_roll_deg+"° / "+d.taught_roll_deg+"° / "+d.roll_delta_deg+"°");
+  }
+  lines.push(d.ready?"当前单步门槛通过（不代表已验证碰撞安全）":
+    "不可直接发动作："+(d.issues||[]).join("；"));
+  say("poseDiagnostics",lines.join("\\n"));
+ }catch(e){say("poseDiagnostics","只读诊断未完成："+e.message+
+    "。请先定位黄球并建立执行会话，检查连接/待完成动作。");}
+};
 $("refreshExecution").onclick=()=>act(async()=>{
  const status=await api("/api/status");
  pickHealth=await api("/api/health");
