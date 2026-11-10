@@ -35,6 +35,14 @@ button{cursor:pointer}button:disabled{opacity:.38;cursor:not-allowed}input[type=
 #statusLine{font-size:13px;line-height:1.7;white-space:pre-wrap}
 #torquePrompt[hidden]{display:none}#torqueMessage{white-space:pre-wrap}
 #torqueAcknowledged{width:auto;margin-right:7px}
+.point-feedback{flex-basis:100%;font-size:12px;line-height:1.55;padding:0 6px;min-height:18px}
+.point-feedback.waiting{color:#526782}
+.point-feedback.success{color:#08785b;font-weight:650}
+.point-feedback.error{color:#b34242;font-weight:650}
+.point .record{min-width:110px;white-space:nowrap}
+#captureStatus{font-size:13px;line-height:1.5;margin:6px 0;min-height:20px}
+#captureStatus.error{color:#ac3642;font-weight:650}
+#captureStatus.success{color:#08785b;font-weight:650}
 .notice{border:1px solid #455a72;background:#27364c;border-radius:9px;padding:11px;line-height:1.65}
 .warning{border:1px solid #986b5e;background:#432f31;border-radius:9px;padding:11px;margin-top:10px;line-height:1.7}
 .point{padding:10px 5px;border-top:1px solid #364b61}
@@ -79,6 +87,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div id="setupState" class="notice">打开相机 → 识别角点并自动开始会话 → 连接机械臂。</div>
 <h2 style="margin-top:16px">标定点 · 选择并记录</h2>
 <div id="targets"></div>
+<div id="captureStatus" role="status" aria-live="polite">点击任意 P1～V1 行的「记录 XYZ」，结果会显示在该行下方。</div>
 <div id="selected" class="notice">请先识别棋盘格并开始标定。</div>
 <div class="row"><button id="capture" class="primary" disabled>记录当前选中点的 XYZ</button></div>
 <div id="statusLine" class="muted">点击各点旁边的绿色「记录 XYZ」即可。</div>
@@ -120,6 +129,9 @@ let stream=null,vision=null,shot=null,session=null,chosen="P1",summary=null,heal
 let raf=0;
 const modifiedPoints=new Set();
 let cameraAutoTried=false;
+const pointRows=new Map();
+const captureFeedback=new Map();
+let captureInProgress=null;
 async function api(url,method="GET",payload){
  const options={method,headers:{"Content-Type":"application/json"}};
  if(payload!==undefined)options.body=JSON.stringify(payload);
@@ -168,25 +180,44 @@ function render(){
    ?("示教模式已授权；"+actual+"。软件运动锁："+(health?.teach_active?"已启用":"未进入示教锁定")+
      "。切换前后始终托住机械臂，反馈不代表实时安全。")
    :"示教接口默认禁用，请设置 EVOARM_ENABLE_TEACH=1。"+actual;
- $("targets").replaceChildren();
- for(const t of TARGETS){
-  const item=document.createElement("div");item.className="point"+(chosen===t.id?" active":"");
-  const info=document.createElement("div");
-  const saved=recordById(t.id);
-  info.className="point-description";
-  info.textContent=t.id+" · 格点 ("+t.col+", "+t.row+") · "+
-    (t.id==="V1"?"独立验收":"拟合")+
-    (modifiedPoints.has(t.id)?" · 角点改变，必须重录":
-      saved?" · XYZ "+saved.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ")+" mm ✓":" · 未记录");
-  const actions=document.createElement("div");actions.className="point-actions";
-  const b=document.createElement("button");b.textContent=chosen===t.id?"当前点":"定位 "+t.id;
-  b.disabled=busy;b.onclick=()=>{chosen=t.id;render();drawOverlay();drawZoomFrame()};
-  const record=document.createElement("button");record.className="record";
-  record.textContent=saved&&!modifiedPoints.has(t.id)?"重新记录 "+t.id:"记录 "+t.id+" XYZ";
-  record.disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
-  record.title=record.disabled?"请先识别棋盘格并连接机械臂，确保没有未完成动作":"读取当前机械臂末端XYZ";
-  record.onclick=()=>capturePoint(t.id);
-  actions.append(b,record);item.append(info,actions);$("targets").append(item);
+ // Reuse existing DOM nodes across 2.5s health polling. Replacing all rows
+ // during mousedown could cancel the click before mouseup, especially on P3–V1.
+ for(const target of TARGETS){
+  let row=pointRows.get(target.id);
+  if(!row){
+   const item=document.createElement("div");
+   const info=document.createElement("div");info.className="point-description";
+   const actions=document.createElement("div");actions.className="point-actions";
+   const choose=document.createElement("button");choose.type="button";
+   const record=document.createElement("button");record.type="button";record.className="record";
+   const feedback=document.createElement("div");feedback.className="point-feedback";
+   feedback.setAttribute("role","status");feedback.setAttribute("aria-live","polite");
+   choose.onclick=()=>{chosen=target.id;render();drawOverlay();drawZoomFrame()};
+   record.onclick=()=>capturePoint(target.id);
+   actions.append(choose,record);
+   item.append(info,actions,feedback);
+   $("targets").append(item);
+   row={item,info,choose,record,feedback};
+   pointRows.set(target.id,row);
+  }
+  const saved=recordById(target.id);
+  const dirty=modifiedPoints.has(target.id);
+  row.item.className="point"+(chosen===target.id?" active":"");
+  row.info.textContent=target.id+" · 格点 ("+target.col+", "+target.row+") · "+
+    (target.id==="V1"?"独立验收":"拟合")+
+    (dirty?" · 角点改变，需重录":
+     saved?" · XYZ "+saved.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ")+" mm ✓":" · 未记录");
+  row.choose.textContent=chosen===target.id?"当前点":"定位 "+target.id;
+  row.choose.disabled=busy;
+  row.record.textContent=captureInProgress===target.id?"读取中…":
+    saved&&!dirty?"重新记录 "+target.id:"记录 "+target.id+" XYZ";
+  row.record.disabled=busy||!session||!health?.connected||!!health?.pending||!!health?.fault;
+  row.record.title=row.record.disabled
+    ?"请先识别棋盘格、连接机械臂并确保没有待完成动作"
+    :"读取真实机械臂 XYZ；失败会在此行显示原因";
+  const message=captureFeedback.get(target.id);
+  row.feedback.className="point-feedback"+(message?" "+message.kind:"");
+  row.feedback.textContent=message?.text||"";
  }
  const t=TARGETS.find(x=>x.id===chosen);
  $("selected").textContent="当前 "+t.id+"：请把夹爪两指中心（或固定指示尖端）人工对准红色高亮角点 "+
@@ -344,7 +375,7 @@ $("analyze").onclick=()=>doAction(async()=>{
   corners_px:data.checkerboard.corners_px
  });
  shot=snapshot;vision=data;session=started.session_id;summary=started;
- chosen="P1";modifiedPoints.clear();drawOverlay();drawZoomFrame();
+ chosen="P1";modifiedPoints.clear();captureFeedback.clear();drawOverlay();drawZoomFrame();
  say("54角点已识别，标定会话已自动开始！视频继续实时播放，P1～V1持续可见。连接串口后，直接点击各点旁边绿色「记录 XYZ」。");
 });
 $("begin").onclick=()=>doAction(async()=>{
@@ -371,22 +402,53 @@ $("serialConnect").onclick=()=>doAction(async()=>{
  await api("/api/connect","POST",{port});await refreshArm();say("已连接机械臂；可以开始记录角点 XYZ。");
 });
 $("refreshXYZ").onclick=()=>doAction(refreshArm);
-function capturePoint(pointId){
- if(!session){say("请先打开摄像头并点击「识别角点并开始标定」");return;}
+async function capturePoint(pointId){
+ const t=TARGETS.find(x=>x.id===pointId);
+ if(!t)return;
+ if(busy){
+  captureFeedback.set(pointId,{kind:"waiting",text:"当前已有操作正在进行，请等其结束后再记录。"});
+  render();return;
+ }
  chosen=pointId;drawOverlay();drawZoomFrame();render();
- return doAction(async()=>{
-  const t=TARGETS.find(x=>x.id===pointId);
-  if(!t)throw Error("未找到角点");
+ if(!session){
+  const message="请先完成54角点识别并开始标定会话。";
+  captureFeedback.set(pointId,{kind:"error",text:"未记录："+message});
+  $("captureStatus").className="error";
+  $("captureStatus").textContent=pointId+"："+message;
+  render();return;
+ }
+ captureInProgress=pointId;
+ captureFeedback.set(pointId,{kind:"waiting",text:"正在连续读取两次机械臂真实反馈并检查静止状态…"});
+ $("captureStatus").className="";
+ $("captureStatus").textContent=pointId+"：正在读取 XYZ，请保持机械臂静止。";
+ setBusy(true);
+ try{
   const data=await api("/api/calibration/capture","POST",{
-    session_id:session,point_id:t.id,col:t.col,row:t.row
+   session_id:session,point_id:t.id,col:t.col,row:t.row
   });
-  summary=data;modifiedPoints.delete(t.id);
+  const recorded=data.records?.find(x=>x.id===pointId);
+  if(!recorded)throw Error("服务端未返回当前点的 XYZ 记录");
+  summary=data;modifiedPoints.delete(pointId);
+  const xyz=recorded.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ");
+  captureFeedback.set(pointId,{kind:"success",text:"✓ 已记录机械臂 XYZ ("+xyz+") mm"});
+  $("captureStatus").className="success";
+  $("captureStatus").textContent=pointId+" 记录成功，XYZ ("+xyz+") mm。";
   const next=TARGETS.find(x=>!data.records.some(r=>r.id===x.id)||modifiedPoints.has(x.id));
-  chosen=next?.id||t.id;drawOverlay();drawZoomFrame();
-  const recorded=data.records.find(x=>x.id===t.id);
-  say("已记录 "+t.id+"：机械臂 XYZ = "+
-    recorded.robot_xyz_mm.map(n=>Number(n).toFixed(1)).join(", ")+" mm。"+data.message);
- });
+  chosen=next?.id||pointId;
+  drawOverlay();drawZoomFrame();
+ }catch(err){
+  // The backend may reject pose mismatches, unstable feedback, pending moves,
+  // stale sessions or serial timeouts. Keep previous successful point records.
+  const reason=err?.message||"未知错误";
+  const text="✕ 本次未记录："+reason;
+  captureFeedback.set(pointId,{kind:"error",text});
+  $("captureStatus").className="error";
+  $("captureStatus").textContent=pointId+" 记录失败："+reason;
+  $("viewMessage").textContent=pointId+" 记录失败："+reason;
+ }finally{
+  captureInProgress=null;
+  setBusy(false);
+ }
 }
 $("capture").onclick=()=>capturePoint(chosen);
 $("captureTop").onclick=()=>capturePoint(chosen);
