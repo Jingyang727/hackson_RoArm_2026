@@ -569,6 +569,28 @@ class ArmService:
             status = self._preflight(joint)
             return self._send_move(plan_single_step(status, joint, delta))
 
+    def teach_move_to(self, joint, target_deg):
+        """One explicitly clicked bounded joint move; never streams slider events."""
+        from .safety import plan_to_angle, current_degrees
+        if type(joint) is not int or type(target_deg) not in (int, float):
+            raise UnsafeMotion("关节或目标角度格式错误")
+        if not math.isfinite(target_deg):
+            raise UnsafeMotion("目标角度必须是有限值")
+        with self.lock:
+            status = self._preflight(joint)
+            current = current_degrees(status)[joint]
+            # Absolute target via slider, but bounded displacement per command.
+            # No automatic multi-command chaining.
+            max_delta = 30.0
+            difference = target_deg - current
+            if abs(difference) > max_delta + 1e-6:
+                raise UnsafeMotion(
+                    f"当前{current:.1f}° → 目标{target_deg:.1f}°差{difference:+.1f}°；"
+                    "单次最多30°。请先到中间角度，核对反馈后再继续")
+            if abs(difference) < 0.5:
+                raise UnsafeMotion("已经接近目标角度，无需重复发送")
+            return self._send_move(plan_to_angle(status, joint, target_deg))
+
     def gripper_step(self, delta):
         """Move gripper by a bounded angle. Uses official T=106 radians command."""
         with self.lock:
