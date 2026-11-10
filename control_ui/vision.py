@@ -267,7 +267,7 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
                 warnings.append(
                     "球心不在9×6内角点围成的安全区域内。"
                     "即使球在棋盘纸最外圈黑白格上，也不代表位于内部标定凸包；"
-                    "当前坐标仅供观察，禁止自动抓取"
+                    "当前坐标仅供观察，不可直接用于机械臂运动或自动抓取"
                 )
     else:
         warnings.append("当前未检测到黄色圆形物体，请检查光照、遮挡或HSV阈值")
