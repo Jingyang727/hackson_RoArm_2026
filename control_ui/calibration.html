@@ -270,6 +270,7 @@ function render(){
    "("+t.col+","+t.row+"), 棋盘毫米坐标 ("+
    (t.col*Number($("square").value)).toFixed(1)+","+
    (t.row*Number($("square").value)).toFixed(1)+")，保持静止后记录。";
+ refreshCalibrationJog();
  const setup=!vision?.checkerboard?.detected?"第1步：启动相机并识别角点（已有会话将自动恢复）":
   !session?"请先点击重新开始标定":
   !health?.connected?"第2步：选择串口并连接机械臂":
@@ -479,6 +480,47 @@ $("serialConnect").onclick=()=>doAction(async()=>{
  await api("/api/connect","POST",{port});await refreshArm();say("已连接机械臂；可以开始记录角点 XYZ。");
 });
 $("refreshXYZ").onclick=()=>doAction(refreshArm);
+function refreshCalibrationJog(){
+ const healthReady=health?.connected&&health?.motion_enabled&&health?.armed&&
+   !health?.pending&&!health?.fault&&!health?.teach_active&&
+   Array.isArray(health?.torque_status)&&health.torque_status.length===6&&
+   health.torque_status.every(x=>x===1);
+ const reason=!health?.connected?"机械臂未连接":
+   !health?.motion_enabled?"请用 EVOARM_ENABLE_MOTION=1 启动服务":
+   health?.fault?"存在动作异常，请先复核":
+   health?.pending?"上一条运动尚未完成":
+   health?.teach_active?"关节扭矩已释放":
+   !healthReady?"请先点击「解锁运动 120 秒」":"点击方向按钮直接微调，结束后记录当前角点";
+ $("calUnlock").disabled=busy||!health?.connected||!health?.motion_enabled;
+ document.querySelectorAll("[data-cal-jog]").forEach(b=>{
+  b.disabled=busy||!healthReady||
+   !(health?.allowed_joints||[]).includes(Number($("calJoint").value));
+ });
+ $("calJogStatus").textContent=reason;
+}
+async function jogCalibration(delta_deg){
+ if(busy)return;
+ busy=true;render();refreshCalibrationJog();
+ try{
+  const joint=Number($("calJoint").value);
+  const result=await api("/api/teach/move-relative","POST",{joint,delta_deg});
+  $("calJogStatus").textContent="已发送 "+(delta_deg>0?"+":"")+delta_deg+
+    "°，目标 "+Number(result.to_deg).toFixed(1)+"°；等待真实反馈…";
+  health=await api("/api/health");
+ }catch(e){$("calJogStatus").textContent="未执行："+e.message}
+ finally{busy=false;render();refreshCalibrationJog()}
+}
+$("calUnlock").onclick=async()=>{
+ if(busy)return;
+ busy=true;
+ try{await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});
+     health=await api("/api/health");}
+ catch(e){$("calJogStatus").textContent="解锁失败："+e.message}
+ finally{busy=false;render();refreshCalibrationJog()}
+};
+document.querySelectorAll("[data-cal-jog]").forEach(b=>b.onclick=()=>jogCalibration(Number(b.dataset.calJog)));
+$("calJoint").onchange=refreshCalibrationJog;
+
 async function capturePoint(pointId){
  const t=TARGETS.find(x=>x.id===pointId);
  if(!t)return;
@@ -647,6 +689,12 @@ window.addEventListener("pagehide",stopCamera);
  $("serialPort").replaceChildren(...ports.map(p=>{const o=document.createElement("option");o.value=p.device;o.textContent=p.device;return o}));
  if(health?.port&&ports.some(p=>p.device===health.port))$("serialPort").value=health.port;
  await refreshArm();await cameras();
+ const jointOptions=health?.joints||[];
+ $("calJoint").replaceChildren(...jointOptions.map(j=>{
+  const o=document.createElement("option");o.value=String(j.id);
+  o.textContent="J"+j.id+" · "+j.label;return o;
+ }));
+ $("calJoint").value="1";
  if(!cameraAutoTried&&navigator.permissions?.query){
   cameraAutoTried=true;
   try{
