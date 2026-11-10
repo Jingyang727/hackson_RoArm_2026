@@ -260,6 +260,62 @@ def verify_confirmed_empty_board(image, reference, ball=None):
     }
 
 
+def confirm_empty_board(raw, square_mm, saved_reference):
+    """Operator explicitly captures a ball-free board; read-only operation.
+
+    A full live 9x6 detection is required and must match the *persisted* 4+1
+    calibration corners. Nothing here changes the saved robot XY transform.
+    """
+    if not isinstance(saved_reference, dict):
+        raise VisionError("没有已保存且验收通过的4+1点XY标定，不能确认棋盘参考")
+    image = decode_image(raw)
+    height, width = image.shape[:2]
+    if saved_reference.get("image_size") != [width, height]:
+        raise VisionError(
+            f"摄像头当前分辨率 {width}×{height} 与已保存的"
+            f" {saved_reference.get('image_size')} 不同；请选回标定时的相机分辨率"
+        )
+    if square_mm is None or abs(float(saved_reference.get("square_mm", -1)) - float(square_mm)) > 0.05:
+        raise VisionError("棋盘单格尺寸与已保存XY标定不一致，请恢复原始单格尺寸")
+    grid, _ = find_chessboard(image)
+    if grid is None:
+        raise VisionError("未看到完整的9×6内部角点。先拿开黄球，保持棋盘完整入镜，再点击确认棋盘")
+    stored=np.asarray(saved_reference.get("corners_px"),dtype=np.float32)
+    live=grid.reshape(-1,2)
+    if stored.shape!=(54,2) or not np.isfinite(stored).all():
+        raise VisionError("已保存的54角点参考无效，不得使用")
+    diffs=np.linalg.norm(stored-live,axis=1)
+    median=float(np.median(diffs))
+    p90=float(np.percentile(diffs,90))
+    if median>5 or p90>8:
+        raise VisionError(
+            f"当前棋盘与已保存标定不一致（角点中位偏移{median:.1f}px，"
+            f"90分位{p90:.1f}px）。检查是不是切换了摄像头、分辨率，"
+            "或移动了棋盘/支架；不能沿用旧XY标定"
+        )
+    visible_ball=find_yellow_ball(image)
+    if visible_ball:
+        bx,by=visible_ball["center_px"]
+        corners=grid.reshape(-1,2)
+        if (min(corners[:,0])<=bx<=max(corners[:,0]) and
+                min(corners[:,1])<=by<=max(corners[:,1])):
+            raise VisionError("黄球还在棋盘内部，先取走黄球再确认空棋盘")
+    reference={
+        "image_size":[width,height],
+        "square_mm":float(square_mm),
+        "corners_px":saved_reference["corners_px"],
+        "baseline_gray":cv2.cvtColor(image,cv2.COLOR_BGR2GRAY),
+    }
+    return reference,{
+        "confirmed":True,
+        "image_size":[width,height],
+        "square_mm":float(square_mm),
+        "corners_count":54,
+        "median_reference_difference_px":round(median,2),
+        "message":"空棋盘已确认。现在把黄球放回棋盘，点击下方一键识别和轨迹预览；不用重新机械臂五点标定",
+    }
+
+
 def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) -> dict:
     if square_mm is not None and (
         isinstance(square_mm, bool) or not math.isfinite(square_mm) or square_mm <= 0 or square_mm > 200
