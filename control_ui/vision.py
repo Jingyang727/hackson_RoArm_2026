@@ -242,9 +242,12 @@ def verify_visible_reference_corners(image, reference, ball=None):
     shifts = np.asarray([offset for _, offset, _ in matches], dtype=np.float32)
     median_shift = np.median(shifts, axis=0)
     # Deliberately much tighter than a movable-camera re-registration.
-    if (float(np.median(distances)) > 5.0 or
-        float(np.percentile(distances, 90)) > 8.0 or
-        float(np.linalg.norm(median_shift)) > 4.0):
+    px_per_mm = reference_board_tolerance_mm(reference)
+    if px_per_mm is None:
+        return None
+    if (float(np.median(distances)) / px_per_mm > 8.0 or
+        float(np.percentile(distances, 90)) / px_per_mm > 12.0 or
+        float(np.linalg.norm(median_shift)) / px_per_mm > 8.0):
         return None
     return {
         "corners": stored.reshape(6, 9, 2).copy(),
@@ -279,7 +282,7 @@ def verify_confirmed_empty_board(image, reference, ball=None):
         return None
     current = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     half = 12
-    tolerance = 6
+    tolerance = 11
     seen = []
     for index, (cx, cy) in enumerate(stored):
         x, y = int(round(float(cx))), int(round(float(cy)))
@@ -317,9 +320,12 @@ def verify_confirmed_empty_board(image, reference, ball=None):
     scores = np.asarray([score for _, _, _, score in seen], dtype=np.float32)
     distances = np.linalg.norm(offsets, axis=1)
     median_shift = np.median(offsets, axis=0)
-    if (float(np.median(distances)) > 2.5 or
-        float(np.percentile(distances, 90)) > 4.5 or
-        float(np.linalg.norm(median_shift)) > 3.0 or
+    px_per_mm = reference_board_tolerance_mm(reference)
+    if px_per_mm is None:
+        return None
+    if (float(np.median(distances)) / px_per_mm > 8.0 or
+        float(np.percentile(distances, 90)) / px_per_mm > 12.0 or
+        float(np.linalg.norm(median_shift)) / px_per_mm > 8.0 or
         float(np.median(scores)) < 0.88):
         return None
     return {
@@ -454,6 +460,14 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
     }
     if partial:
         checker.update({k: v for k, v in partial.items() if k != "corners"})
+        px_per_mm = reference_board_tolerance_mm(reference)
+        if px_per_mm:
+            # This is independent live image evidence, not a blindly copied
+            # set of saved coordinates. Require low drift for motor eligibility.
+            dx, dy = partial.get("median_shift_px", [0.0, 0.0])
+            shift_mm = math.hypot(dx, dy) / px_per_mm
+            checker["live_reference_shift_mm"] = round(shift_mm, 2)
+            checker["motion_stable"] = shift_mm <= 4.0
         warnings.append(
             "黄球遮挡部分角点；已使用"
             f"{partial['visible_match_count']}个实时可见棋盘角点核对保存位置，"
