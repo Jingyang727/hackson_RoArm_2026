@@ -124,6 +124,7 @@ async function saveDraft(){
  const diameter=Number($("diameter").value);
  const values={...profile};
  if(Number.isFinite(diameter)&&diameter>0)values.ball_diameter_mm=diameter;
+ else delete values.ball_diameter_mm;
  const result=await api("/api/pick/draft","POST",{values});
  $("pickSaveState").textContent="示教草稿自动保存："+result.path;
 }
