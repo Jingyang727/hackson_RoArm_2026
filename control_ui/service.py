@@ -591,6 +591,20 @@ class ArmService:
                 raise UnsafeMotion("已经接近目标角度，无需重复发送")
             return self._send_move(plan_to_angle(status, joint, target_deg))
 
+    def teach_move_relative(self, joint, delta_deg):
+        """One-click relative jog based on latest hardware feedback, not slider state."""
+        from .safety import plan_to_angle, current_degrees
+        if type(joint) is not int or joint not in JOINTS:
+            raise UnsafeMotion("关节编号无效")
+        if type(delta_deg) not in (int, float) or not math.isfinite(delta_deg):
+            raise UnsafeMotion("调整角度无效")
+        if delta_deg not in (-10, -5, 5, 10):
+            raise UnsafeMotion("快速调整仅支持 ±5° 或 ±10°")
+        with self.lock:
+            status = self._preflight(joint)
+            current = current_degrees(status)[joint]
+            return self._send_move(plan_to_angle(status, joint, current + delta_deg))
+
     def gripper_step(self, delta):
         """Move gripper by a bounded angle. Uses official T=106 radians command."""
         with self.lock:
