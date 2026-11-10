@@ -511,9 +511,14 @@ class ArmService:
             if declaration != "已检查机械臂静止且运动区域安全":
                 raise UnsafeMotion("需要确认机械臂已静止且无障碍")
             try:
-                first = current_degrees(self.arm.status())
+                first_status = self.arm.status()
+                first = current_degrees(first_status)
                 time.sleep(RECOVERY_SAMPLE_GAP_S)
-                second = current_degrees(self.arm.status())
+                second_status = self.arm.status()
+                second = current_degrees(second_status)
+                for sample in (first_status, second_status):
+                    if any(sample.get("torswitch" + key) != 1 for key in "BSETRG"):
+                        raise UnsafeMotion("恢复失败：六关节扭矩未全部锁定，不能继续运动")
             except Exception as exc:
                 raise UnsafeMotion(f"恢复失败：无法连续读取有效关节状态：{exc}") from exc
             deviation = max(abs(second[j] - first[j]) for j in JOINTS)
