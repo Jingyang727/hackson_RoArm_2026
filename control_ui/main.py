@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from .service import ArmService
 from .safety import UnsafeMotion
 from .robot_calibration import CalibrationError, calibration
-from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile
+from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_files, save_pick_profile, save_pick_draft, load_pick_progress
 from .pick_teach import observe_tool_pose
 from .pick_execution import executor
 
@@ -70,6 +70,10 @@ class PickProfile(BaseModel):
     open_g_rad: float
     close_g_rad: float
     ball_diameter_mm: float
+
+
+class PickDraft(BaseModel):
+    values: dict
 
 
 class PickPlan(BaseModel):
@@ -175,7 +179,23 @@ def teach_torque(req: TeachTorque):
 
 @app.get("/pick", response_class=HTMLResponse)
 def pick_page():
-    return Path(__file__).with_name("pick.html").read_text(encoding="utf-8")
+    return HTMLResponse(
+        content=Path(__file__).with_name("pick.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/api/pick/profile")
+def pick_profile_load():
+    return load_pick_progress()
+
+
+@app.post("/api/pick/draft")
+def pick_draft_save(req: PickDraft):
+    try:
+        return save_pick_draft(req.values)
+    except PickPlanningError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/pick/teach")
