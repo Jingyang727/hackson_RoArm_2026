@@ -174,6 +174,27 @@ async function ensurePickCamera(){
  say("ballResult","相机已就绪："+$("video").videoWidth+"×"+$("video").videoHeight+
   "。可以直接点击下方「拍摄识别黄球 · 生成轨迹预览」。");
 }
+async function postVisionImage(url, raw){
+ const options={method:"POST",headers:{"Content-Type":"image/png"},body:raw};
+ let timeoutId=null, controller=null;
+ if(typeof AbortController!=="undefined" && typeof setTimeout==="function"){
+  controller=new AbortController();
+  options.signal=controller.signal;
+  timeoutId=setTimeout(()=>controller.abort(),12000);
+ }
+ try{
+  const response=await fetch(url,options);
+  const result=await response.json();
+  if(!response.ok)throw Error(result.detail||"视觉服务返回 HTTP "+response.status);
+  return result;
+ }catch(error){
+  if(error?.name==="AbortError")
+   throw Error("视觉请求超过12秒，已终止本次等待。请确认相机预览在动、棋盘完整入镜后重试。已保存的XY五点标定不受影响");
+  throw error;
+ }finally{
+  if(timeoutId!==null)clearTimeout(timeoutId);
+ }
+}
 async function capturePickFrame(){
  await ensurePickCamera();
  const v=$("video"),c=$("photo");
@@ -185,11 +206,10 @@ async function capturePickFrame(){
  return raw;
 }
 async function confirmEmptyFrame(raw,L){
- const response=await fetch("/api/vision/confirm-board?square_mm="+encodeURIComponent(L),{
-  method:"POST",headers:{"Content-Type":"image/png"},body:raw
- });
- const result=await response.json();
- if(!response.ok)throw Error(result.detail||"无法确认空棋盘");
+ say("boardConfirmStatus","图片已采集，正在核对棋盘角点（最多等待12秒）……");
+ const result=await postVisionImage(
+  "/api/vision/confirm-board?square_mm="+encodeURIComponent(L),raw
+ );
  emptyBoardConfirmed=true;
  say("boardConfirmStatus","✓ "+result.message+"（与保存标定的角点中位偏移 "+
    result.median_reference_difference_px+"px）");
@@ -197,11 +217,19 @@ async function confirmEmptyFrame(raw,L){
  return result;
 }
 $("confirmEmpty").onclick=()=>act(async()=>{
- const L=Number($("square").value);
- if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写原始标定的单格尺寸");
- say("boardConfirmStatus","正在确认空棋盘，核对已保存54角点位置……");
- const raw=await capturePickFrame();
- await confirmEmptyFrame(raw,L);
+ try{
+  const L=Number($("square").value);
+  if(!Number.isFinite(L)||L<=0||L>200)throw Error("请填写原始标定的单格尺寸");
+  say("boardConfirmStatus","正在取相机画面，准备核对已保存的54角点……");
+  const raw=await capturePickFrame();
+  await confirmEmptyFrame(raw,L);
+ }catch(error){
+  // The old handler only updated teachInfo and previewStatus. The board
+  // panel misleadingly stayed at "正在确认…" FOREVER after 422/504 errors.
+  say("boardConfirmStatus","✕ 棋盘确认没有完成："+error.message+
+      "。请检查当前相机画面；P1～V1 的磁盘标定数据未被更改。");
+  throw error;
+ }
 });
 async function detectCurrentBall(){
  await ensurePickCamera();
@@ -213,11 +241,9 @@ async function detectCurrentBall(){
  const ctx=c.getContext("2d");ctx.drawImage(v,0,0);
  const raw=await new Promise(resolve=>c.toBlob(resolve,"image/png"));
  if(!raw)throw Error("取图失败");
- const response=await fetch("/api/vision/analyze?square_mm="+encodeURIComponent(L)+"&use_reference=true",{
-  method:"POST",headers:{"Content-Type":"image/png"},body:raw
- });
- const result=await response.json();
- if(!response.ok)throw Error(result.detail||"视觉检测请求失败");
+ const result=await postVisionImage(
+  "/api/vision/analyze?square_mm="+encodeURIComponent(L)+"&use_reference=true",raw
+ );
  if(!result.ball?.detected){
   if(result.checkerboard?.detected && result.checkerboard?.source==="live_54"){
    // No ball is a VALID first stage, not an error. Capture this same image
