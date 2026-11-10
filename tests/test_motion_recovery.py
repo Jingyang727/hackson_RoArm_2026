@@ -86,6 +86,8 @@ class MotionStateTests(unittest.TestCase):
             svc.status()
             with self.assertRaises(UnsafeMotion):
                 svc.recover_fault("not confirmed")
+            self.assertFalse(svc.health()["armed"])
+            self.assertIsNotNone(svc.fault)
             recovered = svc.recover_fault("已检查机械臂静止且运动区域安全")
             self.assertTrue(recovered["recovered"])
             self.assertIsNone(svc.fault)
