@@ -72,12 +72,12 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <button id="cameraStart">打开相机</button><button id="cameraStop" disabled>关闭相机</button>
 </div>
 <div class="row"><label for="square">单格实测边长 mm</label><input id="square" type="number" value="24" min="0.1" max="200" step="0.1"/>
-<button id="analyze" disabled>识别角点并开始标定</button></div>
+<button id="analyze" disabled>识别 / 重新核对角点</button></div>
 <small>24mm 是根据你上次检测结果推得的输入值，请用尺核对。固定好相机和棋盘后，不要再移动二者。</small>
 <div id="view"><video id="frame" autoplay playsinline muted></video><canvas id="overlay" aria-label="实时画面上的角点标记"></canvas></div>
 <div id="viewMessage" class="notice">先打开摄像头，再点击「识别角点并开始标定」。之后视频会继续实时播放，P1～V1 五个标记留在画面上。</div>
 <div class="row"><button id="begin" class="primary" disabled>重新开始标定（清空已记录的点）</button></div>
-<div class="muted">叠加标记取自首次识别的位置。若摄像头或棋盘格移动，必须重新识别并标定。</div>
+<div class="muted">角点来自已保存的当前标定会话；跨页面返回时自动恢复。请固定摄像头和棋盘，位置变化时主动重新核对。</div>
 </section>
 <section class="panel controls-panel">
 <h2>② 机械臂状态与标定点</h2>
@@ -85,7 +85,16 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="row"><button id="refreshXYZ" type="button">更新末端 XYZ</button></div>
 <div id="armInfo" class="notice">尚未读取机械臂状态。</div>
 <div class="row"><button id="captureTop" class="primary" disabled style="font-size:16px;font-weight:750;padding:12px 18px">记录当前 P1 的 XYZ</button><span class="muted">对准后立即记录；每个点下方也有独立记录按钮</span></div>
-<p class="muted">手动微调可打开 <a href="/" target="_blank" rel="noopener">关节控制台</a>。两个页面共享同一串口连接。</p>
+<details id="calibrationJog" class="connection-settings" open>
+ <summary>当前点微调机械臂 · 不用离开标定页面</summary>
+ <div class="row"><button id="calUnlock" type="button" class="primary">解锁运动 120 秒</button>
+ <select id="calJoint" aria-label="调整关节"></select>
+ <button type="button" data-cal-jog="-10">−10°</button>
+ <button type="button" data-cal-jog="-5">−5°</button>
+ <button type="button" data-cal-jog="5">+5°</button>
+ <button type="button" data-cal-jog="10">+10°</button></div>
+ <div id="calJogStatus" class="notice" role="status">选择 J1–J4 按需调整；J5/J6 尽量保持固定。每次点击立即发送一条相对运动命令，等待反馈后才能继续。</div>
+ </details>
 <h2 style="margin-top:16px">实时对准 · 局部放大</h2>
 <canvas id="zoom" width="600" height="360" aria-label="当前标定角点的实时放大预览"></canvas>
 <div id="zoomNote">识别后实时放大当前角点。红色十字是目标角点，并非视觉跟踪到的夹爪。</div>
@@ -139,6 +148,7 @@ let cameraAutoTried=false;
 const pointRows=new Map();
 const captureFeedback=new Map();
 let captureInProgress=null;
+let calibrationReferenceRestored=false;
 async function api(url,method="GET",payload){
  const options={method,headers:{"Content-Type":"application/json"}};
  if(payload!==undefined)options.body=JSON.stringify(payload);
@@ -161,13 +171,27 @@ function setBusy(value){busy=value;render()}
 async function doAction(fn){if(busy)return;setBusy(true);
  try{await fn()}catch(e){say("操作失败："+e.message);$("result").textContent="操作失败："+e.message}
  finally{setBusy(false)}}
+function restoreSavedCorners(state){
+ if(!state?.session_id||!Array.isArray(state?.corners_px)||state.corners_px.length!==54||
+    !Array.isArray(state.image_size)||state.image_size.length!==2)return false;
+ if(!state.corners_px.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))return false;
+ vision={checkerboard:{detected:true,corners_px:state.corners_px,corners_count:54,
+                         source:"persisted_calibration_session"}};
+ shot={width:state.image_size[0],height:state.image_size[1]};
+ calibrationReferenceRestored=true;
+ drawOverlay();drawZoomFrame();return true;
+}
+function ensureCameraResolution(){
+ if(!stream||!shot||!$("frame").videoWidth)return true;
+ return shot.width===$("frame").videoWidth&&shot.height===$("frame").videoHeight;
+}
 function recordById(id){return summary?.records?.find(x=>x.id===id)}
 function render(){
  paintConnection();
  const ready=Boolean(vision?.checkerboard?.detected)&&Boolean(shot);
  $("begin").disabled=busy||!ready;
  $("analyze").disabled=busy||!stream;
- $("capture").disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault;
+ $("capture").disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault||!ensureCameraResolution();
  $("captureTop").disabled=$("capture").disabled;
  $("captureTop").textContent="记录当前 "+chosen+" 的 XYZ";
  $("save").disabled=busy||!summary?.ready||modifiedPoints.size>0;
@@ -224,13 +248,14 @@ function render(){
   row.choose.disabled=busy;
   row.record.textContent=captureInProgress===target.id?"读取中…":
     saved&&!dirty?"重新记录 "+target.id:"记录 "+target.id+" XYZ";
-  row.record.disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault;
+  row.record.disabled=busy||!session||!vision?.checkerboard?.detected||!health?.connected||!!health?.pending||!!health?.fault||!ensureCameraResolution();
   row.record.title=row.record.disabled
     ?"请先识别棋盘格、连接机械臂并确保没有待完成动作"
     :"读取真实机械臂 XYZ；失败会在此行显示原因";
   const message=captureFeedback.get(target.id);
   const unavailable=!session?"请先识别棋盘并开始标定":
-    !vision?.checkerboard?.detected?"已有记录已恢复，先重新识别棋盘以确认位置":
+    !vision?.checkerboard?.detected?"请先恢复已保存的角点或完成首次识别":
+    !ensureCameraResolution()?"摄像头分辨率与保存的角点不一致":
     !health?.connected?"机械臂当前未连接":
     health?.fault?"动作异常锁定："+(health.fault.message||"请检查机械臂反馈"):
     health?.pending?"上一条动作尚未收到到位确认":
@@ -245,7 +270,7 @@ function render(){
    "("+t.col+","+t.row+"), 棋盘毫米坐标 ("+
    (t.col*Number($("square").value)).toFixed(1)+","+
    (t.row*Number($("square").value)).toFixed(1)+")，保持静止后记录。";
- const setup=!vision?.checkerboard?.detected?"第1步：启动相机并识别角点（会自动开始标定会话）":
+ const setup=!vision?.checkerboard?.detected?"第1步：启动相机并识别角点（已有会话将自动恢复）":
   !session?"请先点击重新开始标定":
   !health?.connected?"第2步：选择串口并连接机械臂":
   health?.fault?"机械臂存在动作异常，请先在控制台复核":
@@ -274,9 +299,8 @@ async function cameras(){
 }
 async function startCamera(){
  if(!navigator.mediaDevices?.getUserMedia)throw Error("无法使用浏览器摄像头");
- // Reopening the USB camera must not erase P1/P2 stored in this server.
- // Require a fresh board scan before any additional point capture.
- vision=null;shot=null;modifiedPoints.clear();drawOverlay();
+ // Preserve the 54 saved corners and existing overlay across camera restarts.
+ // The camera is a live background; original saved pixels remain authoritative.
  if(stream)stream.getTracks().forEach(t=>t.stop());
  let video={width:{exact:1920},height:{exact:1080},frameRate:{ideal:30}};
  if($("device").value)video.deviceId={exact:$("device").value};
@@ -288,6 +312,7 @@ async function startCamera(){
  }
  $("frame").srcObject=stream;await $("frame").play();await cameras();
  $("view").style.aspectRatio=$("frame").videoWidth+" / "+$("frame").videoHeight;
+ drawOverlay();
  cancelAnimationFrame(raf);drawZoomLoop();
  say("实时视频已启动："+$("frame").videoWidth+"×"+$("frame").videoHeight+
   "。点击识别角点后，会保持实时预览和角点标记。");render();
@@ -296,7 +321,8 @@ function stopCamera(){
  cancelAnimationFrame(raf);raf=0;
  if(stream)stream.getTracks().forEach(t=>t.stop());
  stream=null;$("frame").srcObject=null;
- $("overlay").classList.remove("ready");render();
+ // Keep the angle markers; only the live camera stream stops.
+ drawOverlay();render();
 }
 function captureImage(){
  if(!stream||!$("frame").videoWidth)throw Error("未启动摄像头");
@@ -334,7 +360,7 @@ function drawZoomFrame(){
  ctx.clearRect(0,0,canvas.width,canvas.height);
  if(!vision?.checkerboard?.detected||!stream||video.readyState<2||!video.videoWidth){
   ctx.fillStyle="#b7c5d7";ctx.font="24px sans-serif";
-  ctx.fillText("先打开相机并识别棋盘格",25,180);return;
+  ctx.fillText(vision?.checkerboard?.detected?"已恢复角点：请打开相机查看实时对准":"先打开相机并识别棋盘格",25,180);return;
  }
  const target=TARGETS.find(t=>t.id===chosen);
  const [cx,cy]=vision.checkerboard.corners_px[target.row*9+target.col];
@@ -398,9 +424,18 @@ $("analyze").onclick=()=>doAction(async()=>{
      summary.image_size?.[0]!==snapshot.width || summary.image_size?.[1]!==snapshot.height){
    throw Error("当前棋盘单格边长或摄像头分辨率与原标定会话不同；不能混用记录。请检查设置并使用「重新开始标定」");
   }
-  if(!confirm("发现已记录 "+summary.records.length+"/5 个点。仅在摄像头、棋盘格和底座均未移动时可以继续。确认保留已有点并重新识别画面？"))return;
-  // Existing board reference fingerprint remains on the server. A relocated
-  // board is rejected later by the pick plan's 54-corner stability check.
+  // A manual rescan is optional, not a required step after returning from /teach.
+  // Do not silently substitute a new pixel map into an existing session.
+  const original=summary.corners_px;
+  if(!Array.isArray(original)||original.length!==54)
+    throw Error("会话缺少原始54角点，请检查标定草稿，不能直接覆盖");
+  const distances=original.map((p,i)=>Math.hypot(p[0]-data.checkerboard.corners_px[i][0],
+                                                    p[1]-data.checkerboard.corners_px[i][1]));
+  const sorted=distances.slice().sort((a,b)=>a-b);
+  const median=sorted[Math.floor(sorted.length/2)];
+  if(median>5)throw Error("本次棋盘与保存角点的中位偏移 "+median.toFixed(1)+
+    "px，不能直接复用已有XY记录；已保留原始角点。请检查相机或棋盘是否移动");
+  data.checkerboard.corners_px=original;
  }else{
   const started=await api("/api/calibration/start","POST",{
    square_mm:L,image_size:[snapshot.width,snapshot.height],
@@ -408,7 +443,12 @@ $("analyze").onclick=()=>doAction(async()=>{
   });
   session=started.session_id;summary=started;
  }
- shot=snapshot;vision=data;
+ if(existing){
+  // Original registration, never current rescan, remains the overlay.
+  vision={...data,checkerboard:{...data.checkerboard,corners_px:summary.corners_px}};
+  shot={width:snapshot.width,height:snapshot.height};
+ }else{shot=snapshot;vision=data;}
+ calibrationReferenceRestored=false;
  chosen=existing?(summary.next_id||"P1"):"P1";
  modifiedPoints.clear();captureFeedback.clear();drawOverlay();drawZoomFrame();
  say(existing
@@ -449,7 +489,7 @@ async function capturePoint(pointId){
  chosen=pointId;drawOverlay();drawZoomFrame();render();
  if(!session||!vision?.checkerboard?.detected){
   const message=!session?"请先完成54角点识别并开始标定会话。":
-    "已恢复标定记录，先重新识别54个棋盘角点并确认摄像头、棋盘未移动。";
+    "当前会话没有可恢复的54角点，请检查标定文件。";
   captureFeedback.set(pointId,{kind:"error",text:"未记录："+message});
   $("captureStatus").className="error";
   $("captureStatus").textContent=pointId+"："+message;
@@ -582,7 +622,10 @@ $("save").onclick=()=>doAction(async()=>{
  $("calibrationSaveState").textContent="标定已保存："+result.path;
  say("已保存到 "+result.path+"。其他抓取参数仍需要示教。");
 });
-$("square").onchange=()=>{if(session){say("棋盘单格尺寸变更后必须重新识别角点并开始标定，原记录不可沿用。");session=null;summary=null;vision=null;modifiedPoints.clear();drawOverlay()}render()};
+$("square").onchange=()=>{if(session&&Number($("square").value)!==Number(summary.square_mm)){
+ $("square").value=String(summary.square_mm);
+ say("已有标定会话不能更改单格尺寸；已恢复保存值。要重新开始标定请明确点击「重新开始」。");
+ }render()};
 window.addEventListener("pagehide",stopCamera);
 (async()=>{try{
  health=await api("/api/health");
@@ -593,10 +636,11 @@ window.addEventListener("pagehide",stopCamera);
  health=await api("/api/health");
  try{
   const previous=await api("/api/calibration/status");
-  if(previous?.session_id&&previous.records?.length){
+  if(previous?.session_id){
    session=previous.session_id;summary=previous;chosen=previous.next_id||"P1";
    if(Number.isFinite(previous.square_mm))$("square").value=String(previous.square_mm);
-   say("已恢复服务端现有 "+previous.records.length+"/5 个标定点。请重新识别棋盘角点；不要移动摄像头和棋盘。");
+   const recovered=restoreSavedCorners(previous);
+   say(recovered?"已恢复 "+previous.records.length+"/5 个点及原始54角点。打开相机即可继续对准，除非相机或棋盘移动，否则不用重新识别。":"已恢复记录，但缺少有效角点；请检查保存数据。");
   }
  }catch(err){say("无法读取旧标定会话："+err.message)}
  const ports=await api("/api/ports");
