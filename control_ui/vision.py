@@ -183,6 +183,83 @@ def verify_visible_reference_corners(image, reference, ball=None):
     }
 
 
+def verify_confirmed_empty_board(image, reference, ball=None):
+    """Verify a previously captured empty-board image against the current frame.
+
+    The operator explicitly confirms the uncovered board once. Only the
+    verified reference corner map is reused, and then only after *fresh*
+    image-to-image template checks across the unobstructed checkerboard.
+    This cannot command the arm and makes NO safety claim about 3D reachability.
+    """
+    if not isinstance(reference, dict):
+        return None
+    height, width = image.shape[:2]
+    original = reference.get("baseline_gray")
+    if not isinstance(original, np.ndarray) or original.shape != (height, width):
+        return None
+    if reference.get("image_size") != [width, height]:
+        return None
+    try:
+        stored = np.asarray(reference.get("corners_px"), dtype=np.float32)
+    except (ValueError, TypeError):
+        return None
+    if stored.shape != (54, 2) or not np.isfinite(stored).all():
+        return None
+    current = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    half = 12
+    tolerance = 6
+    seen = []
+    for index, (cx, cy) in enumerate(stored):
+        x, y = int(round(float(cx))), int(round(float(cy)))
+        if not (x > half + tolerance and y > half + tolerance and
+                x < width - half - tolerance and y < height - half - tolerance):
+            continue
+        if ball and ball.get("center_px"):
+            bx, by = ball["center_px"]
+            exclude = max(18.0, float(ball.get("radius_px", 0)) * 1.5)
+            if math.hypot(x - bx, y - by) < exclude + half * 1.5:
+                continue
+        patch = original[y-half:y+half+1, x-half:x+half+1]
+        search = current[
+            y-half-tolerance:y+half+tolerance+1,
+            x-half-tolerance:x+half+tolerance+1,
+        ]
+        # Uniform/blurred or saturated patches are not independent evidence.
+        if patch.std() < 20 or search.std() < 20:
+            continue
+        scores = cv2.matchTemplate(search, patch, cv2.TM_CCOEFF_NORMED)
+        _, score, _, pos = cv2.minMaxLoc(scores)
+        dx, dy = pos[0] - tolerance, pos[1] - tolerance
+        if score < 0.80 or math.hypot(dx, dy) > 5:
+            continue
+        seen.append((index, dx, dy, score))
+    if len(seen) < 24:
+        return None
+    quadrants = [0, 0, 0, 0]
+    for index, _, _, _ in seen:
+        row, col = divmod(index, 9)
+        quadrants[int(row >= 3) * 2 + int(col >= 4)] += 1
+    if min(quadrants) < 4:
+        return None
+    offsets = np.asarray([[dx, dy] for _, dx, dy, _ in seen], dtype=np.float32)
+    scores = np.asarray([score for _, _, _, score in seen], dtype=np.float32)
+    distances = np.linalg.norm(offsets, axis=1)
+    median_shift = np.median(offsets, axis=0)
+    if (float(np.median(distances)) > 2.5 or
+        float(np.percentile(distances, 90)) > 4.5 or
+        float(np.linalg.norm(median_shift)) > 3.0 or
+        float(np.median(scores)) < 0.88):
+        return None
+    return {
+        "corners": stored.reshape(6, 9, 2).copy(),
+        "visible_match_count": len(seen),
+        "median_corner_error_px": round(float(np.median(distances)), 2),
+        "median_shift_px": [round(float(v), 2) for v in median_shift],
+        "reference_verified": True,
+        "source": "empty_board_frame_verified",
+    }
+
+
 def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) -> dict:
     if square_mm is not None and (
         isinstance(square_mm, bool) or not math.isfinite(square_mm) or square_mm <= 0 or square_mm > 200
@@ -195,10 +272,11 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
     warnings = []
     partial = None
     if grid is None and reference is not None:
-        # A moving camera or missing live corner evidence must NEVER fall back
-        # blindly to the saved transform, even if a file exists.
+        # Never use a stale stored homography without independent live evidence.
         if square_mm is not None and abs(float(reference.get("square_mm", -1)) - square_mm) < 0.05:
-            partial = verify_visible_reference_corners(image, reference, ball)
+            partial = verify_confirmed_empty_board(image, reference, ball)
+            if partial is None:
+                partial = verify_visible_reference_corners(image, reference, ball)
         if partial:
             grid = partial["corners"]
             image_points = grid.reshape(-1, 2).astype(np.float32)
@@ -212,14 +290,14 @@ def analyze_image(raw: bytes, square_mm: float | None = None, reference=None) ->
     checker = {
         "detected": grid is not None,
         "pattern_inner": list(PATTERN),
-        "source": "reference_partial_verified" if partial else ("live_54" if grid is not None else "not_detected"),
+        "source": partial.get("source", "reference_partial_verified") if partial else ("live_54" if grid is not None else "not_detected"),
     }
     if partial:
         checker.update({k: v for k, v in partial.items() if k != "corners"})
         warnings.append(
-            "完整棋盘识别受到球体遮挡；本帧已用"
-            f"{partial['visible_match_count']}个未被遮挡的实时角点核对保存位置。"
-            "相机或棋盘移动时必须重新进行完整标定"
+            "黄球遮挡部分角点；已使用"
+            f"{partial['visible_match_count']}个实时可见棋盘角点核对保存位置，"
+            "可以计算球的棋盘毫米坐标。相机或棋盘移动后需重新确认无球棋盘"
         )
     if grid is not None:
         pixel_corners = grid.reshape(-1, 2)
