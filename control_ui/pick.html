@@ -21,7 +21,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 </style>
 <link rel="stylesheet" href="/assets/theme.css"></head>
 <body>
-<nav><a href="/">关节控制</a> · <a href="/camera">俯视相机</a> · <a href="/calibration">机械臂XY标定</a></nav>
+<div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY 标定</a><a href="/pick" class="active" aria-current="page">抓放</a></nav><span id="pickConnectionChip" class="connection-chip offline">正在连接</span></div>
 <h1>黄色球抓取 / 放置示教</h1>
 <p class="muted">按照实际反馈记录抓取高度、末端姿态、夹爪开合和固定放置点。生成路径并审查每一步；<strong>当前仅提供预览，不发送自动 XYZ 运动</strong>。硬件抓取必须完成逐段真机验证后才会开启。</p>
 <details class="safety-details"><summary>抓取与标定说明</summary><p class="muted">先完成 <a href="/calibration">机械臂 XY 标定</a>。仅在通过标定的工作区抓球，摄像头和底座须保持固定。真实抓取还需要验证球体视差、工具姿态和高度。</p></details>
@@ -34,6 +34,24 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 </section>
 <section>
 <h2>② 示教关键位置和夹爪</h2>
+<div id="pickTorqueCard">
+<div class="row" style="justify-content:space-between">
+<strong>扭矩示教</strong><span id="pickTorqueState" class="muted">正在读取实际状态</span>
+</div>
+<div class="row">
+<button id="pickTorqueRelease" class="danger" type="button" disabled>释放扭矩</button>
+<button id="pickTorqueLock" type="button" disabled>锁定扭矩</button>
+<button id="pickTorqueRefresh" type="button">刷新状态</button>
+</div>
+<div id="pickTorqueMessage" class="muted" role="status" aria-live="polite">两次操作都需要手动确认，且只发送一次指令。</div>
+<div id="pickTorquePrompt" hidden>
+<strong id="pickTorquePromptTitle"></strong>
+<p id="pickTorquePromptText" class="muted"></p>
+<label><input id="pickTorqueAck" type="checkbox"> 我已托住大臂、检查下方空间及线缆</label>
+<div class="row"><button id="pickTorqueConfirm" class="danger" type="button" disabled>确认执行</button>
+<button id="pickTorqueCancel" type="button">取消</button></div>
+</div>
+</div>
 <p class="muted">使用 <a href="/" target="_blank" rel="noopener">关节控制台</a> 手动微调。每次点击「读取当前」仅获取两次稳定的 T=1051，不会驱动电机。释放扭矩示教时必须先托住机械臂，重新锁定并确认姿态稳定后再记录。</p>
 <div class="row"><label>球直径 mm</label><input id="diameter" type="number" step=".1" min="8" max="90" placeholder="实测"/></div>
 <table><thead><tr><th>示教项目</th><th>当前数值</th><th>操作</th></tr></thead><tbody>
@@ -43,7 +61,8 @@ table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px so
 <tr><td>张开夹爪角度</td><td id="openShow">未读取</td><td><button data-teach="open">读取当前</button></td></tr>
 <tr><td>试夹球后的闭合角度</td><td id="closeShow">未读取</td><td><button data-teach="close">读取当前</button></td></tr>
 </tbody></table>
-<div id="teachInfo" class="notice">请先在主控制台连接串口，调整夹爪位置。需要固定工具姿态、球直径和桌面高度。</div>
+<div id="teachInfo" class="notice">机械臂自动复用控制台串口。扭矩全部锁定后才能读取示教姿态。</div>
+<div id="pickSaveState" role="status" aria-live="polite">每次读取示教参数会自动存到本机，切换页面后可继续。</div>
 <div class="row"><button id="save" class="primary" disabled>验证并保存示教参数</button></div>
 </section>
 <section class="wide">
