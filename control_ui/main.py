@@ -245,7 +245,7 @@ def pick_profile_save(req: PickProfile):
 @app.post("/api/pick/preview")
 def pick_plan_preview(req: PickPlan):
     try:
-        return build_from_saved_files(req.ball_board_mm, image_size=req.image_size, corners_px=req.corners_px)
+        return build_from_saved_files(req.ball_board_mm, image_size=req.image_size, corners_px=req.corners_px, preview_only=True)
     except (PickPlanningError, CalibrationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
