@@ -132,6 +132,11 @@ function formatMotionReceipt(cmd){
  return label+" 目标 "+to+"°；执行状态 "+(cmd.status||"未知")+"。";
 }
 function renderState(){
+ const chip=$("teachConnectionChip");
+ if(chip){
+  chip.textContent=health?.connected?"已连接 · "+(health.port||"RoArm"):"机械臂未连接";
+  chip.classList.toggle("offline",!health?.connected);
+ }
  const reason=motionBlockReason();
  $("connection").textContent=(health?.connected?"已连接 "+(health.port||""):"未连接")+
   "；运动模式 "+(health?.motion_enabled?"开启":"只读")+
