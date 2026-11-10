@@ -285,6 +285,18 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
 
 def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None,
                            image_size=None, corners_px=None):
+    # A new/changed XY session invalidates the old final transform. Do NOT
+    # quietly execute a pick using an obsolete, previously validated map.
+    if calibration_file is None:
+        from .robot_calibration import session_path
+        draft = session_path()
+        if draft.exists():
+            current = _read_file(draft)
+            if not isinstance(current, dict) or not current.get("saved"):
+                raise PickPlanningError(
+                    "存在尚未验收或已修改的 XY 标定草稿，请先通过4+1点验证并保存；"
+                    "不能沿用旧标定结果规划动作"
+                )
     calibration=_read_file(calibration_file or xy_calibration_path())
     profile=_read_file(profile_file or profile_path())
     return plan_pick_place(ball_board_mm,profile,calibration,
