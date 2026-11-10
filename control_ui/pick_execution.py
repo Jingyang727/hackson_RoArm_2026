@@ -128,7 +128,8 @@ class PickExecutor:
             if h["pending"] or h["fault"] or h.get("teach_active"):
                 raise PickExecutionError("机械臂还有待完成动作、异常或处于扭矩释放状态")
             plan=build_from_saved_files(
-                ball_board_mm,image_size=image_size,corners_px=corners_px)
+                ball_board_mm,image_size=image_size,corners_px=corners_px,
+                execution_intent=True)
             self.plan=plan
             self.session_id=uuid.uuid4().hex
             self.next_index=0
