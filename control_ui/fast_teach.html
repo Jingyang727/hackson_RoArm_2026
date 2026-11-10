@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EvoArm · 快速示教</title><link rel="stylesheet" href="/assets/theme.css">
+<style>
+:root{font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#101b2b;color:#e9f0f7}
+*{box-sizing:border-box}body{max-width:1040px;margin:20px auto;padding:0 16px;line-height:1.55}
+a{color:#93dbee}.muted{color:#a9bbd0}.warning{color:#f6c47c}
+main{display:grid;grid-template-columns:1.15fr 1fr;gap:16px}
+section{background:#1b2a40;border:1px solid #38516b;border-radius:12px;padding:16px}
+.wide{grid-column:1/-1}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
+button,select,input{font:inherit;color:#f7fbff;background:#283d58;border:1px solid #5c7797;border-radius:8px;padding:9px}
+button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}.primary{background:#166a55;border-color:#269c77}
+input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
+.notice{background:#273b56;padding:11px;border-radius:9px;white-space:pre-wrap;margin:10px 0}
+#poses{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.pose{background:#263b55;padding:12px;border-radius:10px}.pose button{margin-top:8px}
+#poseValue{font-variant-numeric:tabular-nums;font-size:20px;font-weight:700}
+.chip{border-radius:20px;padding:3px 8px;background:#42566a}
+@media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}#poses{grid-template-columns:1fr}}
+</style></head><body>
+<nav class="row"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY标定</a><a href="/pick">抓放</a><strong>快速示教</strong></nav>
+<h1>快速示教 · 目标角度控制</h1>
+<p class="muted">固定底座和相机后，保留现有 P1–P4 + V1 标定。这里只保存真实反馈姿态；不释放扭矩、不重置机械臂，不会修改旧的 pick_profile.json。</p>
+<main>
+<section>
+ <h2>① 连接与运动授权</h2>
+ <div id="connection" class="notice">正在读取机械臂状态…</div>
+ <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">检查工作区后授权 120 秒</button><button id="disarm">禁止后续动作</button></div>
+ <p class="muted">授权一次后可连续进行单关节示教，无须每步弹窗。运动指令一次仅发一条，必须等真实反馈后再继续。网页“停止”不能代替断电急停。</p>
+ <div id="motionState" class="notice">尚无运动指令。</div>
+</section>
+<section>
+ <h2>② 单关节快速调整</h2>
+ <label for="joint">选择关节</label>
+ <select id="joint"></select>
+ <div class="row"><span class="chip" id="currentAngle">当前 —</span><span class="chip" id="targetDifference">变化 —</span></div>
+ <label for="angle">目标绝对关节角度（度）</label>
+ <input id="angle" type="range" min="-60" max="60" step="0.5" value="0">
+ <div class="row"><input id="angleInput" type="number" step="0.5"><span id="targetRange" class="muted"></span></div>
+ <div class="row">
+ <button data-nudge="-20">−20°</button><button data-nudge="-10">−10°</button>
+ <button data-nudge="-5">−5°</button><button data-nudge="5">+5°</button>
+ <button data-nudge="10">+10°</button><button data-nudge="20">+20°</button>
+ </div>
+ <button id="move" class="primary">执行到目标角度</button>
+ <button id="refresh">刷新真实反馈</button>
+ <p class="muted">滑块只设置目标，松开时不会自动运动。每次执行最多改变 30°，超过时请先到中间点；速度仍由现有后端控制，非自动避障。</p>
+</section>
+<section class="wide">
+ <h2>③ 保存示教点（不发送运动指令）</h2>
+ <p class="muted">分别对准球的实际夹持位置、球上方预备位置、放置位置，再点击保存。Home 也记录真实姿态。夹爪仅存开合角，夹持是否成功需要实际验证。</p>
+ <div id="poses"></div>
+ <div id="feedback" class="notice">当前真实末端位置：未读取</div>
+ <div class="row"><button id="copy">复制当前示教数据</button><a href="/pick">返回抓放页面</a></div>
+ <p class="warning">新姿态保存在 ~/.evoarm/pick_poses_v2.json。尚未接入旧版自动抓取规划器，不能直接用新快照启动自动抓取；后续需按新 Home/Hover/Grasp/Place 验证路径。</p>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const stageLabels={home:"Home · 待机姿态",grasp:"Grasp · 实际抓球",hover:"Hover · 球上方预备",place:"Place · 放置姿态",gripper_open:"Gripper · 张开角度",gripper_close:"Gripper · 闭合角度"};
+let health=null,feedback=null,poses=null,busy=false,poll=null;
+async function api(path,method="GET",body){
+ const res=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
+ const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
+}
+const finite=v=>typeof v==="number"&&Number.isFinite(v);
+const degrees=v=>v*180/Math.PI;
+function spec(){return (health?.joints||[]).find(j=>j.id===Number($("joint").value));}
+function showError(e){$("motionState").textContent="操作未完成："+(e.message||e);}
+function selectedAngle(){const j=spec();return j&&feedback?degrees(feedback[j.field]):null;}
+function paintAngle(){
+ const s=spec(),current=selectedAngle();
+ const target=Number($("angleInput").value);
+ $("currentAngle").textContent=finite(current)?"反馈 "+current.toFixed(1)+"°":"当前 —";
+ $("targetDifference").textContent=finite(current)&&finite(target)?"差 "+(target-current).toFixed(1)+"°":"变化 —";
+ if(s)$("targetRange").textContent="训练限位 "+s.min+"° ～ "+s.max+"°；单次 ≤30°";
+}
+function syncSlider(value){
+ const s=spec();if(!s||!finite(value))return;
+ value=Math.min(s.max,Math.max(s.min,value));
+ $("angle").value=value;$("angleInput").value=value.toFixed(1);paintAngle();
+}
+function rebuildJointOptions(){
+ const selected=Number($("joint").value)||1, specs=health?.joints||[];
+ $("joint").replaceChildren(...specs.map(j=>{
+  const op=document.createElement("option");op.value=j.id;op.textContent="J"+j.id+" · "+j.label;return op;
+ }));
+ $("joint").value=String(specs.find(j=>j.id===selected)?selected:(specs[0]?.id||1));
+ chooseJoint();
+}
+function chooseJoint(){
+ const j=spec();if(!j)return;
+ $("angle").min=j.min;$("angle").max=j.max;
+ $("angleInput").min=j.min;$("angleInput").max=j.max;
+ syncSlider(selectedAngle()??Math.min(j.max,Math.max(j.min,0)));
+}
+function renderState(){
+ const ready=health?.connected&&health?.motion_enabled&&health?.armed&&
+  !health?.pending&&!health?.fault&&!health?.teach_active&&
+  (health?.torque_status||[]).every(x=>x===1);
+ $("connection").textContent=(health?.connected?"已连接 "+(health.port||""):"未连接")+
+  "；运动模式 "+(health?.motion_enabled?"开启":"只读")+
+  "；授权 "+(health?.armed?"有效，剩余"+health.arm_seconds_left+"秒":"未解锁")+
+  "；扭矩 "+((health?.torque_status||[]).length===6&&health.torque_status.every(v=>v===1)?"六关节锁定":"未完全确认");
+ $("move").disabled=busy||!ready||!(health?.allowed_joints||[]).includes(Number($("joint").value));
+ $("unlock").disabled=busy||!health?.connected||!health?.motion_enabled;
+ $("disarm").disabled=busy||!health?.connected;
+ if(health?.pending)$("motionState").textContent="正在等待到位反馈："+JSON.stringify(health.pending);
+ if(health?.fault)$("motionState").textContent="检测到运动异常："+JSON.stringify(health.fault);
+}
+async function refresh(){
+ health=await api("/api/health");
+ if(health.connected)feedback=await api("/api/status");
+ paintAngle();renderState();
+ if(feedback){
+  $("feedback").textContent="真实XYZ："+["x","y","z"].map(k=>feedback[k]?.toFixed(2)).join(", ")+" mm"+
+   "；Pitch "+degrees(feedback.tit).toFixed(2)+"° / Roll "+degrees(feedback.r).toFixed(2)+"°"+
+   "；夹爪 "+degrees(feedback.g).toFixed(2)+"°";
+ }
+}
+function renderPoses(){
+ $("poses").replaceChildren(...Object.entries(stageLabels).map(([stage,label])=>{
+  const wrap=document.createElement("div");wrap.className="pose";
+  const heading=document.createElement("strong");heading.textContent=label;wrap.append(heading);
+  const detail=document.createElement("div");detail.className="muted";
+  const v=poses?.[stage];
+  detail.textContent=v?(v.xyz_mm?"XYZ "+v.xyz_mm.join(", ")+" mm；Pitch "+v.pitch_deg+"°":"夹爪 "+v.gripper_deg+"°"):"尚未采集";wrap.append(detail);
+  const btn=document.createElement("button");btn.textContent="记录当前真实反馈";
+  btn.disabled=busy;btn.onclick=async()=>{
+   if(busy)return;busy=true;btn.disabled=true;
+   try{
+    const r=await api("/api/teach/capture","POST",{stage});poses=r.poses;renderPoses();
+    $("motionState").textContent="已保存 "+label+"，不会改变XY标定，也未发送运动命令";
+   }catch(e){showError(e)}finally{busy=false;renderState()}
+  };wrap.append(btn);return wrap;
+ }));
+}
+$("joint").onchange=()=>{chooseJoint();renderState()};
+$("angle").oninput=()=>syncSlider(Number($("angle").value));
+$("angleInput").oninput=()=>{const v=Number($("angleInput").value);if(finite(v))syncSlider(v)};
+document.querySelectorAll("[data-nudge]").forEach(btn=>btn.onclick=()=>syncSlider(Number($("angleInput").value)+Number(btn.dataset.nudge)));
+$("refresh").onclick=async()=>{try{await refresh();syncSlider(selectedAngle())}catch(e){showError(e)}};
+$("connect").onclick=async()=>{try{await api("/api/auto-connect","POST",{});await refresh()}catch(e){showError(e)}};
+$("unlock").onclick=async()=>{
+ try{await api("/api/unlock-once","POST",{declaration:"已检查设备并清空运动区域"});await refresh()}
+ catch(e){showError(e)}
+};
+$("disarm").onclick=async()=>{
+ try{await api("/api/disarm","POST",{});await refresh()}catch(e){showError(e)}
+};
+$("move").onclick=async()=>{
+ if(busy)return;
+ const joint=Number($("joint").value),target_deg=Number($("angleInput").value);
+ if(!finite(target_deg)||!finite(selectedAngle()))return;
+ busy=true;renderState();
+ try{
+  const r=await api("/api/teach/move","POST",{joint,target_deg});
+  $("motionState").textContent="已发送 J"+joint+" "+r.from_deg+"° → "+r.to_deg+"°，等待真实反馈";
+  await refresh();
+ }catch(e){showError(e)}
+ finally{busy=false;renderState()}
+};
+$("copy").onclick=async()=>{
+ try{await navigator.clipboard.writeText(JSON.stringify({version:2,poses},null,2));
+ $("motionState").textContent="示教快照已复制";}catch(e){showError(e)}
+};
+(async()=>{
+ try{
+  health=await api("/api/health");
+  if(!health.connected)await api("/api/auto-connect","POST",{});
+  health=await api("/api/health");
+  rebuildJointOptions();await refresh();
+  const data=await api("/api/teach/poses");poses=data.poses;renderPoses();
+ }catch(e){showError(e)}
+ setInterval(async()=>{
+  if(busy)return;
+  try{
+   const wasPending=Boolean(health?.pending);
+   await refresh();
+   if(wasPending&&!health?.pending&&health?.last_command){
+    $("motionState").textContent="动作回执："+JSON.stringify(health.last_command);
+   }
+  }catch(e){showError(e)}
+ },1500);
+})();
+</script></body></html>
