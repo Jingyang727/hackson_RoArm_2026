@@ -629,7 +629,7 @@ $("armExecution").onclick=()=>act(async()=>{
  say("executionStatus","已向机械臂发送第一段 "+sent.stage+
    "；等待真实位置反馈。到位后可由你确认下一段。");
  await updateExecution();
-});
+},"motion");
 $("runNext").onclick=()=>act(async()=>{
  if(!execution?.next_step)throw Error("没有下一步");
  const next=execution.next_step;
@@ -648,12 +648,29 @@ $("runNext").onclick=()=>act(async()=>{
  });
  say("executionStatus","已发送 "+sent.stage+"，等待真实反馈。无反馈前不能发送下一步。");
  await updateExecution();
-});
+},"motion");
 $("cancelExecution").onclick=()=>act(async()=>{
  if(!confirm("这只会阻止后续指令，不会停下已经执行中的固件运动。确定取消？"))return;
  const result=await api("/api/pick/cancel","POST",{});await updateExecution();
  say("executionStatus",result.notice);
 });
+$("refreshExecution").onclick=()=>act(async()=>{
+ const status=await api("/api/status");
+ pickHealth=await api("/api/health");
+ await updateExecution();
+ lastMotionError="";
+ say("executionStatus","已读取真实状态。扭矩："+(
+  "BSETRG".split("").every(k=>status["torswitch"+k]===1)
+    ?"六关节全部锁定":"仍有释放的关节")+
+  "；当前步骤："+(execution?.next_index||0)+"/"+(execution?.total||0));
+},"motion");
+$("recoverTorque").onclick=()=>{
+ if(busy||torqueBusy)return;
+ openTorquePrompt(true);
+ // This in-page confirmation is intentionally required: relocking a
+ // gravity-loaded arm can cause an immediate physical jump.
+ $("pickTorquePrompt").scrollIntoView?.({block:"center",behavior:"smooth"});
+};
 function openTorquePrompt(enabled){
  if(busy||torqueBusy)return;
  torqueIntent=enabled;$("pickTorqueAck").checked=false;
@@ -693,6 +710,12 @@ $("pickTorqueConfirm").onclick=async()=>{
  try{pickHealth=await api("/api/health")}
  catch(err){$("pickTorqueMessage").textContent+="\n无法读取连接状态："+err.message}
  torqueBusy=false;renderTorque();updateButtons();
+ if(enabled){
+  // After an operator-confirmed relock, refresh the step-0 session buttons.
+  try{await updateExecution()}catch(e){
+   $("executionStatus").textContent="扭矩已处理，但无法刷新执行会话："+e.message;
+  }
+ }
 };
 $("pickTorqueRefresh").onclick=async()=>{
  if(torqueBusy)return;
