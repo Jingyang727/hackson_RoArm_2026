@@ -156,12 +156,25 @@ def validate_pick_profile(profile):
     out["place_xy_mm"] = [_num(v, "放置XY") for v in xy]
     if not (8 <= out["ball_diameter_mm"] <= 90):
         raise PickPlanningError("球直径必须实测，当前仅支持直径 8～90mm 的轻质球")
-    if not (40 <= out["grip_z_mm"] <= 350 and 40 <= out["place_z_mm"] <= 350):
-        raise PickPlanningError("抓取和放置高度超出保守的示教范围")
-    if not (70 <= out["travel_z_mm"] <= 380):
-        raise PickPlanningError("安全高度超出保守范围")
-    if out["travel_z_mm"] - max(out["grip_z_mm"], out["place_z_mm"]) < 45:
-        raise PickPlanningError("安全抬升高度至少应高于抓取/放置高度45mm")
+    # T=1051 Z is measured in the RoArm BASE frame and may be NEGATIVE:
+    # zero is not necessarily the tabletop. These bounds are only a wide
+    # finite-coordinate plausibility check, NOT collision/reachability approval.
+    # Both positive and negative values are supported; clearance is relative.
+    for name, limit in (("抓取", 350.0), ("放置", 350.0), ("安全抬升", 380.0)):
+        field = {"抓取": "grip_z_mm", "放置": "place_z_mm",
+                 "安全抬升": "travel_z_mm"}[name]
+        if abs(out[field]) > limit:
+            raise PickPlanningError(
+                f"{name}高度 Z={out[field]:.2f}mm 超出基座坐标的暂定绝对值范围"
+                f" ±{limit:.0f}mm。负 Z 本身允许，但必须现场确认工作空间和桌面间隙"
+            )
+    clearance = out["travel_z_mm"] - max(out["grip_z_mm"], out["place_z_mm"])
+    if clearance < 45:
+        raise PickPlanningError(
+            f"安全抬升 Z={out['travel_z_mm']:.2f}mm，相对较高的抓取/放置点"
+            f"只有 {clearance:.2f}mm 净抬升（要求至少45mm）。"
+            " Z 是相对机械臂基座的有符号坐标，不能当作桌面离地高度"
+        )
     if not (-math.pi/2 <= out["pitch_rad"] <= math.pi/2 and -math.pi <= out["roll_rad"] <= math.pi):
         raise PickPlanningError("末端姿态范围异常")
     if not (1.08 <= out["open_g_rad"] < out["close_g_rad"] <= 3.14):
@@ -221,7 +234,12 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     for point in [ball_xy, place_xy]:
         radius = float(np.linalg.norm(point))
         if not (70 <= radius <= 370):
-            raise PickPlanningError("目标离机器人底座过近或过远，可能超出受控工作区域")
+            label = "抓取" if np.array_equal(point, ball_xy) else "放置"
+            raise PickPlanningError(
+                f"{label}位置距基座水平半径 {radius:.1f}mm，"
+                "超出当前受控区 70～370mm。请重新确认这个位置确实可达并重新示教；"
+                "不要仅为通过检查而扩大半径上限"
+            )
     if float(np.linalg.norm(ball_xy - place_xy)) > 280:
         raise PickPlanningError("放置点与抓取点跨度太大，请重新选择较近的安全放置位置")
     # Multi-waypoint travel at manually taught elevated Z; each XY hop bounded.
