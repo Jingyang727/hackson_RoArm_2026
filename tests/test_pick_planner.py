@@ -128,6 +128,35 @@ class TestPickPlan(unittest.TestCase):
         with self.assertRaisesRegex(PickPlanningError, "放置位置距基座水平半径"):
             run_plan([96,60], prof=p)
 
+    def test_preview_only_allows_actual_taught_396mm_place_but_blocks_execution(self):
+        p = profile()
+        p.update({
+            "grip_z_mm": -116.18, "place_z_mm": -103.87,
+            "travel_z_mm": -38.82, "pitch_rad": 1.24252,
+            "roll_rad": 0.0092, "open_g_rad": 2.34392,
+            "close_g_rad": 2.5326, "ball_diameter_mm": 34.7,
+            "place_xy_mm": [285.35, 275.04],
+        })
+        preview = plan_pick_place([96, 60], p, calibration(),
+            image_size=[1920,1080], corners_px=corners(), preview_only=True)
+        self.assertEqual(preview["place_robot_xy_mm"], [285.35, 275.04])
+        self.assertTrue(preview["preview_only"])
+        self.assertFalse(preview["execution_eligible"])
+        self.assertFalse(preview["auto_execute"])
+        self.assertTrue(any("396.3" in text for text in preview["reachability_warnings"]))
+        self.assertTrue(preview["waypoints"])
+        self.assertTrue(all(w["requires_operator_confirm"] for w in preview["waypoints"]))
+        with self.assertRaisesRegex(PickPlanningError, "试验阈值"):
+            run_plan([96, 60], prof=p)
+
+    def test_preview_only_also_explains_arbitrary_transfer_span_limit(self):
+        p = profile()
+        p["place_xy_mm"] = [210.0, 295.0]
+        preview = plan_pick_place([96, 60], p, calibration(),
+            image_size=[1920,1080], corners_px=corners(), preview_only=True)
+        self.assertFalse(preview["execution_eligible"])
+        self.assertTrue(any("280mm" in text for text in preview["reachability_warnings"]))
+
     def test_save_then_preview_from_files_never_drives_arm(self):
         import json
         with tempfile.TemporaryDirectory() as td:
