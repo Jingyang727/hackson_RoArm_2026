@@ -50,7 +50,7 @@ small,.muted{color:#63758b!important;font-size:12px;line-height:1.7}
     <input id="squareSize" type="number" min="0.1" max="200" step="0.1" placeholder="请实测"/>
     <button id="analyze" disabled>检测棋盘格和黄色球</button>
   </div>
-  <small>不填边长也能检测，但只能得到棋盘格单位；填写实际尺寸后才计算毫米坐标。</small>
+  <small>会自动读取已保存的棋盘单格尺寸。黄球挡住部分角点时，会尝试用未遮挡的实时角点核对原标定；无法核对则拒绝计算毫米坐标。</small>
   <div id="stage"><video id="video" autoplay muted playsinline></video></div>
   <div class="info">
     <div id="result" role="status">未启动摄像头。点击“启动预览”，并允许浏览器访问摄像头。</div>
@@ -193,6 +193,17 @@ $("devices").onchange=async()=>{if(stream){try{await startCamera()}catch(e){stop
 window.addEventListener("pagehide",stopCamera);
 (async()=>{
  try{
+   // Read only saved calibration metadata; do not make the user retype the
+   // measured board cell size when switching from XY/pick to camera.
+   try{
+     const response=await fetch("/api/calibration/status");
+     if(response.ok){
+       const status=await response.json();
+       if(status.saved&&status.ready&&Number.isFinite(Number(status.square_mm))){
+         $("squareSize").value=String(status.square_mm);
+       }
+     }
+   }catch(error){/* Vision-only camera preview still works without backend calibration. */}
    await listCameras();
    if(navigator.permissions?.query){
      const permission=await navigator.permissions.query({name:"camera"});
