@@ -17,7 +17,30 @@ input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
 #poseValue{font-variant-numeric:tabular-nums;font-size:20px;font-weight:700}
 .chip{border-radius:20px;padding:3px 8px;background:#42566a}
 @media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}#poses{grid-template-columns:1fr}}
-</style></head><body>
+</style>
+<style id="teach-accessibility-overrides">
+/* Match the shared light theme. Override only the older dark-mode teaching rules. */
+body.teach-page{background:#f5f7fa;color:#182331}
+.teach-page section{background:#fff;color:#182331;border:1px solid #d8e1eb;box-shadow:0 2px 8px rgba(26,36,50,.035)}
+.teach-page h1,.teach-page h2,.teach-page label,.teach-page strong{color:#182331}
+.teach-page .muted{color:#485b71!important}
+.teach-page .notice{background:#f0f5f9;color:#233950;border:1px solid #cad8e5}
+.teach-page .pose{background:#f7fafc;color:#22374b;border:1px solid #cbd8e5}
+.teach-page .pose .muted{color:#42586d!important}
+.teach-page .chip{background:#eaf1f7;color:#203c55;border:1px solid #c7d8e6}
+.teach-page button,.teach-page select,.teach-page input[type=number]{
+ background:#fff;color:#20364b;border:1px solid #a8bed1
+}
+.teach-page button:hover:not(:disabled){background:#eaf2f6;border-color:#7fa2bb}
+.teach-page button.primary{background:#0e766e!important;color:white!important;border-color:#0e766e!important}
+.teach-page button.primary:hover:not(:disabled){background:#095d57!important}
+.teach-page button:disabled{opacity:1;background:#e4e9ef!important;color:#52657b!important;border-color:#c9d3df!important;cursor:not-allowed}
+.teach-page .warning{background:#fff8eb;color:#744810;border:1px solid #e6c58c;padding:10px;border-radius:9px}
+.teach-page input[type=range]{accent-color:#0e766e}
+.teach-page #moveReason{font-size:13px;line-height:1.6;color:#3d566e!important;margin-top:6px}
+.teach-page :is(button,select,input):focus-visible{outline:3px solid #8bc8c2;outline-offset:2px}
+</style>
+</head><body class="teach-page">
 <div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY 标定</a><a href="/pick">抓放</a><a href="/teach" class="active" aria-current="page">快速示教</a></nav><span id="teachConnectionChip" class="connection-chip offline">正在连接</span></div>
 <h1>快速示教 · 目标角度控制</h1>
 <p class="muted">固定底座和相机后，保留现有 P1–P4 + V1 标定。这里只保存真实反馈姿态；不释放扭矩、不重置机械臂，不会修改旧的 pick_profile.json。</p>
