@@ -379,6 +379,131 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     }
 
 
+def preview_v2_poses(ball_board_mm, calibration_data, poses, *,
+                     image_size, corners_px):
+    """Read-only camera-target overlay for the v2 teach snapshots.
+
+    These are geometric candidate targets, not a certified collision-free
+    trajectory. The robot's T=1051 XYZ may not be its fingertip TCP; in
+    particular the Home height is not transferable to arbitrary XY positions.
+    Never promote this preview to a T=104 motion plan.
+    """
+    required = ("home", "hover", "grasp", "place", "gripper_open", "gripper_close")
+    if not isinstance(poses, dict) or any(k not in poses for k in required):
+        missing = [k for k in required if not isinstance(poses, dict) or k not in poses]
+        raise PickPlanningError("v2示教尚未完成：" + ", ".join(missing))
+    if not isinstance(calibration_data, dict) or not calibration_data.get("fit", {}).get("validated"):
+        raise PickPlanningError("没有通过4+1验收的XY标定")
+    fingerprint = _verify_board_unchanged(
+        calibration_data, image_size, corners_px, preview_only=True
+    )
+    if not isinstance(ball_board_mm, (list, tuple)) or len(ball_board_mm) != 2:
+        raise PickPlanningError("缺少黄球棋盘XY")
+    board_xy = [_num(v, "黄球棋盘XY") for v in ball_board_mm]
+    square = _num(calibration_data.get("square_mm"), "棋盘单格尺寸")
+    if not (-square <= board_xy[0] <= 9*square and
+            -square <= board_xy[1] <= 6*square):
+        raise PickPlanningError("黄球超出棋盘纸面，无法可靠映射到机械臂XY")
+    fit = calibration_data["fit"]
+    matrix = np.asarray(fit.get("matrix_2x2"), dtype=float)
+    offset = np.asarray(fit.get("offset_mm"), dtype=float)
+    if (matrix.shape != (2, 2) or offset.shape != (2,) or
+            not np.isfinite(matrix).all() or not np.isfinite(offset).all() or
+            not np.allclose(matrix.T @ matrix, np.eye(2), atol=0.025)):
+        raise PickPlanningError("XY变换矩阵不合法")
+    ball = matrix @ np.asarray(board_xy) + offset
+
+    def xy_z(stage):
+        pose = poses[stage]
+        xyz = pose.get("xyz_mm") if isinstance(pose, dict) else None
+        if not isinstance(xyz, list) or len(xyz) != 3:
+            raise PickPlanningError("v2示教 " + stage + " 缺少XYZ")
+        xyz = [_num(v, stage+" XYZ") for v in xyz]
+        pitch = _num(pose.get("pitch_rad"), stage+" Pitch")
+        roll = _num(pose.get("roll_rad"), stage+" Roll")
+        return xyz, pitch, roll
+
+    home, ht, hr = xy_z("home")
+    hover, vt, vr = xy_z("hover")
+    grasp, gt, gr = xy_z("grasp")
+    place, pt, pr = xy_z("place")
+    opened = _num(poses["gripper_open"].get("gripper_rad"), "夹爪张开")
+    closed = _num(poses["gripper_close"].get("gripper_rad"), "夹爪闭合")
+    if not (1.08 <= opened < closed <= 3.14):
+        raise PickPlanningError("v2夹爪开闭角不合法")
+    if hover[2] <= grasp[2]:
+        raise PickPlanningError("Hover必须高于Grasp；检查示教顺序")
+    if math.dist(hover[:2], grasp[:2]) > 15:
+        raise PickPlanningError("Hover与Grasp XY偏移过大；请核查是否为同一个球心")
+    training = [r["board_mm"] for r in calibration_data.get("records", [])
+                if r.get("id") in ("P1", "P2", "P3", "P4")]
+    hull = _convex_hull(training)
+    inside = _inside_convex_polygon(board_xy, hull, clearance=0)
+    warnings = [
+        "v2六组示教已读取；轨迹仅为候选目标，当前不下发真实运动",
+        "尚未验证夹爪TCP相对T=1051 XYZ的偏移；球心XY不能直接当作夹爪抓取TCP",
+        "尚未执行各XY/Z/Pitch的逆运动学、关节限位和连续碰撞检测",
+        "Home的Z=%.1fmm仅在示教Home位置有效，不代表球上方或放置点可用的转运高度" % home[2],
+    ]
+    if hover[2] - place[2] < 45:
+        warnings.append(
+            "Hover Z=%.1fmm比Place Z=%.1fmm高%.1fmm，未达到45mm的示教转运净空；"
+            "需验证放置点上方的独立安全高度" %
+            (hover[2], place[2], hover[2]-place[2])
+        )
+    if not inside:
+        warnings.append("黄球位于P1–P4实测凸包之外，尚未验收该处真实运动")
+    if not fingerprint["motion_stable"]:
+        warnings.append("棋盘相对保存角点有偏移，尚不能用于真实运动")
+
+    def cart(stage, xyz, pitch, roll, grip, reason):
+        return {
+            "stage": stage, "kind": "cartesian",
+            "xyz_mm": [round(float(v), 2) for v in xyz],
+            "t": round(pitch, 5), "r": round(roll, 5),
+            "g": round(grip, 5), "reason": reason,
+            "requires_operator_confirm": True,
+            "preview_only": True,
+        }
+    def hand(stage, angle, reason):
+        return {
+            "stage": stage, "kind": "gripper", "g": round(angle, 5),
+            "reason": reason, "preview_only": True,
+        }
+
+    # XY is dynamic; stage-specific Z and orientation come from the v2
+    # snapshots. No generic high-Z bridging or motion interpolation is
+    # invented: transitions must first be IK/collision validated.
+    target_hover = [float(ball[0]), float(ball[1]), hover[2]]
+    target_grasp = [float(ball[0]), float(ball[1]), grasp[2]]
+    waypoints = [
+        cart("home_reference", home, ht, hr, opened, "示教Home参照，非自动起始移动"),
+        cart("hover_ball_candidate", target_hover, vt, vr, opened, "视觉动态XY + Hover示教高度"),
+        hand("open_before_pick", opened, "示教张开角"),
+        cart("grasp_ball_candidate", target_grasp, gt, gr, opened, "视觉动态XY + Grasp示教高度"),
+        hand("close_ball", closed, "示教闭合角；未验证球是否夹稳"),
+        cart("lift_candidate", target_hover, vt, vr, closed, "返回Hover高度；待验证路径"),
+        cart("place_candidate", place, pt, pr, closed, "示教Place目标，转运轨迹尚未生成"),
+        hand("release_ball", opened, "放开夹爪"),
+    ]
+    return {
+        "source": "pick_poses_v2.json",
+        "preview_only": True, "execution_eligible": False,
+        "ball_board_mm": [round(v, 2) for v in board_xy],
+        "ball_robot_xy_mm": [round(float(v), 2) for v in ball],
+        "place_robot_xy_mm": [round(float(v), 2) for v in place[:2]],
+        "ball_inside_training_hull": inside,
+        "board_stability_check": fingerprint,
+        "validated_region_board_mm": [list(p) for p in hull],
+        "reachability_warnings": warnings,
+        "operator_cautions": [],
+        "waypoints": waypoints,
+        "number_of_steps": len(waypoints),
+        "auto_execute": False,
+        "requirements": warnings,
+    }
+
+
 def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file=None,
                            image_size=None, corners_px=None, preview_only=False):
     # A new/changed XY session invalidates the old final transform. Do NOT
@@ -394,6 +519,21 @@ def build_from_saved_files(ball_board_mm, *, profile_file=None, calibration_file
                     "不能沿用旧标定结果规划动作"
                 )
     calibration=_read_file(calibration_file or xy_calibration_path())
+    # A present v2 snapshot takes priority over stale legacy pick_profile.json.
+    # Until tool TCP, per-target IK and collision checks are implemented, v2
+    # supports read-only preview ONLY. Never silently fall back for motors.
+    if profile_file is None:
+        from .fast_teach import pose_path, read_poses
+        if pose_path().exists():
+            if not preview_only:
+                raise PickPlanningError(
+                    "检测到新版六组示教姿态，旧版抓取执行器尚未支持v2的TCP/IK/安全轨迹；"
+                    "已拒绝运动，禁止回退使用旧pick_profile.json"
+                )
+            return preview_v2_poses(
+                ball_board_mm, calibration, read_poses().get("poses"),
+                image_size=image_size, corners_px=corners_px
+            )
     profile=_read_file(profile_file or profile_path())
     return plan_pick_place(ball_board_mm,profile,calibration,
                            image_size=image_size,corners_px=corners_px,
