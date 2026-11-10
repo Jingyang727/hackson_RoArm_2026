@@ -330,4 +330,12 @@ def save_pick_profile(profile):
         draft_path().unlink(missing_ok=True)
     except OSError:
         pass
-    return {"saved":True,"path":str(path),"profile":valid}
+    radius=math.hypot(*valid["place_xy_mm"])
+    warning=(
+        f"放置点水平距离基座 {radius:.1f}mm，已超过当前受控工作区最大 370mm。"
+        "示教参数已保存，但轨迹预览会拒绝此放置位置；"
+        "请重新确认物理可达性并将放置点选在已验证区域内"
+        if radius>370 or radius<70 else None
+    )
+    return {"saved":True,"path":str(path),"profile":valid,
+            "warnings":[warning] if warning else []}
