@@ -34,7 +34,7 @@ small,.muted{color:#63758b!important;font-size:12px;line-height:1.7}
 <link rel="stylesheet" href="/assets/theme.css">
 </head>
 <body>
-<div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera" class="active" aria-current="page">相机</a><a href="/calibration">XY 标定</a><a href="/pick">抓放</a></nav></div>
+<div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera" class="active" aria-current="page">相机</a><a href="/calibration">XY 标定</a><a href="/pick">抓放</a><a href="/teach">快速示教</a></nav><span id="navConnectionStatus" class="connection-chip offline">正在连接</span></div>
 <h1>EvoArm · 俯视摄像头预览</h1>
 <small>仅用于相机安装和取景检查，不读取或发送机械臂运动指令。</small>
 <main>
@@ -212,5 +212,5 @@ window.addEventListener("pagehide",stopCamera);
  }catch(e){note("相机自动预览未启动："+e.message+"；可手动点击启动预览")}
 })();
 </script>
-</body>
+<script src="/assets/nav_status.js" defer></script></body>
 </html>
