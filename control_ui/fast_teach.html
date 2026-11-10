@@ -4,7 +4,7 @@
 <style>
 :root{font:15px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#101b2b;color:#e9f0f7}
 *{box-sizing:border-box}body{max-width:1040px;margin:20px auto;padding:0 16px;line-height:1.55}
-a{color:#93dbee}.muted{color:#a9bbd0}.warning{color:#f6c47c}
+a{color:#93dbee}.muted{color:#a9bbd0}.warning{color:#f6c47c}\n.topbar{margin-bottom:14px}
 main{display:grid;grid-template-columns:1.15fr 1fr;gap:16px}
 section{background:#1b2a40;border:1px solid #38516b;border-radius:12px;padding:16px}
 .wide{grid-column:1/-1}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
@@ -18,7 +18,7 @@ input[type=range]{width:100%;padding:0}input[type=number]{width:105px}
 .chip{border-radius:20px;padding:3px 8px;background:#42566a}
 @media(max-width:760px){main{grid-template-columns:1fr}.wide{grid-column:auto}#poses{grid-template-columns:1fr}}
 </style></head><body>
-<nav class="row"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY标定</a><a href="/pick">抓放</a><strong>快速示教</strong></nav>
+<div class="topbar"><nav class="nav-links" aria-label="EvoArm 页面"><a href="/">控制台</a><a href="/camera">相机</a><a href="/calibration">XY 标定</a><a href="/pick">抓放</a><a href="/teach" class="active" aria-current="page">快速示教</a></nav><span id="teachConnectionChip" class="connection-chip offline">正在连接</span></div>
 <h1>快速示教 · 目标角度控制</h1>
 <p class="muted">固定底座和相机后，保留现有 P1–P4 + V1 标定。这里只保存真实反馈姿态；不释放扭矩、不重置机械臂，不会修改旧的 pick_profile.json。</p>
 <main>
