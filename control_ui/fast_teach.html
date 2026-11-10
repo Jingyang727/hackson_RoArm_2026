@@ -206,7 +206,12 @@ function renderPoses(){
    try{
     const r=await api("/api/teach/capture","POST",{stage});poses=r.poses;renderPoses();
     $("motionState").textContent="已保存 "+label+"，不会改变XY标定，也未发送运动命令";
-   }catch(e){showError(e)}finally{busy=false;renderState()}
+   }catch(e){showError(e)}finally{
+    busy=false;
+    // renderPoses() re-created all buttons while busy=true. Re-render after
+    // completing the request so the new buttons are no longer disabled.
+    renderPoses();renderState();
+   }
   };wrap.append(btn);return wrap;
  }));
 }
