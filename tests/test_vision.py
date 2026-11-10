@@ -53,6 +53,54 @@ class ChessboardVisionTests(unittest.TestCase):
         self.assertNotIn("board_mm_xy", result["ball"])
         self.assertIsNone(result["checkerboard"]["square_size_mm"])
 
+    def test_ball_occlusion_uses_fresh_visible_corners_not_old_image_blindly(self):
+        blank = cv2.imdecode(np.frombuffer(self.photo, dtype=np.uint8),cv2.IMREAD_COLOR)
+        cv2.rectangle(blank,(1020,630),(1080,690),(240,240,240),-1)
+        # Fresh frame with unobscured board for the persisted 4+1 reference.
+        baseline = analyze_image(cv2.imencode(".png",blank)[1].tobytes(),square_mm=24)
+        self.assertTrue(baseline["checkerboard"]["detected"])
+        reference={
+          "image_size":[1280,960],
+          "corners_px":baseline["checkerboard"]["corners_px"],
+          "square_mm":24,
+        }
+        occluded = blank.copy()
+        # A 35-pixel yellow ball directly on a central inner corner makes
+        # the full 9x6 OpenCV chessboard detector fail.
+        cv2.circle(occluded,(530,354),35,(0,230,255),-1)
+        raw = cv2.imencode(".png",occluded)[1].tobytes()
+        without = analyze_image(raw,square_mm=24)
+        self.assertFalse(without["checkerboard"]["detected"])
+        self.assertTrue(without["ball"]["detected"])
+        self.assertNotIn("board_mm_xy",without["ball"])
+        result = analyze_image(raw,square_mm=24,reference=reference)
+        self.assertTrue(result["checkerboard"]["detected"])
+        self.assertEqual(result["checkerboard"]["source"],"reference_partial_verified")
+        self.assertGreaterEqual(result["checkerboard"]["visible_match_count"],32)
+        self.assertTrue(result["ball"]["inside_inner_board"])
+        self.assertIn("board_mm_xy",result["ball"])
+        self.assertEqual(result["checkerboard"]["corners_count"],54)
+
+    def test_reference_fallback_rejects_moved_board_and_changed_resolution(self):
+        base=cv2.imdecode(np.frombuffer(self.photo,dtype=np.uint8),cv2.IMREAD_COLOR)
+        baseline=analyze_image(cv2.imencode(".png",base)[1].tobytes(),square_mm=24)
+        ref={"image_size":[1280,960],
+             "corners_px":baseline["checkerboard"]["corners_px"],
+             "square_mm":24}
+        occluded=base.copy()
+        cv2.circle(occluded,(530,354),35,(0,230,255),-1)
+        # A shifted physical board must NOT be trusted from its saved XY map.
+        transformed=cv2.warpAffine(
+            occluded,np.float32([[1,0,25],[0,1,20]]),(1280,960))
+        blocked=analyze_image(cv2.imencode(".png",transformed)[1].tobytes(),
+                              square_mm=24,reference=ref)
+        self.assertFalse(blocked["checkerboard"]["detected"])
+        self.assertNotIn("board_mm_xy",blocked["ball"])
+        resized_ref={**ref,"image_size":[1920,1080]}
+        wrong_size=analyze_image(cv2.imencode(".png",occluded)[1].tobytes(),
+                                 square_mm=24,reference=resized_ref)
+        self.assertFalse(wrong_size["checkerboard"]["detected"])
+
     def test_bad_image_refused(self):
         with self.assertRaises(VisionError):
             analyze_image(b"not an image")
