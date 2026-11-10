@@ -184,27 +184,49 @@ def validate_pick_profile(profile):
     return out
 
 
-def _verify_board_unchanged(calibration_data, image_size, corners_px):
+def _verify_board_unchanged(calibration_data, image_size, corners_px, *, preview_only=False):
     baseline = calibration_data.get("corners_px")
     if baseline is None:
-        raise PickPlanningError("旧标定未保存棋盘角点指纹，请重新完成4+1坐标标定")
+        raise PickPlanningError("缺少已保存的棋盘角点参考，请确认XY标定文件")
     if image_size != calibration_data.get("image_size"):
-        raise PickPlanningError("摄像头分辨率与标定时不一致，需要重新标定")
+        raise PickPlanningError("当前摄像头分辨率与标定时不一致，请恢复原始分辨率")
     expected = np.asarray(baseline, dtype=float)
     observed = np.asarray(corners_px, dtype=float)
     if expected.shape != (54, 2) or observed.shape != (54, 2):
-        raise PickPlanningError("需要当前图像54个棋盘角点以确认相机和棋盘没有移动")
+        raise PickPlanningError("需要54个已核验的棋盘角点，不能使用未知相机位置")
     if not np.isfinite(expected).all() or not np.isfinite(observed).all():
         raise PickPlanningError("棋盘角点坐标无效")
+    grid = expected.reshape(6, 9, 2)
+    pitch_px = np.r_[
+        np.linalg.norm(np.diff(grid, axis=0), axis=2).ravel(),
+        np.linalg.norm(np.diff(grid, axis=1), axis=2).ravel(),
+    ]
+    square_mm = float(calibration_data.get("square_mm", 0))
+    median_pitch = float(np.median(pitch_px))
+    if square_mm <= 0 or median_pitch < 5 or not math.isfinite(median_pitch):
+        raise PickPlanningError("棋盘真实尺寸或图像角点比例无效")
+    px_per_mm = median_pitch / square_mm
     distances = np.linalg.norm(observed - expected, axis=1)
-    rms = float(np.sqrt(np.mean(distances ** 2)))
-    max_shift = float(np.max(distances))
-    if rms > 6 or max_shift > 13:
+    rms_mm = float(np.sqrt(np.mean(distances**2))) / px_per_mm
+    max_mm = float(np.max(distances)) / px_per_mm
+    # Pixel-based 6px/13px cutoffs were arbitrary. Preview may tolerate
+    # slight measured displacement, but motion must still use tighter limits.
+    if rms_mm > 12 or max_mm > 20:
         raise PickPlanningError(
-            f"当前棋盘位置与标定时不同：角点偏移 RMS={rms:.1f}px，最大={max_shift:.1f}px。"
-            "请检查相机/棋盘是否移动，重新标定后再使用"
+            f"棋盘与保存位置变化较大：RMS约{rms_mm:.1f}mm，最大约{max_mm:.1f}mm。"
+            "请先核对相机、棋盘和底座是否移动"
         )
-    return {"rms_px": round(rms,2), "max_shift_px": round(max_shift,2)}
+    motion_stable = rms_mm <= 4 and max_mm <= 8
+    if not preview_only and not motion_stable:
+        raise PickPlanningError(
+            f"棋盘确认可用于定位，但尚不能用于真实运动：RMS偏移约{rms_mm:.1f}mm，"
+            f"最大约{max_mm:.1f}mm。运动需要更严格的4/8mm位置核验"
+        )
+    return {
+        "rms_mm": round(rms_mm, 2),
+        "max_shift_mm": round(max_mm, 2),
+        "motion_stable": motion_stable,
+    }
 
 
 def plan_pick_place(ball_board_mm, profile, calibration_data, *,
@@ -213,7 +235,7 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     profile = validate_pick_profile(profile)
     if not isinstance(calibration_data, dict) or not calibration_data.get("fit", {}).get("validated"):
         raise PickPlanningError("没有通过 4+1 验证的机器人 XY 坐标标定")
-    fingerprint = _verify_board_unchanged(calibration_data, image_size, corners_px)
+    fingerprint = _verify_board_unchanged(calibration_data, image_size, corners_px, preview_only=preview_only)
     fit = calibration_data["fit"]
     M = np.asarray(fit.get("matrix_2x2"), dtype=float)
     t = np.asarray(fit.get("offset_mm"), dtype=float)
@@ -227,8 +249,25 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     records = calibration_data.get("records") or []
     training = [r["board_mm"] for r in records if r.get("id") in ("P1", "P2", "P3", "P4")]
     hull = _convex_hull(training)
-    if not _inside_convex_polygon(board_xy, hull, clearance=6):
-        raise PickPlanningError("球心未处于已验证标定区域的内部（需离边界≥6mm），禁止坐标外推抓取")
+    # The previous "at least 6mm from the boundary" was arbitrary.
+    # P1–P4 training hull, sheet localization and robot reach are separate:
+    # a point at the training boundary should not be refused just for margin.
+    inside_training_hull = _inside_convex_polygon(board_xy, hull, clearance=0)
+    side = float(calibration_data.get("square_mm", 0))
+    on_board_sheet = (
+        side > 0 and -side <= board_xy[0] <= 9*side
+        and -side <= board_xy[1] <= 6*side
+    )
+    if not on_board_sheet:
+        raise PickPlanningError(
+            "黄球不在已识别棋盘纸面范围内；没有该桌面位置的可靠像素→毫米映射，"
+            "请扩展桌面标定后再抓取"
+        )
+    if not inside_training_hull and not preview_only:
+        raise PickPlanningError(
+            "黄球超出P1～P4已实测覆盖区域。可以定位球，但该处真实抓取"
+            "尚未验证工具姿态、TCP及碰撞路径；请先扩展已验证工作区"
+        )
     ball_xy = (M @ np.asarray(board_xy) + t)
     place_xy = np.asarray(profile["place_xy_mm"])
     # The 70–370mm circle was an internal conservative SW guard, NOT a
@@ -237,6 +276,16 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     # Do NOT apply this invented bound to a purely read-only preview.
     # Keep execution fail-closed until real IK/collision checks exist.
     preview_warnings = []
+    if not inside_training_hull:
+        preview_warnings.append(
+            "球在棋盘纸面上，但超出P1～P4实测覆盖范围；"
+            "定位可用，真实执行需要额外安全验证"
+        )
+    if not fingerprint["motion_stable"]:
+        preview_warnings.append(
+            f"棋盘有轻微偏移（约RMS {fingerprint['rms_mm']}mm），"
+            "仍允许定位，但真实运动需确认相机、棋盘、底座没有变化"
+        )
     for label, point in (("抓取", ball_xy), ("放置", place_xy)):
         radius = float(np.linalg.norm(point))
         if not (70 <= radius <= 370):
@@ -304,6 +353,8 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
     return {
       "preview_only": bool(preview_only),
       "execution_eligible": not preview_warnings,
+      "ball_inside_training_hull": inside_training_hull,
+      "ball_on_board_sheet": on_board_sheet,
       "reachability_warnings": preview_warnings,
       "ball_board_mm": [round(v,2) for v in board_xy],
       "ball_robot_xy_mm": [round(float(v),2) for v in ball_xy],
