@@ -30,12 +30,12 @@ class NavigationAndTeachUxTests(unittest.TestCase):
     def test_teach_keeps_target_during_feedback_refresh(self):
         html=(ROOT/"fast_teach.html").read_text(encoding="utf-8")
         # Refreshing feedback must not call syncSlider(selectedAngle()).
-        refresh=re.search(r'\$("refresh"\)\.onclick=async\(\)=>\{(.*?)\};',html,re.S)
+        refresh=re.search(r'\$\("refresh"\)\.onclick=async\(\)=>\{(.*?)\};',html,re.S)
         self.assertIsNotNone(refresh)
         self.assertNotIn("syncSlider(",refresh.group(1))
         self.assertIn("function formatMotionReceipt(",html)
         self.assertIn("function motionBlockReason(",html)
-        self.assertIn("剩余",html)
+        self.assertIn("动作已完成",html)
         self.assertNotIn("动作回执："+'" +JSON.stringify(',html)
 
     def test_fast_teach_light_theme_has_explicit_readable_text_contrast(self):
