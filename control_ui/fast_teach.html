@@ -49,26 +49,30 @@ body.teach-page{background:#f5f7fa;color:#182331}
  <h2>① 连接与运动授权</h2>
  <div id="connection" class="notice">正在读取机械臂状态…</div>
  <div class="row"><button id="connect">连接设备</button><button id="unlock" class="primary">解锁运动 · 120 秒</button><button id="disarm">禁止后续动作</button></div>
- <p class="muted">授权一次后可连续进行单关节示教，无须每步弹窗。运动指令一次仅发一条，必须等真实反馈后再继续。网页“停止”不能代替断电急停。</p>
+ <p class="muted">解锁后，点击 ±5° / ±10° 就能直接移动所选关节；每次等真实反馈再继续。网页“禁止后续动作”不能代替断电急停。</p>
  <div id="motionState" class="notice">尚无运动指令。</div>
 </section>
 <section>
- <h2>② 单关节快速调整</h2>
- <label for="joint">选择关节</label>
+ <h2>② 调整机械臂关节</h2>
+ <label for="joint">选择要动的关节</label>
  <select id="joint"></select>
- <div class="row"><span class="chip" id="currentAngle">当前 —</span><span class="chip" id="targetDifference">变化 —</span></div>
- <label for="angle">目标绝对关节角度（度）</label>
- <input id="angle" type="range" min="-60" max="60" step="0.5" value="0">
- <div class="row"><input id="angleInput" type="number" step="0.5"><span id="targetRange" class="muted"></span></div>
- <div class="row">
- <button data-nudge="-20">−20°</button><button data-nudge="-10">−10°</button>
- <button data-nudge="-5">−5°</button><button data-nudge="5">+5°</button>
- <button data-nudge="10">+10°</button><button data-nudge="20">+20°</button>
+ <div class="notice" id="currentAngle">当前角度：正在读取…</div>
+ <p class="muted">下面的角度是<strong>相对当前实际位置</strong>：点击一次，机械臂就往对应方向运动一次，不用再点执行。</p>
+ <div class="row" id="relativeControls">
+  <button data-relative="-10">−10°</button>
+  <button data-relative="-5">−5°</button>
+  <button data-relative="5">+5°</button>
+  <button data-relative="10">+10°</button>
  </div>
- <button id="move" class="primary">执行到目标角度</button>
- <div id="moveReason" class="muted" role="status">检查运动授权与实时反馈后可以执行。</div>
- <button id="refresh">刷新真实反馈</button>
- <p class="muted">滑块只设置目标，松开时不会自动运动。每次执行最多改变 30°，超过时请先到中间点；速度仍由现有后端控制，非自动避障。</p>
+ <div id="moveReason" class="muted" role="status">解锁运动后即可调整。</div>
+ <div class="row"><button id="refresh">刷新当前角度</button></div>
+ <details id="advancedTeach"><summary>高级调整 · 输入绝对目标角度</summary>
+  <p class="muted">例如输入 25°，表示让所选关节移动到 25°，不是再加 25°。</p>
+  <label for="angle">目标绝对角度</label>
+  <input id="angle" type="range" min="-60" max="60" step="0.5" value="0">
+  <div class="row"><input id="angleInput" type="number" step="0.5"><span id="targetRange" class="muted"></span></div>
+  <div class="row"><span class="chip" id="targetDifference">与当前差 —</span><button id="move" class="primary">移动到这个角度</button></div>
+ </details>
 </section>
 <section class="wide">
  <h2>③ 保存示教点（不发送运动指令）</h2>
@@ -96,8 +100,8 @@ function selectedAngle(){const j=spec();return j&&feedback?degrees(feedback[j.fi
 function paintAngle(){
  const s=spec(),current=selectedAngle();
  const target=Number($("angleInput").value);
- $("currentAngle").textContent=finite(current)?"反馈 "+current.toFixed(1)+"°":"当前 —";
- $("targetDifference").textContent=finite(current)&&finite(target)?"差 "+(target-current).toFixed(1)+"°":"变化 —";
+ $("currentAngle").textContent=finite(current)?"当前实际角度："+current.toFixed(1)+"°":"当前角度：暂无反馈";
+ $("targetDifference").textContent=finite(current)&&finite(target)?"与当前差 "+(target-current).toFixed(1)+"°":"与当前差 —";
  if(s)$("targetRange").textContent="训练限位 "+s.min+"° ～ "+s.max+"°；单次 ≤30°";
 }
 function syncSlider(value){
@@ -144,8 +148,8 @@ function formatMotionReceipt(cmd){
  const errorText=finite(error)?error.toFixed(1)+"°":"未知";
  if(cmd.status==="feedback_confirmed"){
   if(finite(error)&&error>0.5)
-   return label+" "+from+"° → 目标 "+to+"°；实际 "+actualText+
-     "°。动作反馈已确认，但仍差 "+errorText+"。可保留目标并再次点击执行，或调整目标。";
+   return label+" 从 "+from+"° → 实际 "+actualText+
+     "°，目标 "+to+"°，剩余误差 "+errorText+"。如需精确对准，可继续使用小幅调整。";
   return label+" "+from+"° → "+actualText+"°；到达目标附近，误差 "+errorText+"。";
  }
  if(cmd.status==="settled_with_offset")
@@ -166,6 +170,7 @@ function renderState(){
   "；授权 "+(health?.armed?"有效，剩余 "+health.arm_seconds_left+" 秒":"未解锁/已过期")+
   "；扭矩 "+((health?.torque_status||[]).length===6&&health.torque_status.every(v=>v===1)?"六关节锁定":"未完全确认");
  $("move").disabled=busy||Boolean(reason);
+ document.querySelectorAll("[data-relative]").forEach(b=>b.disabled=busy||Boolean(reason));
  $("moveReason").textContent=busy?"正在执行/读取反馈…":reason?("暂不能执行："+reason):"可以执行：本次只发送一条运动指令，目标不会随反馈刷新。";
  $("unlock").disabled=busy||!health?.connected||!health?.motion_enabled;
  $("disarm").disabled=busy||!health?.connected;
@@ -220,7 +225,21 @@ function renderPoses(){
 $("joint").onchange=()=>{activeTeachingCommand=null;chooseJoint();renderState()};
 $("angle").oninput=()=>syncSlider(Number($("angle").value));
 $("angleInput").oninput=()=>{const v=Number($("angleInput").value);if(finite(v))syncSlider(v)};
-document.querySelectorAll("[data-nudge]").forEach(btn=>btn.onclick=()=>syncSlider(Number($("angleInput").value)+Number(btn.dataset.nudge)));
+document.querySelectorAll("[data-relative]").forEach(btn=>btn.onclick=()=>sendRelative(Number(btn.dataset.relative)));
+async function sendRelative(delta_deg){
+ if(busy||motionBlockReason())return;
+ busy=true;renderState();
+ try{
+  const joint=Number($("joint").value);
+  const r=await api("/api/teach/move-relative","POST",{joint,delta_deg});
+  activeTeachingCommand={...r,joint,to_deg:r.to_deg};
+  lastPresentedCommand=null;
+  $("motionState").textContent=(spec()?.label||"J"+joint)+
+   " 相对移动 "+(delta_deg>0?"+":"")+delta_deg+"°；等待到位反馈…";
+  await refresh();
+ }catch(e){showError(e)}
+ finally{busy=false;renderState()}
+}
 $("refresh").onclick=async()=>{try{await refresh()}catch(e){showError(e)}};
 $("connect").onclick=async()=>{try{await api("/api/auto-connect","POST",{});await refresh()}catch(e){showError(e)}};
 $("unlock").onclick=async()=>{
