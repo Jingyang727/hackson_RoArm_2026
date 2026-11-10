@@ -2,7 +2,7 @@
 import unittest
 import cv2
 import numpy as np
-from control_ui.vision import analyze_image, VisionError, PATTERN
+from control_ui.vision import analyze_image, VisionError, PATTERN, confirm_empty_board
 
 
 def example_image():
@@ -100,6 +100,54 @@ class ChessboardVisionTests(unittest.TestCase):
         wrong_size=analyze_image(cv2.imencode(".png",occluded)[1].tobytes(),
                                  square_mm=24,reference=resized_ref)
         self.assertFalse(wrong_size["checkerboard"]["detected"])
+
+    def test_empty_board_first_then_yellow_ball_inside_no_recalibration(self):
+        # Regression: first scan has NO yellow ball. Next scan has a yellow
+        # ball blocking central corners. Both use the original saved XY corners.
+        base = cv2.imdecode(np.frombuffer(self.photo,dtype=np.uint8),cv2.IMREAD_COLOR)
+        cv2.rectangle(base,(1010,620),(1090,700),(240,240,240),-1)
+        clear_png=cv2.imencode(".png",base)[1].tobytes()
+        baseline=analyze_image(clear_png,square_mm=24)
+        stored={
+            "square_mm":24,
+            "image_size":[1280,960],
+            "corners_px":baseline["checkerboard"]["corners_px"],
+        }
+        reference,receipt=confirm_empty_board(clear_png,24,stored)
+        self.assertTrue(receipt["confirmed"])
+        self.assertEqual(receipt["corners_count"],54)
+        occupied=base.copy()
+        cv2.circle(occupied,(530,354),35,(0,230,255),-1)
+        occupied_png=cv2.imencode(".png",occupied)[1].tobytes()
+        visible=analyze_image(occupied_png,square_mm=24,reference=reference)
+        self.assertEqual(visible["checkerboard"]["source"],"empty_board_frame_verified")
+        self.assertTrue(visible["ball"]["detected"])
+        self.assertTrue(visible["ball"]["inside_inner_board"])
+        self.assertIn("board_mm_xy",visible["ball"])
+        self.assertGreaterEqual(visible["checkerboard"]["visible_match_count"],24)
+        # Reference source is read-only; it is the exact original stored map.
+        self.assertEqual(reference["corners_px"],stored["corners_px"])
+
+    def test_empty_board_confirmation_rejects_camera_motion(self):
+        base=cv2.imdecode(np.frombuffer(self.photo,dtype=np.uint8),cv2.IMREAD_COLOR)
+        cv2.rectangle(base,(1010,620),(1090,700),(240,240,240),-1)
+        raw=cv2.imencode(".png",base)[1].tobytes()
+        original=analyze_image(raw,square_mm=24)
+        stored={
+            "square_mm":24,
+            "image_size":[1280,960],
+            "corners_px":original["checkerboard"]["corners_px"],
+        }
+        broken={**stored,"corners_px":[[x+22,y+17] for x,y in stored["corners_px"]]}
+        with self.assertRaisesRegex(VisionError,"当前棋盘与已保存标定不一致"):
+            confirm_empty_board(raw,24,broken)
+        reference,_=confirm_empty_board(raw,24,stored)
+        moved=cv2.warpAffine(base,np.float32([[1,0,25],[0,1,20]]),(1280,960))
+        cv2.circle(moved,(555,374),35,(0,230,255),-1)
+        moved_result=analyze_image(cv2.imencode(".png",moved)[1].tobytes(),
+                                   square_mm=24,reference=reference)
+        self.assertFalse(moved_result["checkerboard"]["detected"])
+        self.assertNotIn("board_mm_xy",moved_result["ball"])
 
     def test_bad_image_refused(self):
         with self.assertRaises(VisionError):
