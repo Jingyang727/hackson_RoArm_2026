@@ -47,7 +47,7 @@ class NavigationAndTeachUxTests(unittest.TestCase):
         end=html.index('$("joint").onchange',start)
         capture=html[start:end]
         self.assertIn("btn.disabled=busy;",capture)
-        self.assertRegex(capture,r'finally\\{\\s*busy=false;[\\s\\S]*?renderPoses\\(\\);renderState\\(\\);')
+        self.assertRegex(capture,r'finally\{\s*busy=false;[\s\S]*?renderPoses\(\);renderState\(\);')
 
     def test_fast_teach_light_theme_has_explicit_readable_text_contrast(self):
         html=(ROOT/"fast_teach.html").read_text(encoding="utf-8")
