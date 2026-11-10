@@ -347,9 +347,9 @@ def save_pick_profile(profile):
         pass
     radius=math.hypot(*valid["place_xy_mm"])
     warning=(
-        f"放置点水平距离基座 {radius:.1f}mm，已超过当前受控工作区最大 370mm。"
-        "示教参数已保存，但轨迹预览会拒绝此放置位置；"
-        "请重新确认物理可达性并将放置点选在已验证区域内"
+        f"放置点距基座的水平半径 {radius:.1f}mm，超过程序此前自定的370mm试验阈值"
+        "（这不是厂商官方工作区边界）。示教参数已保存、允许查看只读轨迹预览，"
+        "但实际XYZ轨迹在该姿态下还未通过逆运动学与避障验证，禁止自动执行"
         if radius>370 or radius<70 else None
     )
     return {"saved":True,"path":str(path),"profile":valid,
