@@ -506,6 +506,9 @@ class ArmService:
         with self.lock:
             if not self.fault:
                 raise UnsafeMotion("没有需要恢复的动作异常")
+            # Fail closed on EVERY recovery attempt, including a rejected one.
+            # A fault may be raised while a prior 120s authorization remains.
+            self.armed_until = 0
             if not self.arm:
                 raise UnsafeMotion("请先检查串口连接")
             if declaration != "已检查机械臂静止且运动区域安全":
