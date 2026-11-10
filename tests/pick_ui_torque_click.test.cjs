@@ -8,7 +8,7 @@ const vm=require("node:vm");
 class FakeElement{
   constructor(id){
     this.id=id;this.style={};this.disabled=false;this.hidden=id==="pickTorquePrompt";
-    this.checked=false;this.textContent="";this.value="";this.dataset={};
+    this.checked=false;this.textContent="";this.value=id==="square"?"24":"";this.dataset={};
     this.videoWidth=1920;this.videoHeight=1080;this.children=[];
     this.classList={toggle(){},add(){},remove(){}};
   }
