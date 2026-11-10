@@ -214,7 +214,9 @@ $("save").onclick=()=>act(async()=>{
  const result=await api("/api/pick/profile","POST",{...profile,ball_diameter_mm:diameter});
  saved=Boolean(result.saved);hasPreview=false;
  $("pickSaveState").textContent="完整示教参数已保存："+result.path;
- say("teachInfo","已保存示教参数，可以生成轨迹预览。不会自动运动。");
+ say("teachInfo","已保存示教参数。"+(
+   result.warnings?.length?"\n预览前需要注意："+result.warnings.join("\n"):
+   "可以生成抓放轨迹预览；这不会自动运动。"));
 });
 $("preview").onclick=()=>act(async()=>{
  if(!latestBall?.board_mm_xy)throw Error("请重新识别黄色球");
