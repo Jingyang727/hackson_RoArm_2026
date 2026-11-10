@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import math
 import threading
+import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -176,8 +177,21 @@ async def confirm_board(request: Request, square_mm: float):
     with _board_reference_lock:
         _confirmed_empty_board=None  # a failed reconfirm must not keep stale evidence
     saved=_saved_visual_reference()
+    raw = await request.body()
+    if not raw or len(raw) > 12_000_000:
+        raise HTTPException(status_code=413, detail="确认棋盘图片为空或超过12MB")
     try:
-        ref,response=confirm_empty_board(await request.body(),square_mm,saved)
+        # OpenCV is synchronous C++ and can stall the async event loop.
+        # Run it off-thread with an absolute request deadline.
+        ref, response = await asyncio.wait_for(
+            asyncio.to_thread(confirm_empty_board, raw, square_mm, saved),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="棋盘识别超过8秒，已结束本次等待。请检查摄像头清晰度、棋盘是否完整入镜；旧的XY五点标定不会丢失",
+        ) from exc
     except (VisionError,ValueError,TypeError) as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
     with _board_reference_lock:
@@ -218,7 +232,15 @@ async def vision_analyze(request: Request, square_mm: float | None = None, use_r
         except HTTPException:
             reference=None
     try:
-        return analyze_image(raw, square_mm=square_mm, reference=reference)
+        return await asyncio.wait_for(
+            asyncio.to_thread(analyze_image, raw, square_mm, reference),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="画面识别超过8秒，已结束本次等待。可以重新尝试取图，不会影响已经保存的XY标定",
+        ) from exc
     except VisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
