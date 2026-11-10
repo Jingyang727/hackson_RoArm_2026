@@ -251,8 +251,16 @@ def plan_pick_place(ball_board_mm, profile, calibration_data, *,
                 )
             preview_warnings.append(warning + "，仅允许查看预览，不允许创建真机执行会话")
 
-    if float(np.linalg.norm(ball_xy - place_xy)) > 280:
-        raise PickPlanningError("放置点与抓取点跨度太大，请重新选择较近的安全放置位置")
+    span = float(np.linalg.norm(ball_xy - place_xy))
+    if span > 280:
+        message = (
+            f"从抓取点到放置点的平面跨度为 {span:.1f}mm，超过程序此前"
+            "自定的280mm试验阈值（不是厂商规定）。分段轨迹可仅供查看，"
+            "该完整路径的碰撞与姿态可达性未验证"
+        )
+        if not preview_only:
+            raise PickPlanningError(message + "，暂不允许真实机械臂执行")
+        preview_warnings.append(message + "；禁止真机执行")
     # Multi-waypoint travel at manually taught elevated Z; each XY hop bounded.
     pitch=profile["pitch_rad"]; roll=profile["roll_rad"]
     open_g=profile["open_g_rad"]; closed_g=profile["close_g_rad"]
