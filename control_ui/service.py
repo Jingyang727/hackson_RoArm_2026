@@ -15,7 +15,7 @@ from .safety import (
     current_degrees, checked_home_pose, plan_single_step, plan_gripper_step, plan_home_step,
 )
 
-SESSION_SECONDS = 120
+SESSION_SECONDS = 300
 MIN_GAP_SECONDS = 0.8
 ARRIVAL_TOLERANCE = 2.0
 # These are *classification heuristics*, not new servo commands or safety
@@ -367,7 +367,7 @@ class ArmService:
             }
 
     def unlock_once(self, declaration):
-        # API name kept for backward compatibility; unlock lasts 2 minutes.
+        # API name kept for backward compatibility; unlock lasts 5 minutes (manual, never auto-renewed).
         with self.lock:
             self.armed_until = 0
             if not self.motion_enabled:
