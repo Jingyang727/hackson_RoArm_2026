@@ -37,13 +37,19 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
             "robot_connected":True,"armed":h.get("armed"),
             "torque_status":h.get("torque_status"),
             "robot_xyz":[s.get(k) for k in "xyz"],
-            "note":"A full grasp starts from live Home matching saved Home XYZ and needs a fresh Gemini-qualified ball; no empty-board recapture",
+            "note":"A full grasp starts from live OFFICIAL factory joint pose (not old taught Home XYZ), with fresh Gemini ball; no empty-board recapture",
             "robot_moved":False,
         }
     if not consent:
         raise RuntimeError("operator must explicitly approve this full attempt")
     if not h.get("armed") or h.get("torque_status")!=[1]*6:
         raise RuntimeError("manual lease and six real locked torques required")
+    # The human already typed RUN. Attach a ONE-SESSION RSI capability
+    # to the existing manual motor lease, without stopping the serial
+    # service and losing the 30-minute unlock.
+    _controller_post(base,"/api/rsi/grasp/enable-once",{
+        "declaration":"已在现场确认本次RSI抓取、运动范围和可断电"
+    })
     home=Path(camera_home) if camera_home else Path.home()
     cam=client_request(home,"GET","/health")
     if cam.get("camera_service")!="ready" or cam.get("robot_control") is not False:
@@ -229,7 +235,7 @@ def main(argv=None):
     a=p.parse_args(argv)
     if a.execute:
         answer=input(
-            "现场确认机械臂处于已示教Home附近，黄球在当前Gemini位置，"
+            "现场确认机械臂处于官方初始姿态（经现有归位UI及反馈检查），黄球在当前Gemini位置，"
             "区域清空并可随时断电。输入 RUN 执行一次完整抓取/提升："
         )
         if answer.strip()!="RUN":
