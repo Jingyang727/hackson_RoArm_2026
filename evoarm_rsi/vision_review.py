@@ -137,6 +137,31 @@ def describe_evidence(trial_dir):
     return info
 
 
+def _parse_review_content(content):
+    """Parse a single final review JSON object; ignore reasoning_content."""
+    if isinstance(content,list):
+        content="".join(part.get("text","") for part in content
+                        if isinstance(part,dict) and part.get("type")=="text")
+    if not isinstance(content,str):
+        raise ValueError("company vision final content must be text")
+    decoder=json.JSONDecoder()
+    candidates=[]
+    for index,char in enumerate(content):
+        if char!="{":
+            continue
+        try:
+            value,_=decoder.raw_decode(content[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value,dict) and (
+            "observed_outcome" in value and "failure_type" in value
+        ):
+            candidates.append(value)
+    if len(candidates)!=1:
+        raise ValueError("company vision must return exactly one review JSON")
+    return candidates[0]
+
+
 def _validate_review(value, *, motion_recorded, grasp_attempted=True):
     if not isinstance(value,dict):
         raise ValueError("model review must be a JSON object")
@@ -259,14 +284,7 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
     if len(raw)>MAX_RESPONSE_BYTES:
         raise RuntimeError("company vision response too large")
     answer=json.loads(raw.decode("utf-8"))["choices"][0]["message"]["content"]
-    if not isinstance(answer,str):
-        raise ValueError("company vision final answer is not text JSON")
-    # May include JSON markdown fences; strip only a single enclosing fence.
-    answer=answer.strip()
-    if answer.startswith("```"):
-        lines=answer.splitlines()
-        answer="\n".join(lines[1:-1]).strip()
-    reviewed=_validate_review(json.loads(answer),
+    reviewed=_validate_review(_parse_review_content(answer),
                              motion_recorded=evidence["robot_motion_executed"],
                              grasp_attempted=evidence.get("grasp_attempted",False))
     reviewed.update({
