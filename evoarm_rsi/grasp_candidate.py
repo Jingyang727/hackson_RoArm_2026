@@ -82,10 +82,14 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         if not isinstance(start_status,dict):
             raise GraspCandidateError("live T=1051 starting status is required")
         current=[start_status.get(k) for k in "xyz"]
-        hp,hr=start_status.get("tit"),start_status.get("r")
+        hp,hr,initial_gripper=(
+            start_status.get("tit"),start_status.get("r"),start_status.get("g")
+        )
         if any(type(v) not in (float,int) or not math.isfinite(v)
-               for v in (*current,hp,hr,home_pitch,home_roll)):
-            raise GraspCandidateError("invalid real Home XYZ/Pitch/Roll feedback")
+               for v in (*current,hp,hr,home_pitch,home_roll,initial_gripper)):
+            raise GraspCandidateError("invalid real XYZ/Pitch/Roll/Gripper feedback")
+        if not 1.08<=initial_gripper<=3.14:
+            raise GraspCandidateError("live gripper angle outside hardware range")
         # Home is a REFERENCE taught earlier, not a mandatory return
         # target. Do not reject today's real parked pose merely because
         # J1/J2 gravity offset shifted Z by ~21mm.
@@ -113,9 +117,9 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
             transit.append({
                 "stage":"current_high_align","kind":"cartesian",
                 "xyz_mm":[round(x,2),round(y,2),round(current[2],2)],
-                "t":round(hp,5),"r":round(hr,5),"g":round(open_g,5),
+                "t":round(hp,5),"r":round(hr,5),"g":round(initial_gripper,5),
                 "spd":0.08,
-                "reason":"从当前实测高位小步对齐球的XY；须确认这段空间无遮挡",
+                "reason":"保持夹爪当前角度，先仅进行高位XY对齐；须确认空间无遮挡",
                 "requires_operator_confirm":True,
             })
         dz=current[2]-hover[2]
@@ -134,8 +138,8 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
                           round(current[2]-dz*alpha,2)],
                 "t":round(hp+(pitch_h-hp)*alpha,5),
                 "r":round(hr+roll_short*alpha,5),
-                "g":round(open_g,5),"spd":0.08,
-                "reason":"从当前实测高位沿球上方竖直走廊逐段接近Hover",
+                "g":round(initial_gripper,5),"spd":0.08,
+                "reason":"保持夹爪当前角度，从实测高位沿球上方竖直走廊接近Hover",
                 "requires_operator_confirm":True,
             })
 
