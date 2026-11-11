@@ -37,7 +37,8 @@ def run_micro_loop(*, iterations=1, initial_direction=1, degrees=5, execute=Fals
     results=[]
     for step in range(iterations):
         physical=run_real_probe(
-            controller=controller,direction=direction,degrees=degrees,execute=True
+            controller=controller,direction=direction,degrees=degrees,
+            execute=True,return_on_failure=True
         )
         trial=physical["camera_capture"].get("folder")
         if not trial:
@@ -51,10 +52,15 @@ def run_micro_loop(*, iterations=1, initial_direction=1, degrees=5, execute=Fals
             "direction":direction,
             "degrees":degrees,
             "motion_confirmed":physical["reverse_confirmed"],
+            "trial_failed":bool(physical.get("motion_error")),
+            "motion_error":physical.get("motion_error"),
             "vision_review":review,
             "review_file":str(out),
         })
-        if not physical["reverse_confirmed"]:
+        # A controller fault is evidence for learning, NEVER approval for
+        # another movement. Model analysis is allowed after a failed trial;
+        # physical retries are blocked until the operator clears the fault.
+        if physical.get("motion_error") or not physical["reverse_confirmed"]:
             break
         proposed=review.get("next_probe_direction")
         if proposed not in (-1,1):
