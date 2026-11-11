@@ -92,13 +92,13 @@ def describe_evidence(trial_dir):
         Path.home()/".evoarm"/"rsi"/"analysis"/str(manifest.get("trial_id"))/"physical_probe.json",
         None
     )
-    linked_real_motion=bool(
+    linked_probe=bool(
         isinstance(physical_probe,dict) and
         physical_probe.get("kind")=="physical_single_joint_probe" and
-        physical_probe.get("robot_moved") is True and
-        isinstance(physical_probe.get("controller_feedback"),list) and
-        any(row.get("kind")=="move_command"
-            for row in physical_probe["controller_feedback"])
+        isinstance(physical_probe.get("controller_feedback"),list)
+    )
+    linked_real_motion=bool(
+        linked_probe and physical_probe.get("robot_motion_confirmed") is True
     )
     info={
         "trial_id":manifest.get("trial_id"),
@@ -107,11 +107,14 @@ def describe_evidence(trial_dir):
         "robot_motion_executed":bool(manifest.get("robot_motion_executed",False)) or linked_real_motion,
         "grasp_attempted":bool(manifest.get("grasp_attempted",False)),
         "linked_physical_probe":(
-            {"robot_moved":physical_probe["robot_moved"],
-             "reverse_confirmed":physical_probe["reverse_confirmed"],
+            {"robot_moved":physical_probe.get("robot_moved",False),
+             "command_attempted":physical_probe.get("command_attempted",False),
+             "command_acknowledged":physical_probe.get("command_acknowledged",False),
+             "requested_step_deg":physical_probe.get("requested_step_deg"),
+             "reverse_confirmed":physical_probe.get("reverse_confirmed",False),
              "motion_error":physical_probe.get("motion_error"),
              "controller_feedback":physical_probe.get("controller_feedback",[])}
-            if linked_real_motion else None
+            if linked_probe else None
         ),
         "robot_feedback_recorded":bool(manifest.get("robot_feedback_recorded",False)),
         "robot_feedback_samples":sum(1 for row in trajectory.open(encoding="utf-8")
