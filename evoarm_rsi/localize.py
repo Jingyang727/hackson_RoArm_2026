@@ -39,7 +39,7 @@ def unproject_depth(u, v, depth_mm, intrinsics):
 
 
 def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
-                       max_depth_age_ms=180.0):
+                       max_depth_age_ms=180.0, output_file=None):
     import cv2
     from control_ui.vision import find_chessboard, find_yellow_ball
 
@@ -195,10 +195,18 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
         report["warnings"].append(
             "No reliable depth inside detected ball; check alignment and occlusion"
         )
-    # Persist an explicit read-only report rather than replacing raw evidence.
-    out = folder/"rgbd_localization.json"
+    # Source recordings can be root-owned after macOS UVC privileged capture.
+    # Never require write access to raw evidence to read/analyze it.
+    # Default reports go to a user-writable analysis directory outside the
+    # trial's raw directory; optional --output allows user-controlled paths.
+    if output_file is None:
+        out = Path.home()/".evoarm"/"rsi"/"analysis"/str(manifest.get("trial_id") or folder.name)/"rgbd_localization.json"
+    else:
+        out = Path(output_file).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report,ensure_ascii=False,indent=2,allow_nan=False),
                    encoding="utf-8")
+    report["analysis_output_file"] = str(out)
     return report
 
 
@@ -206,11 +214,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Offline Gemini RGB-D object localization; NO MOTOR COMMANDS")
     parser.add_argument("folder")
     parser.add_argument("--intrinsics", default=None)
+    parser.add_argument("--output", default=None,
+                        help="write analysis JSON here (default ~/.evoarm/rsi/analysis/<trial_id>/)")
     parser.add_argument("--square-mm",type=float,default=24.0)
     parser.add_argument("--max-depth-age-ms",type=float,default=180.0)
     args = parser.parse_args(argv)
     report = locate_saved_trial(args.folder,intrinsics_file=args.intrinsics,
-                                square_mm=args.square_mm,max_depth_age_ms=args.max_depth_age_ms)
+                                square_mm=args.square_mm,max_depth_age_ms=args.max_depth_age_ms,
+                                output_file=args.output)
     print(json.dumps({
         k:v for k,v in report.items() if k!="observations"
     },ensure_ascii=False,indent=2))
