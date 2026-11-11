@@ -41,14 +41,37 @@ def _controller_get(base,endpoint):
         return json.loads(response.read(256*1024).decode("utf-8"))
 
 
+def _controller_post(base, endpoint, payload):
+    req=request.Request(
+        base+endpoint,method="POST",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type":"application/json"}
+    )
+    try:
+        with request.urlopen(req,timeout=12) as response:
+            return json.loads(response.read(256*1024).decode("utf-8"))
+    except error.HTTPError as exc:
+        # FastAPI maps *every* UnsafeMotion to HTTP 409. Preserve the
+        # authoritative response detail, never infer the cause from 409.
+        detail="no controller detail"
+        try:
+            body=json.loads(exc.read(16*1024).decode("utf-8"))
+            detail=str(body.get("detail", detail))[:600]
+        except (ValueError,UnicodeError,AttributeError):
+            pass
+        raise RuntimeError(
+            f"controller {endpoint} HTTP {exc.code}: {detail}"
+        ) from exc
+
+
 def _controller_step(base,joint,delta):
-    payload=json.dumps({"joint":joint,"delta":delta}).encode("utf-8")
-    req=request.Request(base+"/api/step",method="POST",data=payload,
-                        headers={"Content-Type":"application/json"})
-    with request.urlopen(req,timeout=12) as response:
-        if response.status!=200:
-            raise RuntimeError("robot controller rejected jog")
-        return json.loads(response.read(256*1024).decode("utf-8"))
+    return _controller_post(base,"/api/step",{"joint":joint,"delta":delta})
+
+
+def _controller_absolute(base,joint,target):
+    return _controller_post(
+        base,"/api/teach/move",{"joint":joint,"target_deg":target}
+    )
 
 
 def _degrees(status):
@@ -91,18 +114,24 @@ def _ready(health,status,home):
     return differences
 
 
-def _wait_settled(base, *, start_deg, expected_delta_deg, timeout_s=10):
+def _wait_settled(base, *, start_deg, expected_delta_deg,
+                  history=None, timeout_s=10):
     until=time.monotonic()+timeout_s
     seen=[]
     while time.monotonic()<until:
         status=_controller_get(base,"/api/status")
         health=_controller_get(base,"/api/health")
-        seen.append({
+        sample={
+            "kind":"feedback_sample",
             "host_monotonic_ns":time.monotonic_ns(),
             "robot_status":status,
             "pending":health.get("pending"),
             "fault":health.get("fault"),
-        })
+            "last_command":health.get("last_command"),
+        }
+        seen.append(sample)
+        if history is not None:
+            history.append(sample)
         if health.get("fault"):
             raise RuntimeError("robot reported fault; no automatic reversal")
         if not health.get("pending"):
@@ -122,6 +151,14 @@ def _wait_settled(base, *, start_deg, expected_delta_deg, timeout_s=10):
                 raise RuntimeError(
                     f"J1 moved {displacement:+.2f}° but needed at least "
                     f"{required:.2f}° in commanded direction"
+                )
+            target=start_deg+expected_delta_deg
+            residual=target-actual
+            if abs(residual)>0.75:
+                raise RuntimeError(
+                    f"partial_motion: J1 requested {expected_delta_deg:+.2f}°, "
+                    f"actual {displacement:+.2f}°, residual {residual:+.2f}°; "
+                    "no automatic reverse"
                 )
             return seen
         time.sleep(0.25)
@@ -188,6 +225,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
               "status":status}]
     moved=False
     confirmed_forward=False
+    before_deg=None
     command_attempted=False
     reverse_attempted=False
     reverse_confirmed=False
@@ -208,9 +246,10 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         moved=True
         history.append({"kind":"move_command","host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"delta_deg":direction*degrees,"controller_ack":command})
-        history.extend(_wait_settled(
-            base,start_deg=before_deg,expected_delta_deg=direction*degrees
-        ))
+        _wait_settled(
+            base,start_deg=before_deg,expected_delta_deg=direction*degrees,
+            history=history
+        )
         confirmed_forward=True
         history.append({"kind":"forward_motion_confirmed",
                         "host_monotonic_ns":time.monotonic_ns(),
@@ -221,17 +260,39 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         if (fresh_health.get("fault") or fresh_health.get("pending") or
                 fresh_health.get("torque_status") != [1]*6):
             raise RuntimeError("post-jog unsafe state; no automatic reversal")
+        # The prior implementation blindly requested -5° after a +5°
+        # command even if the forward motion ended short. That would overshoot
+        # the actual starting pose. Only return to the measured starting angle.
+        reverse_start=_degrees(_controller_get(base,"/api/status"))[1]
+        correction=before_deg-reverse_start
+        if not 0.5<=abs(correction)<=10.0:
+            raise RuntimeError(
+                f"cannot safely return to start: correction {correction:+.2f}°"
+            )
+        # Do not let the normal controller's 0.8s inter-command guard
+        # cause spurious HTTP 409 when it can be avoided. Re-check actual
+        # controller state immediately before the second command.
+        time.sleep(1.0)
+        state=_controller_get(base,"/api/status")
+        health=_controller_get(base,"/api/health")
+        if health.get("fault") or health.get("pending") or not health.get("armed"):
+            raise RuntimeError("controller not ready for measured absolute return")
+        latest=_degrees(state)[1]
+        if abs(latest-reverse_start)>0.5:
+            raise RuntimeError("J1 moved during return preparation; stop")
         reverse_attempted=True
         history.append({"kind":"reverse_request_attempted",
                         "host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":-direction*degrees})
-        reverse_start=_degrees(_controller_get(base,"/api/status"))[1]
-        reverse_ack=_controller_step(base,1,-direction*degrees)
+                        "joint":1,"target_deg":before_deg,
+                        "measured_delta_deg":before_deg-latest})
+        reverse_ack=_controller_absolute(base,1,round(before_deg,2))
         history.append({"kind":"reverse_command","host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":-direction*degrees,"controller_ack":reverse_ack})
-        history.extend(_wait_settled(
-            base,start_deg=reverse_start,expected_delta_deg=-direction*degrees
-        ))
+                        "joint":1,"target_deg":before_deg,
+                        "controller_ack":reverse_ack})
+        _wait_settled(
+            base,start_deg=latest,expected_delta_deg=before_deg-latest,
+            history=history
+        )
         reverse_confirmed=True
     except Exception as exc:
         failure=type(exc).__name__+": "+str(exc)
@@ -244,6 +305,13 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     result={
         "kind":"physical_single_joint_probe",
         "requested_step_deg":direction*degrees,
+        "start_j1_deg":round(before_deg,3) if before_deg is not None else None,
+        "measured_forward_delta_deg":(
+            round(_degrees(next(v["robot_status"] for v in reversed(history)
+                                if v.get("kind")=="feedback_sample"))[1]-before_deg,3)
+            if before_deg is not None and any(
+                v.get("kind")=="feedback_sample" for v in history) else None
+        ),
         "command_attempted":command_attempted,
         "command_acknowledged":moved,
         "robot_moved":confirmed_forward,
