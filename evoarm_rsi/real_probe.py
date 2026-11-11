@@ -205,7 +205,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         command=_controller_step(base,1,direction*degrees)
         moved=True
         history.append({"kind":"move_command","host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":direction,"controller_ack":command})
+                        "joint":1,"delta_deg":direction*degrees,"controller_ack":command})
         history.extend(_wait_settled(
             base,start_deg=before_deg,expected_delta_deg=direction*degrees
         ))
@@ -222,7 +222,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         reverse_start=_degrees(_controller_get(base,"/api/status"))[1]
         reverse_ack=_controller_step(base,1,-direction*degrees)
         history.append({"kind":"reverse_command","host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":-direction,"controller_ack":reverse_ack})
+                        "joint":1,"delta_deg":-direction*degrees,"controller_ack":reverse_ack})
         history.extend(_wait_settled(
             base,start_deg=reverse_start,expected_delta_deg=-direction*degrees
         ))
@@ -240,7 +240,11 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         "requested_step_deg":direction*degrees,
         "command_attempted":command_attempted,
         "command_acknowledged":moved,
-        "robot_moved":moved,
+        "robot_moved":reverse_confirmed or (
+            moved and any(row.get("kind")=="move_command" for row in history)
+            and not failure
+        ),
+        "robot_motion_confirmed":reverse_confirmed,
         "motion_may_have_occurred":command_attempted,
         "reverse_attempted":reverse_attempted,
         "reverse_confirmed":reverse_confirmed,
