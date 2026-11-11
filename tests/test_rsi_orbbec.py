@@ -87,6 +87,21 @@ class GeminiWarmupTests(unittest.TestCase):
         self.assertEqual(int(frame.depth_mm[0, 0]), 100)
         self.assertEqual(frame.camera_name, "orbbec_gemini_335l")
 
+    def test_sdk_never_returns_any_frame_reports_stream_stall(self):
+        provider = Gemini335LProvider(warmup_timeout_s=0.01)
+        provider.pipeline = FakePipeline([None] * 250)
+        with self.assertRaisesRegex(RuntimeError, "stream stalled: received NO frames"):
+            provider.read()
+        self.assertGreater(provider.pipeline.calls, 0)
+        self.assertLessEqual(provider.pipeline.calls, 240)
+
+    def test_some_rgbd_frames_but_no_alignment_reports_alignment_failure(self):
+        provider = Gemini335LProvider(warmup_timeout_s=0.01)
+        provider.pipeline = FakePipeline([Frames()] * 250)
+        provider.aligner = FakeAligner([None] * 250)
+        with self.assertRaisesRegex(RuntimeError, "incomplete/alignment frames"):
+            provider.read()
+
     def test_repeated_empty_alignment_fails_with_bounded_error(self):
         camera = Gemini335LProvider(warmup_timeout_s=0.01)
         camera.pipeline = FakePipeline([Frames()] * 260)
