@@ -506,6 +506,19 @@ def rsi_grasp_start(req: RSIGraspStart):
     return invoke(executor.start_rsi_grasp, req.trial_id, service, req.declaration)
 
 
+class RSIStallRecovery(BaseModel):
+    session_id: str
+
+
+@app.post("/api/rsi/grasp/recover-stall")
+def rsi_grasp_recover_stall(req: RSIStallRecovery):
+    """Automatically clear ONLY a stable, same-session RSI Cartesian fault.
+
+    No motor command, torque change, rearm or continuation is performed.
+    """
+    return invoke(executor.recover_rsi_stall, req.session_id, service)
+
+
 @app.get("/api/pick/execution")
 def pick_execution_status():
     return executor.state(service)
