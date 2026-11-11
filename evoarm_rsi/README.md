@@ -286,6 +286,33 @@ Independent geometric review of this trial reconstructed 93 neighboring
 the printed 24mm grid pitch. This supports the SDK color intrinsics and
 depth scale locally, **but does not verify a camera→robot 3D transform**.
 
+## Next step: read-only grasp preflight using Trial 003.1
+
+The complete captured trial includes `robot_xy_calibration.json` and
+`pick_poses_v2.json` snapshots in its exported ZIP. Existing local paths
+are used by default, so do not copy them into the live calibration files if
+your newer values differ.
+
+```bash
+python -m unittest tests.test_rsi_qualify tests.test_rsi_grasp_preflight -v
+TRIAL=~/.evoarm/rsi/experiments/bca3c4c1d5c449368a2e149f39b8479f
+python -m evoarm_rsi.qualify "$TRIAL"
+python -m evoarm_rsi.grasp_preflight "$TRIAL"
+```
+
+The preflight compares measured ball-to-board XY, the saved validated 2D
+board-to-RoArm fit (held-out V1 error 3.94mm) and the recorded six
+teach poses. In this trial, the preview ball point was approximately
+(360.676, -11.034)mm and the saved grasp pose (361.050, -1.108)mm,
+i.e. **9.933mm apart in XY**. The output does NOT provide any
+grasp-Z, motion command, collision-free path, or permission to move.
+
+Before hardware movement, verify the original board's physical origin and
+axis orientation against the current Gemini view, and establish real TCP/
+grasp height relative to the *robot* coordinate frame. The previous XY
+validation is a measurement of the saved planar model, not proof that
+the board did not move after it was originally measured.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
