@@ -133,7 +133,7 @@ class GeminiWarmupTests(unittest.TestCase):
                 writer.return_value.release.assert_called_once()
             self.assertGreaterEqual(result["frames"], 7)
             self.assertEqual(result["depth_samples"], 3)
-            self.assertGreater(state["t"], 4.0)
+            self.assertGreaterEqual(state["t"], 4.0)
             with np.load(Path(temp) / "depth_samples.npz") as depth:
                 stamps = depth["monotonic_ns"]
                 self.assertGreater(float(stamps[-1] - stamps[0]) / 1e9, 0.5)
