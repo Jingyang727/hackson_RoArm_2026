@@ -25,11 +25,25 @@ def summarize_grasp_step(step):
     target=step.get("target_xyz_mm")
     trace=[s for s in step.get("feedback_trace",[]) if isinstance(s,dict)]
     usable=[s for s in trace if all(_finite(s.get(k)) for k in XYZ)]
+    ack=step.get("ack") or {}
+    command=ack.get("command") if isinstance(ack,dict) else None
+    command=command if isinstance(command,dict) else None
     out={"stage":step.get("stage"),"sample_count":len(trace),
          "valid_xyz_samples":len(usable),"reached_target":None,
          "observed_fault":step.get("fault_snapshot"),
          "action_confirmed":bool(step.get("feedback_confirmed",False)),
-         "motor_commands_sent":None}
+         "motor_commands_sent":bool(ack.get("sent")) if isinstance(ack,dict)
+                               and "sent" in ack else None,
+         "actual_sent_motor_payload":command,
+         "command_vs_stage_target":(
+             {"x":command.get("x"),"y":command.get("y"),
+              "z":command.get("z"),"t":command.get("t"),
+              "r":command.get("r"),"g":command.get("g"),
+              "spd":command.get("spd")}
+             if command and command.get("T") in (104,1041) else None
+         ),
+         "warning":"A T104 instruction includes XYZ, pitch, roll AND gripper; "
+                   "a failed move is NOT a gripper attempt."}
     if not isinstance(target,list) or len(target)!=3 or not all(
         _finite(v) for v in target
     ):
