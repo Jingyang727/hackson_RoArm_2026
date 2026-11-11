@@ -16,7 +16,7 @@ from tests.test_rsi_grasp_candidate import POSES,Q
 class FakeArm:
     def __init__(self):
         self.commands=[]
-        self.xyz=[362.171,-1.111,-34.895]
+        self.xyz=[360.339,-4.975,182.572]
     def status(self,timeout=None):
         return {
             "T":1051,"x":self.xyz[0],"y":self.xyz[1],"z":self.xyz[2],
@@ -62,7 +62,7 @@ class RSIV2BridgeTests(unittest.TestCase):
                 "已检查当前Gemini黄球位置、夹爪高度和运动区域"
             )
             self.assertGreaterEqual(session["total"],8)
-            self.assertEqual(session["next_step"]["stage"],"hover_ball")
+            self.assertEqual(session["next_step"]["stage"],"home_high_align")
             self.assertEqual(self.arm.commands,[])
             # This endpoint never automatically sends the full grasp.
             self.assertFalse(session["auto_execute"])
@@ -82,7 +82,7 @@ class RSIV2BridgeTests(unittest.TestCase):
             first=self.executor.step(
                 token,0,"已批准一次RSI抓取试次自动分段执行",self.service
             )
-            self.assertEqual(first["stage"],"hover_ball")
+            self.assertEqual(first["stage"],"home_high_align")
             self.assertEqual(len(self.arm.commands),1)
             with self.assertRaises(PickExecutionError):
                 self.executor.step(
@@ -129,12 +129,12 @@ class RSIV2BridgeTests(unittest.TestCase):
                 )
         self.assertEqual(self.arm.commands,[])
 
-    def test_must_be_near_recorded_hover_or_no_motion(self):
-        self.arm.xyz=[360,-5,182]
+    def test_not_at_measured_home_no_motion(self):
+        self.arm.xyz=[360,-5,100]
         with (patch("pathlib.Path.home",return_value=self.home),
               patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"1",
                  "EVOARM_ENABLE_MOTION":"1","EVOARM_ENABLE_RSI_GRASP":"1"})):
-            with self.assertRaisesRegex(PickExecutionError,"taught safe Hover"):
+            with self.assertRaisesRegex(ValueError,"does not match taught Home"):
                 self.executor.start_rsi_grasp(
                     self.trial,self.service,
                     "已检查当前Gemini黄球位置、夹爪高度和运动区域"
