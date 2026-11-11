@@ -155,6 +155,8 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     history=[{"kind":"pre_move","host_monotonic_ns":time.monotonic_ns(),
               "status":status}]
     moved=False
+    command_attempted=False
+    reverse_attempted=False
     reverse_confirmed=False
     failure=None
     try:
@@ -162,6 +164,12 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         fresh_health=_controller_get(base,"/api/health")
         fresh_status=_controller_get(base,"/api/status")
         _ready(fresh_health,fresh_status,saved)
+        # HTTP timeout AFTER a POST may mean the controller ACTED but the
+        # response was lost. Mark the attempt BEFORE sending the request.
+        command_attempted=True
+        history.append({"kind":"move_request_attempted",
+                        "host_monotonic_ns":time.monotonic_ns(),
+                        "joint":1,"delta_deg":direction})
         command=_controller_step(base,1,direction)
         moved=True
         history.append({"kind":"move_command","host_monotonic_ns":time.monotonic_ns(),
@@ -173,6 +181,10 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         if (fresh_health.get("fault") or fresh_health.get("pending") or
                 fresh_health.get("torque_status") != [1]*6):
             raise RuntimeError("post-jog unsafe state; no automatic reversal")
+        reverse_attempted=True
+        history.append({"kind":"reverse_request_attempted",
+                        "host_monotonic_ns":time.monotonic_ns(),
+                        "joint":1,"delta_deg":-direction})
         reverse_ack=_controller_step(base,1,-direction)
         history.append({"kind":"reverse_command","host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"delta_deg":-direction,"controller_ack":reverse_ack})
@@ -182,18 +194,20 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         failure=type(exc).__name__+": "+str(exc)
     finally:
         thread.join(timeout=20)
-    if capture_errors:
-        raise RuntimeError(
-            "camera capture failed; check camera service logs; "
-            f"robot_moved={moved}; reverse_confirmed={reverse_confirmed}"
-        )
-    if thread.is_alive():
-        raise RuntimeError("camera capture thread stalled; inspect service")
+    if capture_errors and not failure:
+        failure="camera_capture_error: "+",".join(capture_errors)
+    if thread.is_alive() and not failure:
+        failure="camera_capture_thread_stalled"
     result={
         "kind":"physical_single_joint_probe",
+        "command_attempted":command_attempted,
+        "command_acknowledged":moved,
         "robot_moved":moved,
+        "motion_may_have_occurred":command_attempted,
+        "reverse_attempted":reverse_attempted,
         "reverse_confirmed":reverse_confirmed,
         "motion_error":failure,
+        "camera_capture_errors":capture_errors,
         "camera_capture":capture_result,
         "controller_feedback":history,
         "model_not_called":True,
@@ -209,7 +223,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         result["report_file"]=str(out)
     if failure:
         raise RuntimeError(
-            f"physical probe stopped: {failure}; robot_moved={moved}; "
+            f"physical probe stopped: {failure}; command_attempted={command_attempted}; "
             f"reverse_confirmed={reverse_confirmed}; inspect physical_probe report"
         )
     return result
