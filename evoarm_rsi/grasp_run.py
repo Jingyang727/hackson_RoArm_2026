@@ -37,7 +37,7 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
             "robot_connected":True,"armed":h.get("armed"),
             "torque_status":h.get("torque_status"),
             "robot_xyz":[s.get(k) for k in "xyz"],
-            "note":"A full grasp requires the arm near taught Hover and a fresh Gemini qualified ball",
+            "note":"A full grasp starts from live Home matching saved Home XYZ and needs a fresh Gemini-qualified ball; no empty-board recapture",
             "robot_moved":False,
         }
     if not consent:
@@ -92,7 +92,7 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
         if not session.get("auto_execute"):
             raise RuntimeError("controller RSI batch capability not explicitly enabled")
         total=int(session["total"])
-        if not 5<=total<=20:
+        if not 5<=total<=40:
             raise RuntimeError("unexpected number of real grasp stages")
         for i in range(total):
             if camera_errors:
@@ -229,7 +229,7 @@ def main(argv=None):
     a=p.parse_args(argv)
     if a.execute:
         answer=input(
-            "现场确认机械臂处于已示教Hover附近，黄球在当前Gemini位置，"
+            "现场确认机械臂处于已示教Home附近，黄球在当前Gemini位置，"
             "区域清空并可随时断电。输入 RUN 执行一次完整抓取/提升："
         )
         if answer.strip()!="RUN":
