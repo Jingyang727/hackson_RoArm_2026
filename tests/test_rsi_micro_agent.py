@@ -92,6 +92,10 @@ class MicroAgentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"5 or 10"):
             run_micro_loop(degrees=3)
 
+    def test_manual_lease_is_30_minutes_not_auto_renewed(self):
+        from control_ui.service import SESSION_SECONDS
+        self.assertEqual(SESSION_SECONDS,1800)
+
     def test_motion_confirmation_needs_real_displacement_not_only_status(self):
         from evoarm_rsi.real_probe import _wait_settled
         known_status={"T":1051}
