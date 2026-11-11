@@ -115,6 +115,11 @@ class PickStepRequest(BaseModel):
     declaration: str
 
 
+class RSIGraspStart(BaseModel):
+    trial_id: str
+    declaration: str
+
+
 
 def invoke(fn, *args):
     try:
@@ -483,6 +488,12 @@ def pick_plan_preview(req: PickPlan):
         return build_from_saved_files(req.ball_board_mm, image_size=req.image_size, corners_px=req.corners_px, preview_only=True)
     except (PickPlanningError, CalibrationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/rsi/grasp/start")
+def rsi_grasp_start(req: RSIGraspStart):
+    """Operator-started fresh Gemini/v2 grasp, uses ordinary verified pick steps."""
+    return invoke(executor.start_rsi_grasp, req.trial_id, service, req.declaration)
 
 
 @app.get("/api/pick/execution")
