@@ -73,14 +73,18 @@ class Gemini335LProvider:
             raise RuntimeError("Gemini pipeline not started")
         deadline = time.monotonic() + self.warmup_timeout_s
         discarded = 0
+        no_frame_count = 0
+        incomplete_count = 0
         last_reason = "no complete frame"
         # The count also bounds this loop when an SDK immediately returns
         # invalid frames without blocking (e.g. a broken mock/driver).
         for _ in range(240):
             frames = self.pipeline.wait_for_frames(self.timeout_ms)
             if frames is None:
+                no_frame_count += 1
                 last_reason = "no frames"
             else:
+                incomplete_count += 1
                 # Test the raw set first: aligners can reject RGB-only sets.
                 color = frames.get_color_frame()
                 depth = frames.get_depth_frame()
@@ -151,9 +155,16 @@ class Gemini335LProvider:
             if time.monotonic() >= deadline:
                 break
         self.dropped_frames += discarded
+        if incomplete_count == 0:
+            raise RuntimeError(
+                f"Gemini stream stalled: received NO frames from SDK for "
+                f"{self.warmup_timeout_s:g}s ({no_frame_count} empty polls). "
+                "Check USB bandwidth, competing camera processes and SDK stream state."
+            )
         raise RuntimeError(
-            f"Gemini RGB-D warmup timed out after {discarded} incomplete frames "
-            f"(last: {last_reason}, limit {self.warmup_timeout_s:g}s)"
+            f"Gemini RGB-D warmup timed out: {incomplete_count} incomplete/alignment "
+            f"frames, {no_frame_count} empty polls, last: {last_reason}; "
+            f"limit {self.warmup_timeout_s:g}s"
         )
 
     def stop(self):
