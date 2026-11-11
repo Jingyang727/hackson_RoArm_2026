@@ -99,6 +99,46 @@ class RSIV2BridgeTests(unittest.TestCase):
                     token,1,"已批准一次RSI抓取试次自动分段执行",self.service
                 )
 
+    def test_near_factory_joint_offsets_are_accepted_not_precise_equality(self):
+        # J1's 3.69 deg and J2 gravity sag of -4.04 deg should NOT
+        # invalidate the entire grasp. The actual Cartesian start drives
+        # the local transit plan.
+        self.arm.xyz=[360.339,-4.975,204.0]
+        self.arm.angles={1:3.69,2:-4.04,3:90.,4:0.,5:0.,6:180.}
+        with (patch("pathlib.Path.home",return_value=self.home),
+              patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"1",
+                  "EVOARM_ENABLE_MOTION":"1","EVOARM_ENABLE_RSI_GRASP":"1"})):
+            session=self.executor.start_rsi_grasp(
+                self.trial,self.service,
+                "已检查当前Gemini黄球位置、夹爪高度和运动区域"
+            )
+        self.assertEqual(session["next_step"]["stage"],"current_high_align")
+        self.assertEqual(self.arm.commands,[])
+
+    def test_one_trial_operator_permission_avoids_restart(self):
+        with (patch("pathlib.Path.home",return_value=self.home),
+              patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"0",
+                  "EVOARM_ENABLE_MOTION":"1","EVOARM_ENABLE_RSI_GRASP":"0",
+                  "EVOARM_ENABLE_RSI_BATCH":"0"})):
+            self.service.status()
+            approval=self.executor.enable_rsi_once(
+                self.service,"已在现场确认本次RSI抓取、运动范围和可断电"
+            )
+            self.assertFalse(approval["restart_required"])
+            session=self.executor.start_rsi_grasp(
+                self.trial,self.service,
+                "已检查当前Gemini黄球位置、夹爪高度和运动区域"
+            )
+            self.assertTrue(session["auto_execute"])
+            self.assertEqual(self.executor.rsi_runtime_until,0)
+            # The old legacy pick startup flags are still OFF, but
+            # a one-time operator-authorized RSI session may be stepped.
+            token=session["session_id"]
+            self.executor.step(
+                token,0,"已批准一次RSI抓取试次自动分段执行",self.service
+            )
+            self.assertEqual(len(self.arm.commands),1)
+
     def test_readonly_runner_never_connects_to_camera(self):
         from evoarm_rsi.grasp_run import run_grasp_attempt
         from unittest.mock import patch
