@@ -51,9 +51,16 @@ def qualify_trial(localization, calibration, intrinsics=None, *,
             rejected[reason] = rejected.get(reason, 0) + 1
         else:
             eligible.append(observation)
+    # Do not silently fall back to an older valid ball when the most recent
+    # detection is invalid/off-board. A stale pose is especially unsafe when
+    # the real ball has been removed or moved outside the checkerboard.
+    latest_is_eligible = bool(
+        eligible and localization.get("observations") and
+        eligible[-1] is localization["observations"][-1]
+    )
     # A stable cluster must be the *latest* observations, not an arbitrary
     # group of earlier detections or multiple balls.
-    stable = eligible[-max(min_stable_frames, 12):]
+    stable = eligible[-max(min_stable_frames, 12):] if latest_is_eligible else []
     is_stable = False
     spatial_spread = None
     if len(stable) >= min_stable_frames:
@@ -79,6 +86,7 @@ def qualify_trial(localization, calibration, intrinsics=None, *,
         "max_cluster_deviation_mm": (round(spatial_spread, 3)
                                       if spatial_spread is not None else None),
         "stable_ball": is_stable,
+        "latest_observation_eligible": latest_is_eligible,
         "ball_board_xy_mm": board_xy,
         "robot_xy_preview_mm": ([round(float(v), 3) for v in robot_xy]
                                 if robot_xy is not None else None),
