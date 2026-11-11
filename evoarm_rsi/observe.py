@@ -63,6 +63,19 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
                     sampler = ReadOnlyRobotSampler(robot_status_url)
                     sampler.start(store, trial_id)
                 result = TrialVideoRecorder(source, fps=20).capture(folder, seconds)
+                # Preserve SDK-supplied intrinsics from the SAME stream,
+                # without launching a second camera process.
+                provider = getattr(source, "frame_provider", None)
+                intrinsics = getattr(provider, "color_intrinsics", None)
+                if isinstance(intrinsics, dict):
+                    (folder / "gemini_color_intrinsics.json").write_text(
+                        json.dumps(intrinsics, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    result["intrinsics_file"] = "gemini_color_intrinsics.json"
+                    result["intrinsics_verified"] = False
+                if getattr(provider, "intrinsics_error", None):
+                    result["intrinsics_error_type"] = provider.intrinsics_error
             finally:
                 if sampler is not None:
                     telemetry = sampler.stop()
