@@ -224,6 +224,69 @@ It will not clear faults, unlock motion, or return the arm to Home.
 **Do not run the next physical trial yet**: inspect the actual state
 and confirm the observed robot return geometry first.
 
+## Trial 005: real first FULL grasp/lift attempt (not more J1-only probing)
+
+The current user goal is **actually try to pick up the yellow ball**, and
+let Grok reflect on observed success/failure. The new v2/Gemini path uses:
+
+1. Fresh 10s Gemini RGB-D capture with yellow ball on the *same stationary*
+   9x6 chessboard; run `localize` and `qualify` as usual.
+2. `grasp_candidate` converts measured board XY into robot XY using the
+   previously validated five-point transform. It reuses the real v2 Hover,
+   Grasp and gripper open/close Z/pitch/roll snapshots. It produces a
+   **complete hover → open → descend → close → lift** sequence, with
+   vertical increments ≤20mm, no invented robot Z or TCP.
+3. For first real execution, an operator manually positions the arm near
+   the saved **Hover** XYZ (within 20mm XY / 10mm Z), confirms fixed camera,
+   actual ball, collision-free swept region and emergency power access.
+   The controller explicitly refuses movement from arbitrary Home.
+4. Only under opt-in `EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_PICK=1
+   EVOARM_ENABLE_RSI_GRASP=1 EVOARM_ENABLE_RSI_BATCH=1`, one operator can
+   approve ONE complete fixed grasp/lift attempt.
+   Every T104/T106 stage still passes the existing `PickExecutor.step`
+   pose/torque/limits and must return actual `T=1051 feedback_confirmed`
+   before the next stage. Any error stops further motion; **no automatic
+   Home move, replay, torque transition, or fault reset**.
+5. Gemini records true RGB-D in 20s chunks during the sequence.
+   `grasp_attempt.json` and the real stage log are provided to
+   `vision_review` after completion. Grok must not equate a motor
+   `close_ball` stage with proven pickup.
+
+```bash
+# 1. Camera and current ball position (normal user shell, not root):
+TRIAL=~/.evoarm/rsi/experiments/<YOUR_NEW_TRIAL_ID>
+python -m evoarm_rsi.localize "$TRIAL"
+python -m evoarm_rsi.qualify "$TRIAL"
+python -m evoarm_rsi.grasp_candidate "$(basename "$TRIAL")"
+
+# 2. After controller restarted with all 4 explicit ENABLE flags,
+#    arm is MANUALLY at safe measured Hover, and manually unlocked:
+python -m evoarm_rsi.grasp_run "$(basename "$TRIAL")"
+#    This command is READ-ONLY; inspect status and actual XYZ.
+
+# 3. Only when physically present and wanting ONE entire attempt:
+python -m evoarm_rsi.grasp_run "$(basename "$TRIAL")" --execute
+#    Interactive typing RUN confirms this concrete physical trial.
+```
+
+**Note:** The existing old `/pick` browser workflow still refuses stale
+legacy profile execution when v2 poses exist. This is intentional: the
+new `/api/rsi/grasp/start` goes through the measured-v2 Gemini
+candidate builder, never silently falls back to old USB image corners.
+
+**No camera/board origin verification is automatic.** The physical
+operator must confirm the camera/board/robot have not moved since the
+five-point board→robot XY calibration. This is the final geometry
+assumption for the first supervised grab, not a general 3D hand-eye
+calibration or collision-free world model.
+
+Software-only recovery: an explicitly rejected HTTP 409 whose `detail`
+is **only** "minimum motion-command interval" is recognized by the
+micro-probe; after re-reading real feedback and verifying the arm hasn't
+moved, it can retry once. Real motor faults must not be automatically
+cleared via `/api/recover`, since that endpoint requires a human
+declaration of a physically inspected static workspace.
+
 ## Local mock run
 
 Start the existing FastAPI service as usual, then inspect:
