@@ -182,6 +182,48 @@ single-joint **degree** target with `spd` in °/s and `acc`
 in °/s². The known 1° stall alone does not identify a firmware
 deadband vs mechanical/electrical/servo problem.
 
+## Trial 004: J1 actually moved, but arrived short and did not return
+
+Real experiment `82b1593ee7ff4d94804e2597165ff533`:
+J1 started at -0.97°, received a +5° absolute target of +4.03°,
+and moved to about +2.90° (observed +3.87°). The controller returned
+`feedback_confirmed`, even though the final residual was about
+**1.13°**. A reverse command was rejected with HTTP 409, and the
+arm remained at about +2.90° without a fault or pending request.
+
+Cause of the 409 **cannot be established** from old HTTPError text alone:
+the FastAPI controller uses HTTP 409 for several conditions. Updated
+real probes retain its actual `detail` string.
+
+Previously the probe would proceed to reverse after as little as
+60% of requested displacement, and blindly send exactly -5° even if
+the forward move stopped short. Now:
+
+- Controller acknowledgement, actual movement, precise arrival and
+  return-to-start are separately evaluated.
+- A measured residual **above 0.75°** halts before a return request;
+  the original forward request and all sampled feedback remain saved.
+- After a sufficiently accurate move, the reverse uses the **measured
+  original J1 starting angle as an absolute joint target**, not a
+  blindly mirrored relative angle. Existing controller checks still
+  decide whether any return may execute.
+- Any HTTP 409 from the controller is preserved with its human-readable
+  JSON `detail`. There is no automatic retry.
+- A read-only offline audit extracts the observed delta and final
+  residual from saved data and includes that in Grok input.
+
+To audit the earlier real run **without moving anything**:
+
+```bash
+python -m evoarm_rsi.motion_audit \
+  82b1593ee7ff4d94804e2597165ff533
+```
+
+This creates `~/.evoarm/rsi/analysis/<trial_id>/motion_audit.json`.
+It will not clear faults, unlock motion, or return the arm to Home.
+**Do not run the next physical trial yet**: inspect the actual state
+and confirm the observed robot return geometry first.
+
 ## Local mock run
 
 Start the existing FastAPI service as usual, then inspect:
