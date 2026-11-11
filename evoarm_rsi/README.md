@@ -56,9 +56,47 @@ the **next** trial. It never turns a model completion into a motor command.
 If your gateway is not OpenAI-compatible, implement an adapter with the same
 `propose_next(policy, evaluation)` interface.
 
+## P1: first REAL RGB-D observation (ready for local verification)
+
+The physical Gemini is supported by the new
+`evoarm_rsi.orbbec.Gemini335LProvider`. It opens the Orbbec v2 SDK,
+collects RGB and Depth, software-aligns depth to RGB, converts raw scaled
+depth values into millimeters, and timestamps frames.
+
+For your first **camera-only 10-second real observation** on your Mac:
+
+```bash
+conda activate evoarm
+python -m unittest tests.test_rsi_observe -v
+python -m evoarm_rsi.observe --camera gemini --seconds 10
+```
+
+Output: `~/.evoarm/rsi/experiments/<trial_id>/` with `rgb.mp4`,
+`frames.jsonl`, `depth_samples.npz`, `manifest.json`,
+`observation.json`, and `events.jsonl`.
+
+- `simulated: false` means real camera footage only.
+- `robot_motion_executed: false` and `agent_called: false` are explicit;
+  this is **not** yet a grasp attempt or self-learning outcome.
+- A 10-second live capture is a real elapsed window, unlike P0's
+  logical mock timer.
+- The recorder uses 20fps as a **target**, and preserves actual frame
+  timestamps; hardware frames may be delayed or dropped.
+- The optional `--store /absolute/path` controls evidence destination.
+  If the macOS SDK still needs elevated permissions, do not run the whole
+  FastAPI/robot process as root. Check the experiment directory ownership
+  before using privileged capture.
+- Depth samples are sparse (up to 32 aligned frames). This is sufficient
+  for initial SDK/geometry validation but not yet full-rate RGB-D replay.
+- The camera frame must include supported BGR/RGB/MJPG/YUYV color bytes;
+  unsupported formats fail explicitly rather than writing invalid video.
+
+Do not reuse the former USB camera's pixel calibration for Gemini. The
+saved robot XY calibration and poses remain untouched.
+
 ## P1/P2 remaining work (NOT implemented)
 
-- Orbbec Gemini 335L acquisition + RGB/depth calibration, preserving prior
+- Orbbec Gemini 335L RGB/depth calibration, preserving prior
   five-point mechanical XY samples but not reusing the old camera intrinsics.
 - Capture real RGB/depth video with synchronized monotonic timestamps,
   actual T=1051 joint feedback, real command acknowledgments and event frames.
