@@ -297,6 +297,35 @@ moved, it can retry once. Real motor faults must not be automatically
 cleared via `/api/recover`, since that endpoint requires a human
 declaration of a physically inspected static workspace.
 
+## Trial 005: official start with reasonable gravity and encoder tolerance
+
+For each supervised full-grasp attempt, the local operator may use the
+original UI's **official factory-init T=100** only after confirming its
+swept region is safe. The saved v2 `home` snapshot is not the firmware
+official posture and is never used as a hard exact-angle requirement.
+The controller accepts a *near-official* starting joint configuration:
+**J1 ±8°, J2 shoulder ±10°, J3/J4/J5 ±8°, J6 gripper ±12°**.
+Those margins are for *starting pose classification only*; no physical
+joint limit, Cartesian maximum per step, torque verification, motion
+feedback, or fault stop is loosened. The actual T=1051 XYZ determines
+the high-position-to-ball transition; the old v2 Hover/Grasp snapshots
+still determine the approach/closing/raising geometry.
+
+**One-time RSI approval without three env flags:** after updating and
+restarting the control service **once** to load this new code, the
+existing `EVOARM_ENABLE_MOTION=1` manual lease can be reused.
+Typing `RUN` in `python -m evoarm_rsi.grasp_run <trial_id> --execute`
+requests the new `/api/rsi/grasp/enable-once` operator-approved
+session. It does not re-enable torque, clear faults or re-arm an
+expired motion lease. Once the server is running this version, extra
+`EVOARM_ENABLE_PICK`, `EVOARM_ENABLE_RSI_GRASP` and
+`EVOARM_ENABLE_RSI_BATCH` exports/restarts are no longer necessary.
+
+If current XYZ/attitude or the corridor to the ball is inconsistent,
+the planner still declines the motion. Tolerance of ~4° motor
+settling is not proof of precise pickup. Model success must come
+from actual ball motion.
+
 ## Local mock run
 
 Start the existing FastAPI service as usual, then inspect:
