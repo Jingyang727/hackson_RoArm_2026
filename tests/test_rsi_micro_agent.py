@@ -75,6 +75,43 @@ class MicroAgentTests(unittest.TestCase):
                 camera.assert_not_called()
                 self.assertEqual(get.call_count,2)
 
+    def test_probe_defaults_to_five_degrees_and_rejects_one_degree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home=Path(temp)/"poses.json"
+            home.write_text(json.dumps({"poses":{"home":HOME}}))
+            with (patch("evoarm_rsi.real_probe._controller_get",
+                        side_effect=[{},HEALTH]),
+                  patch("evoarm_rsi.real_probe._degrees",
+                        return_value={j:0.0 for j in range(1,7)}),
+                  patch("evoarm_rsi.real_probe._controller_step") as move):
+                preview=run_real_probe(home_path=home,execute=False)
+            self.assertEqual(preview["safe_jog_deg"],5)
+            move.assert_not_called()
+        with self.assertRaisesRegex(ValueError,"5 or 10"):
+            run_real_probe(degrees=1)
+        with self.assertRaisesRegex(ValueError,"5 or 10"):
+            run_micro_loop(degrees=3)
+
+    def test_motion_confirmation_needs_real_displacement_not_only_status(self):
+        from evoarm_rsi.real_probe import _wait_settled
+        known_status={"T":1051}
+        healthy={**HEALTH,"pending":None,
+                 "last_command":{"status":"feedback_confirmed"}}
+        with (patch("evoarm_rsi.real_probe._controller_get",
+                    side_effect=[known_status,healthy]),
+              patch("evoarm_rsi.real_probe._degrees",
+                    return_value={1:0.0})):
+            with self.assertRaisesRegex(RuntimeError,"J1 moved"):
+                _wait_settled("http://127.0.0.1:8765",
+                              start_deg=0.0,expected_delta_deg=5.0)
+        with (patch("evoarm_rsi.real_probe._controller_get",
+                    side_effect=[known_status,healthy]),
+              patch("evoarm_rsi.real_probe._degrees",
+                    return_value={1:4.5})):
+            rows=_wait_settled("http://127.0.0.1:8765",
+                               start_deg=0.0,expected_delta_deg=5.0)
+        self.assertEqual(len(rows),1)
+
     def test_agent_abstains_instead_of_repeating_bounded_trial(self):
         with tempfile.TemporaryDirectory() as temp:
             result={
