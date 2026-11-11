@@ -15,7 +15,7 @@ from .safety import (
     current_degrees, checked_home_pose, plan_single_step, plan_gripper_step, plan_home_step,
 )
 
-SESSION_SECONDS = 300
+SESSION_SECONDS = 1800
 MIN_GAP_SECONDS = 0.8
 ARRIVAL_TOLERANCE = 2.0
 # These are *classification heuristics*, not new servo commands or safety
@@ -367,7 +367,7 @@ class ArmService:
             }
 
     def unlock_once(self, declaration):
-        # API name kept for backward compatibility; unlock lasts 5 minutes (manual, never auto-renewed).
+        # API name kept for backward compatibility; unlock lasts 30 minutes (manual, never auto-renewed).
         with self.lock:
             self.armed_until = 0
             if not self.motion_enabled:
@@ -507,7 +507,7 @@ class ArmService:
             if not self.fault:
                 raise UnsafeMotion("没有需要恢复的动作异常")
             # Fail closed on EVERY recovery attempt, including a rejected one.
-            # A fault may be raised while a prior 120s authorization remains.
+            # A fault may be raised while a previous authorization remains.
             self.armed_until = 0
             if not self.arm:
                 raise UnsafeMotion("请先检查串口连接")
