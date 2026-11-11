@@ -93,7 +93,7 @@ class TrialVideoRecorder:
         self.fps = fps
         self.max_depth_frames = max_depth_frames
 
-    def capture(self, folder, duration_s, *, clock=time.monotonic):
+    def capture(self, folder, duration_s, *, clock=time.monotonic, on_start=None):
         if not 0 < duration_s <= 20:
             raise ValueError("recording duration must be 0..20 seconds")
         import cv2
@@ -110,6 +110,10 @@ class TrialVideoRecorder:
         # Keep that initialization outside the requested 10s evidence window.
         first_frame = self.source.read()
         start = clock()
+        # This callback fires only after the first complete RGB-D frame;
+        # it is the exact start of the requested recording window.
+        if on_start is not None:
+            on_start(start, duration_s)
         end = start + duration_s
         next_frame = start
         # Sample depth throughout the full trial, not only the first 32
