@@ -115,6 +115,15 @@ def describe_evidence(trial_dir):
     )
     grasp_evidence=None
     if isinstance(linked_grasp,dict) and linked_grasp.get("kind")=="rsi_v2_physical_grasp_and_lift":
+        from .grasp_diagnosis import summarize_grasp_step
+        # Do not flood Grok with raw high-frequency T1051 frames.
+        # Give it compact, authoritative error and joint progression
+        # metrics so it cannot equate T104 accepted with Cartesian arrival.
+        small_steps=[]
+        for raw_step in linked_grasp.get("steps",[]):
+            summary=(raw_step.get("feedback_diagnosis") or
+                     summarize_grasp_step(raw_step))
+            small_steps.append(summary)
         grasp_evidence={
             "grasp_attempted":bool(linked_grasp.get("grasp_attempted")),
             "lift_completed":bool(linked_grasp.get("lift_completed")),
@@ -122,7 +131,7 @@ def describe_evidence(trial_dir):
             "steps_completed":linked_grasp.get("steps_completed"),
             "total_steps":linked_grasp.get("total_steps"),
             "motion_error":linked_grasp.get("motion_error"),
-            "steps":linked_grasp.get("steps",[]),
+            "steps":small_steps,
         }
     info={
         "trial_id":manifest.get("trial_id"),
@@ -289,7 +298,10 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "displacement, residual target error, and whether actual return "
         "completed; distinguish motor command acceptance from exact arrival. "
         "Numeric robot feedback takes precedence over image-only impressions. "
-        "A completed close_ball motor stage is only a grasp ATTEMPT, not proof "
+        "If linked_grasp_attempt contains step residual and joint feedback, "
+        "state actual XYZ versus commanded XYZ and clearly mark each incomplete "
+        "stage as NOT reached. A software recover does NOT count as completed. "
+        "A completed close_ball motor stage is only a grasp ATTEMPT, not proof "        "A completed close_ball motor stage is only a grasp ATTEMPT, not proof "
         "the yellow ball was picked up. If a grasp/lift record exists, decide "
         "pickup outcome from ball movement in video, accounting for occlusion. "
         "Unverifiable success must remain unknown. "
