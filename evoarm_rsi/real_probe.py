@@ -41,6 +41,14 @@ def _controller_get(base,endpoint):
         return json.loads(response.read(256*1024).decode("utf-8"))
 
 
+class ControllerRejected(RuntimeError):
+    def __init__(self, endpoint, status, detail):
+        self.endpoint = endpoint
+        self.status = status
+        self.detail = detail
+        super().__init__(f"controller {endpoint} HTTP {status}: {detail}")
+
+
 def _controller_post(base, endpoint, payload):
     req=request.Request(
         base+endpoint,method="POST",
@@ -59,9 +67,7 @@ def _controller_post(base, endpoint, payload):
             detail=str(body.get("detail", detail))[:600]
         except (ValueError,UnicodeError,AttributeError):
             pass
-        raise RuntimeError(
-            f"controller {endpoint} HTTP {exc.code}: {detail}"
-        ) from exc
+        raise ControllerRejected(endpoint, exc.code, detail) from exc
 
 
 def _controller_step(base,joint,delta):
@@ -285,7 +291,33 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
                         "host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"target_deg":before_deg,
                         "measured_delta_deg":before_deg-latest})
-        reverse_ack=_controller_absolute(base,1,round(before_deg,2))
+        try:
+            reverse_ack=_controller_absolute(base,1,round(before_deg,2))
+        except ControllerRejected as refused:
+            # Only one tightly recognized software timing 409 may be
+            # re-attempted. A 409 for faults, torque, expired lease or
+            # unexpected reasons must stop without any retry.
+            if (refused.status!=409 or
+                    not any(key in refused.detail for key in
+                            ("动作间隔太短","连续指令间隔小于0.8秒"))):
+                raise
+            # The controller explicitly rejected this command BEFORE
+            # sending it. Verify no new motion or pending/fault exists.
+            time.sleep(1.0)
+            actual_status=_controller_get(base,"/api/status")
+            actual_health=_controller_get(base,"/api/health")
+            measured=_degrees(actual_status)[1]
+            if (abs(measured-latest)>0.5 or
+                    actual_health.get("fault") or
+                    actual_health.get("pending") or
+                    not actual_health.get("armed")):
+                raise RuntimeError(
+                    "timing 409 recovery aborted: robot state changed"
+                ) from refused
+            history.append({"kind":"software_timing_rejection",
+                            "detail":refused.detail,
+                            "host_monotonic_ns":time.monotonic_ns()})
+            reverse_ack=_controller_absolute(base,1,round(before_deg,2))
         history.append({"kind":"reverse_command","host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"target_deg":before_deg,
                         "controller_ack":reverse_ack})
