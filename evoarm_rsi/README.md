@@ -14,7 +14,7 @@ The real loop (not run automatically on install):
 
 1. The **dedicated Gemini capture process** starts recording actual RGB-D.
 2. Only after its first valid aligned frame, the existing RoArm controller
-   receives exactly **one ±1° base-joint step**, starting from your
+   receives exactly **one ±5°/±10° base-joint step**, starting from your
    manually taught Home joint configuration (within 3° for J1/J3–J6,\n   5° for J2 shoulder only during this J1 micro-probe).
 3. The existing controller verifies real feedback. If it reports no fault
    and the move is settled, a bounded reverse step is attempted.
@@ -24,7 +24,7 @@ The real loop (not run automatically on install):
 5. Your company-only Grok endpoint receives 5 chronologically ordered
    RGB keyframes (small JPEGs via OpenAI-compatible `image_url`) plus
    structured depth and motion facts. Grok may suggest the next
-   **±1° base direction**, or abstain. An abstention ends the loop.
+   **±5°/±10° base direction**, or abstain. An abstention ends the loop.
 
 This is **real exploratory movement**, NOT a grasp or general trajectory.
 Nothing is uploaded to a public fallback. Model vision support on
@@ -105,13 +105,13 @@ Evidence is written to
 "grasp success" even if the ball is visible in RGB. There is still no
 3D collision-free grasp execution until tool/scene geometry is validated.
 
-## Trial 004: Home visibility, 5-minute authorization, shoulder gravity offset
+## Trial 004: Home visibility, 30-minute authorization, shoulder gravity offset
 
 - A **complete checkerboard is not required** during the first physical
-  ±1° J1 base probe: RGB-D and robot feedback can record the motion when
+  ±5°/±10° J1 base probe: RGB-D and robot feedback can record the motion when
   Home occludes some corners. The checkerboard is required again for
   ball localization and 3D calibration in subsequent *grasp* trials.
-- Manually granted motion authorization now lasts **300 seconds**, not
+- Manually granted motion authorization now lasts **1800 seconds**, not
   120. It is never auto-renewed, and automatically expires or is revoked
   on fault / disarm. Restart the ordinary controller process after pulling
   the code before expecting the new duration.
@@ -131,6 +131,51 @@ Evidence is written to
   mechanical load before continuing.
 - The first physical probe deliberately has no board-derived target:
   `board_visibility_required=false` in its preflight result.
+
+## Trial 004 failure diagnosis and bounded next attempt
+
+Physical Trial `d124b8c3a0464c1299ee929c5c51e743` sent
+J1 from -0.97° to +0.03° (+1°). The controller sampled a stable
+**-0.97° (0.0° progress)** after 2.5s and correctly latched
+`motion_stalled_or_offset`. Torque stayed ON; the fault revoked
+the motion lease; no automatic reversal was sent. **An acknowledged
+motor request is not proof the motor moved.**
+
+From this commit:
+
+- Manual operator lease lasts **1800s (30 min)**; fault/disarm still
+  immediately revokes it, no automatic renewal.
+- Trial physical probe accepts **`--degrees 5`** (default) or
+  **`--degrees 10`** with existing controller allowlists and joint limits.
+  Start at **5°**, only consider 10° after verifying motor operation.
+- The physical probe checks both the controller's
+  `feedback_confirmed` and measured J1 displacement ≥60% of
+  the requested angular change **in the correct direction**, before
+  permitting a return step. A no-progress or stalled J1 must not
+  trigger a blind reverse.
+- `micro_agent --degrees 5` passes the same bounded step through;
+  Grok suggestions do not bypass the controller's motion protections.
+- **Before another movement:** operator visually inspects the robot,
+  the stationary J1 joint and possible obstructions/power issues,
+  clears the latched fault using the original recovery control, and
+  manually unlocks again. Do not restart/reset the service to erase
+  an uncleared fault.
+
+```bash
+# Read-only diagnostics after normal controller is running
+curl -fsS http://127.0.0.1:8765/api/health | python -m json.tool
+curl -fsS http://127.0.0.1:8765/api/status | python -m json.tool
+
+# After an operator explicitly clears fault and authorizes motion
+python -m evoarm_rsi.real_probe --degrees 5
+# Then only with operator physically present and motion authorized:
+python -m evoarm_rsi.micro_agent --degrees 5 --iterations 1 --execute
+```
+
+Official Waveshare JSON protocol documents `T=121` as absolute
+single-joint **degree** target with `spd` in °/s and `acc`
+in °/s². The known 1° stall alone does not identify a firmware
+deadband vs mechanical/electrical/servo problem.
 
 ## Local mock run
 
