@@ -184,9 +184,6 @@ class PickExecutor:
             q=json.loads(qual.read_text(encoding="utf-8"))
             if q.get("trial_id")!=trial_id:
                 raise PickExecutionError("qualified ball does not match trial")
-            plan=build_grasp_candidate(
-                q,json.loads(poses.read_text(encoding="utf-8"))
-            )
             h=arm_service.health()
             if (not h["connected"] or not h["motion_enabled"] or
                     not h["armed"] or h["pending"] or h["fault"] or
@@ -199,12 +196,23 @@ class PickExecutor:
                 raise PickExecutionError("servo torque feedback must be locked")
             from .pick_plan import _num
             xyz=[_num(fb.get(k),k) for k in "xyz"]
-            hover=plan["measured_hover_xyz_mm"]
-            if math.dist(xyz[:2],hover[:2])>20 or abs(xyz[2]-hover[2])>10:
-                raise PickExecutionError(
-                    "arm must be manually positioned at taught safe Hover "
-                    "before the first complete grasp attempt; do not auto move from Home"
-                )
+            # Use LIVE T=1051 Home, measured v2 Home and current ball.
+            # Never automatically drive an arbitrary parked pose toward
+            # the board; the bounded high-position-to-vertical plan must
+            # first fit both recorded and observed robot geometry.
+            plan=build_grasp_candidate(
+                q,json.loads(poses.read_text(encoding="utf-8")),
+                start_status=fb
+            )
+            if plan.get("start_mode")!="live_home_transit":
+                raise PickExecutionError("live Home-to-Hover transition not available")
+            # If any full-board observations show displaced reference,
+            # refuse a persisted camera map before moving the robot.
+            localization_file=analysis/"rgbd_localization.json"
+            if localization_file.is_file():
+                localization=json.loads(localization_file.read_text(encoding="utf-8"))
+                if localization.get("persistent_reference_displaced_board_frames",0):
+                    raise PickExecutionError("live board differs from saved Gemini reference")
             # The operator consent is for the scene/plan. Each actual
             # step still requires the existing explicit step declaration.
             self.plan=plan
