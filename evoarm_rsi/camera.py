@@ -112,6 +112,10 @@ class TrialVideoRecorder:
         start = clock()
         end = start + duration_s
         next_frame = start
+        # Sample depth throughout the full trial, not only the first 32
+        # frames (which would cover roughly 1.6s at 20fps).
+        next_depth_at = start
+        depth_interval_s = duration_s / max(1, self.max_depth_frames)
         try:
             while clock() < end:
                 if first_frame is not None:
@@ -140,12 +144,15 @@ class TrialVideoRecorder:
                     "device_timestamp_ms": frame.device_timestamp_ms,
                     "camera_name": frame.camera_name,
                 })
-                if frame.depth_mm is not None and len(depth_samples) < self.max_depth_frames:
+                if (frame.depth_mm is not None and
+                        len(depth_samples) < self.max_depth_frames and
+                        at >= next_depth_at):
                     depth = np.asarray(frame.depth_mm)
                     if depth.ndim != 2 or depth.shape != img.shape[:2]:
                         raise ValueError("depth not aligned to RGB frame")
                     depth_samples.append(depth.astype(np.uint16).copy())
                     depth_stamps.append(frame.monotonic_ns)
+                    next_depth_at = start + len(depth_samples) * depth_interval_s
             if not frames:
                 raise RuntimeError("no camera frames recorded")
             with (folder/"frames.jsonl").open("w", encoding="utf-8") as out:
