@@ -24,6 +24,8 @@ class PickExecutor:
         self.session_id = None
         self.next_index = 0
         self.cancelled = False
+        self.rsi_batch_approved = False
+        self.rsi_batch_until = 0.0
 
     def state(self, arm_service=None):
         with self.lock:
@@ -35,7 +37,10 @@ class PickExecutor:
                 "next_step": None,
                 "cancelled": self.cancelled,
                 "hardware_execution_enabled": os.getenv("EVOARM_ENABLE_PICK", "0") == "1",
-                "auto_execute": False,
+                "auto_execute": bool(
+                    self.rsi_batch_approved and
+                    time.monotonic()<self.rsi_batch_until and not self.cancelled
+                ),
             }
             if self.plan and self.next_index < len(self.plan["waypoints"]):
                 progress["next_step"] = self.plan["waypoints"][self.next_index]
@@ -134,6 +139,8 @@ class PickExecutor:
             self.session_id=uuid.uuid4().hex
             self.next_index=0
             self.cancelled=False
+            self.rsi_batch_approved=False
+            self.rsi_batch_until=0.0
             return self.state(arm_service)
 
     def start_rsi_grasp(self, trial_id, arm_service, declaration):
@@ -204,6 +211,12 @@ class PickExecutor:
             self.session_id=uuid.uuid4().hex
             self.next_index=0
             self.cancelled=False
+            self.rsi_batch_approved=(
+                os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1"
+            )
+            self.rsi_batch_until=(
+                time.monotonic()+180 if self.rsi_batch_approved else 0.0
+            )
             progress=self.state(arm_service)
             progress["rsi_grasp_trial_id"]=trial_id
             progress["grasp_and_lift_only"]=True
@@ -212,6 +225,8 @@ class PickExecutor:
     def cancel(self, arm_service):
         with self.lock, arm_service.lock:
             self.cancelled = True
+            self.rsi_batch_approved=False
+            self.rsi_batch_until=0.0
             arm_service.disarm()
             return {"cancelled":True,"notice":"已禁止下一条动作。已下发的T104/T106不一定会停止；若有碰撞风险立即切断动力电源"}
 
@@ -235,8 +250,15 @@ class PickExecutor:
                 raise PickExecutionError("步骤已经完成，禁止重复执行")
             if os.getenv("EVOARM_ENABLE_PICK", "0") != "1":
                 raise PickExecutionError("真实执行权限未打开")
-            if declaration != "已目视确认本步的运动空间与位置":
-                raise PickExecutionError("每步需要先核查当前运动方向与目标")
+            is_batch=(
+                declaration=="已批准一次RSI抓取试次自动分段执行" and
+                self.rsi_batch_approved and not self.cancelled and
+                time.monotonic()<self.rsi_batch_until and
+                self.plan.get("kind")=="rsi_v2_gemini_grasp_and_lift_candidate" and
+                os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1"
+            )
+            if not is_batch and declaration != "已目视确认本步的运动空间与位置":
+                raise PickExecutionError("每步需要人工核查，或已有一次明确授权的有限RSI试次")
             h=arm_service.health()
             if not h["connected"] or not h["motion_enabled"] or not h["armed"]:
                 raise PickExecutionError("机械臂未连接或运动解锁已过期")
