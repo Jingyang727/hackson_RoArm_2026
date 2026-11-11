@@ -41,11 +41,15 @@ class GraspCandidateTests(unittest.TestCase):
 
     def test_live_home_generates_bounded_high_then_vertical_transition(self):
         start={"x":360.339,"y":-4.975,"z":182.572,
-               "tit":0.31,"r":0.02}
+               "tit":0.31,"r":0.02,"g":3.10}
         plan=build_grasp_candidate(Q,POSES,start_status=start)
         self.assertEqual(plan["start_mode"],"live_high_pose_transit")
         self.assertGreater(plan["home_transition_stages"],10)
         self.assertEqual(plan["waypoints"][0]["stage"],"current_high_align")
+        # First high T104 stage must not move gripper and base
+        # simultaneously. Gripper opening has a separate T106 stage.
+        self.assertAlmostEqual(plan["waypoints"][0]["g"],3.10,places=3)
+        self.assertIn("open_before_pick",[x["stage"] for x in plan["waypoints"]])
         self.assertAlmostEqual(plan["waypoints"][0]["xyz_mm"][2],182.572,places=2)
         self.assertIn("hover_ball",[x["stage"] for x in plan["waypoints"]])
         zs=[x["xyz_mm"][2] for x in plan["waypoints"]
@@ -55,7 +59,7 @@ class GraspCandidateTests(unittest.TestCase):
 
     def test_not_at_taught_home_or_far_xy_does_not_move(self):
         start={"x":360.339,"y":-4.975,"z":182.572,
-               "tit":0.31,"r":0.02}
+               "tit":0.31,"r":0.02,"g":3.10}
         plan=build_grasp_candidate(Q,POSES,
                                    start_status={**start,"z":204.0})
         self.assertEqual(plan["start_mode"],"live_high_pose_transit")
