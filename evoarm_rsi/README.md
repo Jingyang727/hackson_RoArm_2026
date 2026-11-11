@@ -38,6 +38,15 @@ read -rs EVOARM_COMPANY_LLM_TOKEN
 export EVOARM_COMPANY_LLM_TOKEN
 ```
 
+The adapter defaults to a **90-second response timeout**, configurable with
+`EVOARM_COMPANY_LLM_TIMEOUT_S` (5–300). It reads up to **2 MiB** of
+response data, ignores `reasoning_content`, and extracts exactly one final
+`{"changes": {...}}` JSON object from `message.content`. Gateway transport
+errors report the underlying timeout/TLS/DNS/proxy reason without displaying
+request headers or the token. If running the service as an existing process,
+restart it with the approved environment loaded; sourcing the env file into
+a different terminal does not change a process that is already running.
+
 Then post `{"use_company_agent":true}` to `/api/rsi/mock-trial`.
 The adapter sends only the structured mock policy and evaluation to the
 configured endpoint. It has no external provider fallback and does not send
