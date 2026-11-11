@@ -105,6 +105,53 @@ class GeminiWarmupTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "mismatch"):
                 camera.read()
 
+    def test_sdk_intrinsics_saved_as_unverified_candidate_only(self):
+        class Intrinsic:
+            fx = 690.0
+            fy = 691.0
+            cx = 160.0
+            cy = 120.0
+            width = 4
+            height = 3
+
+        class Param:
+            rgb_intrinsic = Intrinsic()
+
+        pipe = FakePipeline([Frames()])
+        pipe.get_camera_param = lambda: Param()
+        provider = Gemini335LProvider()
+        provider.pipeline = pipe
+        provider.aligner = FakeAligner([Aligned(Frames())])
+        with patch.object(Gemini335LProvider, "_bgr",
+                          return_value=np.zeros((3, 4, 3), dtype=np.uint8)):
+            provider.read()
+        self.assertIsNotNone(provider.color_intrinsics)
+        self.assertFalse(provider.color_intrinsics["verified"])
+        self.assertEqual(provider.color_intrinsics["width"], 4)
+        self.assertEqual(provider.color_intrinsics["fx"], 690.0)
+
+    def test_invalid_sdk_intrinsics_never_marked_verified(self):
+        class BadIntrinsic:
+            fx = 0.0
+            fy = 690.0
+            cx = 160.0
+            cy = 120.0
+            width = 4
+            height = 3
+
+        class BadParam:
+            rgb_intrinsic = BadIntrinsic()
+
+        pipe = FakePipeline([Frames()])
+        pipe.get_camera_param = lambda: BadParam()
+        provider = Gemini335LProvider()
+        provider.pipeline = pipe
+        with patch.object(Gemini335LProvider, "_bgr",
+                          return_value=np.zeros((3, 4, 3), dtype=np.uint8)):
+            provider.read()
+        self.assertIsNone(provider.color_intrinsics)
+        self.assertEqual(provider.intrinsics_error, "ValueError")
+
     def test_recording_clock_starts_after_warmup_and_depth_spans_window(self):
         import tempfile
         from pathlib import Path
