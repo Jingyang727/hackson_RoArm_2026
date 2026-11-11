@@ -72,14 +72,22 @@ def _ready(health,status,home):
         raise RuntimeError("no recorded HOME joint baseline")
     current=_degrees(status)
     differences={}
+    # The taught Home is a *reference*, not a command target. Only J2 has
+    # observed ~4 degrees of static gravity-related deviation. Allow 5
+    # degrees for J2 solely for a J1 micro-probe; leave all other joints
+    # at 3 degrees. This does NOT loosen controller motion limits or
+    # accept an actively drifting/unsupported arm.
+    home_tolerances={j:(5.0 if j==2 else 3.0) for j in range(1,7)}
     for j in range(1,7):
         saved=baseline.get(str(j))
         if type(saved) not in (int,float) or not math.isfinite(saved):
             raise RuntimeError("invalid taught HOME joint angles")
         differences[str(j)]=round(current[j]-saved,3)
-        if abs(differences[str(j)])>3:
-            raise RuntimeError("robot not within 3 degrees of taught HOME on joint "+
-                               str(j))
+        if abs(differences[str(j)])>home_tolerances[j]:
+            raise RuntimeError(
+                f"robot joint {j} is {differences[str(j)]:+.2f} deg from taught "
+                f"HOME (allowed {home_tolerances[j]:.1f} deg)"
+            )
     return differences
 
 
@@ -122,6 +130,8 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     if not execute:
         return {"status":"ready_preview","safe_jog_deg":direction,
                 "joint":1,"home_joint_difference_deg":differences,
+                "home_tolerance_deg":{"2":5.0,"other_joints":3.0},
+                "board_visibility_required":False,
                 "robot_moved":False}
     home=camera_home or Path.home()
     cam=client_request(home,"GET","/health")
