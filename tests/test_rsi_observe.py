@@ -74,7 +74,7 @@ class ObservationTrialTests(unittest.TestCase):
                     )
             self.assertTrue(fake.stopped)
 
-    def test_countdown_starts_on_valid_frame_and_cues_ball_at_three_seconds(self):
+    def test_countdown_starts_on_valid_frame_without_repeating_empty_board(self):
         from evoarm_rsi.observe import RecordingCountdown
         messages = []
         def output(message, **kwargs):
@@ -86,8 +86,8 @@ class ObservationTrialTests(unittest.TestCase):
         time.sleep(0.06)
         countdown.stop()
         self.assertIn("Recording started", messages[0])
-        self.assertTrue(any("PLACE THE YELLOW BALL NOW" in m
-                            for m in messages))
+        self.assertFalse(any("PLACE THE YELLOW BALL NOW" in m or
+                             "KEEP BOARD EMPTY" in m for m in messages))
         self.assertTrue(any("remaining" in m for m in messages))
 
     def test_duration_is_bounded_before_camera_start(self):
