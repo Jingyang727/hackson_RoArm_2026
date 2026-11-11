@@ -140,6 +140,34 @@ class MicroAgentTests(unittest.TestCase):
             run.assert_called_once()
             reviewer.assert_called_once()
 
+    def test_motor_stall_is_reviewed_by_grok_but_stops_next_trial(self):
+        with tempfile.TemporaryDirectory() as temp:
+            physical={
+                "camera_capture":{"folder":temp},
+                "reverse_confirmed":False,
+                "command_attempted":True,
+                "motion_error":"motion_stalled_or_offset: no J1 movement",
+            }
+            class FakeGateway:
+                def configured(self):return True
+            review={
+                "observed_outcome":"not_attempted",
+                "failure_type":"no_attempt",
+                "next_probe_direction":1,
+                "confidence":1,
+            }
+            with (patch("evoarm_rsi.micro_agent.run_real_probe",return_value=physical) as run,
+                  patch("evoarm_rsi.micro_agent.review_trial",return_value=review) as model,
+                  patch("pathlib.Path.home",return_value=Path(temp))):
+                output=run_micro_loop(iterations=3,degrees=5,execute=True,
+                                      gateway=FakeGateway())
+            self.assertEqual(output["real_trials_completed"],1)
+            self.assertTrue(output["results"][0]["trial_failed"])
+            model.assert_called_once()
+            self.assertEqual(run.call_count,1)
+            self.assertTrue(run.call_args.kwargs["return_on_failure"])
+            self.assertEqual(run.call_args.kwargs["degrees"],5)
+
     def test_company_model_may_choose_one_degree_direction_only(self):
         base={
             "observed_outcome":"not_attempted","confidence":0.8,
