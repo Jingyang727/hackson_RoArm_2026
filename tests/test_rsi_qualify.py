@@ -49,6 +49,28 @@ class QualifyTests(unittest.TestCase):
         self.assertIsNone(result["robot_target_xyz_mm"])
         self.assertFalse(result["intrinsics_verified"])
 
+    def test_stale_ball_rejected_if_last_detection_moves_off_board(self):
+        valid=[{
+            "rgb_frame_index": i,
+            "ball_board_xy_mm": [101.2,45.9],
+            "ball_center_px": [523,342],
+            "ball_surface_depth_mm": 533,
+            "apparent_depth_difference_mm": 32,
+        } for i in range(15)]
+        invalid={
+            "rgb_frame_index": 16,
+            "ball_board_xy_mm": [400,600],
+            "ball_surface_depth_mm": 557,
+            "apparent_depth_difference_mm": 1,
+        }
+        r=qualify_trial(
+            {"read_only":True,"motion_authorized":False,
+             "observations":valid+[invalid]},CAL
+        )
+        self.assertFalse(r["latest_observation_eligible"])
+        self.assertFalse(r["stable_ball"])
+        self.assertIsNone(r["robot_xy_preview_mm"])
+
     def test_no_valid_board_ball_does_not_invent_robot_target(self):
         observations = [{
             "ball_board_xy_mm": [400, 600],
