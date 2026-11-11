@@ -67,6 +67,46 @@ class RSIV2BridgeTests(unittest.TestCase):
             # This endpoint never automatically sends the full grasp.
             self.assertFalse(session["auto_execute"])
 
+    def test_one_time_operator_batch_still_uses_existing_step_limits(self):
+        with (patch("pathlib.Path.home",return_value=self.home),
+              patch.dict(os.environ,{
+                  "EVOARM_ENABLE_PICK":"1","EVOARM_ENABLE_MOTION":"1",
+                  "EVOARM_ENABLE_RSI_GRASP":"1","EVOARM_ENABLE_RSI_BATCH":"1",
+              })):
+            session=self.executor.start_rsi_grasp(
+                self.trial,self.service,
+                "已检查当前Gemini黄球位置、夹爪高度和运动区域"
+            )
+            self.assertTrue(session["auto_execute"])
+            token=session["session_id"]
+            first=self.executor.step(
+                token,0,"已批准一次RSI抓取试次自动分段执行",self.service
+            )
+            self.assertEqual(first["stage"],"hover_ball")
+            self.assertEqual(len(self.arm.commands),1)
+            with self.assertRaises(PickExecutionError):
+                self.executor.step(
+                    token,1,"已批准一次RSI抓取试次自动分段执行",self.service
+                )
+            self.assertEqual(len(self.arm.commands),1)
+            self.executor.cancel(self.service)
+            with self.assertRaises(PickExecutionError):
+                self.executor.step(
+                    token,1,"已批准一次RSI抓取试次自动分段执行",self.service
+                )
+
+    def test_readonly_runner_never_connects_to_camera(self):
+        from evoarm_rsi.grasp_run import run_grasp_attempt
+        from unittest.mock import patch
+        with (patch("evoarm_rsi.grasp_run._controller_get",
+                    side_effect=[{"connected":True,"fault":None,"pending":None,
+                                  "armed":False,"torque_status":[1]*6},
+                                 {"x":362.17,"y":-1.11,"z":-34.89}]),
+              patch("evoarm_rsi.grasp_run.client_request") as camera):
+            output=run_grasp_attempt(self.trial,execute=False)
+        self.assertFalse(output["robot_moved"])
+        camera.assert_not_called()
+
     def test_stale_camera_or_unapproved_mode_rejected_before_motion(self):
         with (patch("pathlib.Path.home",return_value=self.home),
               patch.dict(os.environ,{"EVOARM_ENABLE_PICK":"1",
