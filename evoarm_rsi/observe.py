@@ -65,7 +65,8 @@ class RecordingCountdown:
 
 
 def record_observation(*, camera="gemini", seconds=10.0, device=0,
-                       store=None, source=None, robot_status_url=None):
+                       store=None, source=None, robot_status_url=None,
+                       on_recording_start=None):
     if not 0 < seconds <= 20:
         raise ValueError("observation duration must be in (0,20] seconds")
     store = store if store is not None else TrialStore()
@@ -107,8 +108,12 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
                     sampler = ReadOnlyRobotSampler(robot_status_url)
                     sampler.start(store, trial_id)
                 print("[CAM] Waiting for first complete RGB-D frame (countdown starts after warmup)...", flush=True)
+                def recording_started(when, length):
+                    countdown.start(when, length)
+                    if on_recording_start is not None:
+                        on_recording_start(when, length)
                 result = TrialVideoRecorder(source, fps=20).capture(
-                    folder, seconds, on_start=countdown.start
+                    folder, seconds, on_start=recording_started
                 )
                 # Preserve SDK-supplied intrinsics from the SAME stream,
                 # without launching a second camera process.
