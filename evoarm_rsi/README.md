@@ -1,7 +1,109 @@
-# EvoArm RSI — P0 experiment infrastructure
+# EvoArm RSI — real RGB-D, evidence-driven micro-experiments
 
-**Status: simulated trials only.** This module cannot command a RoArm. The
-existing `/pick` and `/teach` flows and saved calibration files are unchanged.
+**Status:** RGB-D recording and read-only RoArm telemetry are physically
+verified. The bounded physical single-joint probe and company-model
+multimodal review are now implemented but **NOT YET hardware-validated**
+or CI-verified. The original `/pick` and `/teach` flows are unchanged.
+No unattended open-space grasping is claimed.
+
+## RSI v0.1 — real movement, vision feedback, learn next direction
+
+### Why this is not another mock-only milestone
+
+The real loop (not run automatically on install):
+
+1. The **dedicated Gemini capture process** starts recording actual RGB-D.
+2. Only after its first valid aligned frame, the existing RoArm controller
+   receives exactly **one ±1° base-joint step**, starting from your
+   manually taught Home joint configuration (within 3°).
+3. The existing controller verifies real feedback. If it reports no fault
+   and the move is settled, a bounded reverse step is attempted.
+   **No blind Home motion occurs on any error.**
+4. The real RGB video, per-frame timestamps, depth statistics and
+   controller responses are linked in an analysis file.
+5. Your company-only Grok endpoint receives 5 chronologically ordered
+   RGB keyframes (small JPEGs via OpenAI-compatible `image_url`) plus
+   structured depth and motion facts. Grok may suggest the next
+   **±1° base direction**, or abstain. An abstention ends the loop.
+
+This is **real exploratory movement**, NOT a grasp or general trajectory.
+Nothing is uploaded to a public fallback. Model vision support on
+`grok-4.7-build` must be empirically verified through your company gateway.
+The explicit image+metadata request distinguishes this from uploading a raw
+MP4; video/file input support is not assumed. RGB frames are sent; for now
+depth is provided as numeric scene statistics rather than large colored
+depth maps. Later add cropped depth near ball/TCP when grasp evaluation
+requires it.
+
+### Persistent camera service (eliminates repeated sudo in OpenCode)
+
+From a terminal where Gemini 335L has previously opened under sudo:
+
+```bash
+cd ~/workdir/hackson_RoArm_2026
+sudo /Users/jyang51/miniconda3/envs/evoarm/bin/python \
+  -m evoarm_rsi.camera_service serve
+```
+
+Leave that camera-only terminal running. Its socket lives at
+`~/.evoarm/rsi_camera.sock`, owned by the invoking user, mode `0600`.
+There is **no TCP listener and no robot motion endpoint**. In a separate
+ordinary user terminal or OpenCode:
+
+```bash
+python -m evoarm_rsi.camera_service health
+python -m evoarm_rsi.camera_service record --seconds 10
+```
+
+New trial data are returned to the user's ownership after capture, including
+failed trial artifacts when possible. This does NOT remove macOS's UVC
+restriction; it isolates the required privileged camera access into a
+manually started process instead of granting OpenCode root.
+
+### First bounded real RSI action (requires operator preparation ONCE)
+
+The arm is presently torque-released; **physically support it** until
+torque has been restored using the normal `/teach` controls. Place it
+in the previously recorded Home pose, clear the arm's swept region, start
+the ordinary user control UI with `EVOARM_ENABLE_MOTION=1`, connect to
+the RoArm, and explicitly unlock its existing timed motion session.
+Do not enable torque or unlock via AI code. The existing arm service is
+the only serial owner.
+
+Run the new tests first:
+
+```bash
+python -m unittest tests.test_rsi_micro_agent \
+  tests.test_rsi_camera_service tests.test_rsi_vision_review -v
+```
+
+Then check the controller preflight **without motion**:
+
+```bash
+python -m evoarm_rsi.real_probe --controller http://127.0.0.1:8765
+```
+
+When all prerequisites pass and a person is physically present at the
+robot's emergency stop, start **one** real trial:
+
+```bash
+set -a
+source ~/.evoarm/company_llm.env
+set +a
+python -m evoarm_rsi.micro_agent --execute --iterations 1
+```
+
+Only after this first real motion has been independently reviewed should
+you raise `--iterations` to 2–3. **Never** exceed three trials per
+batch. The controller's timed arming expires automatically, so this code
+does not silently rearm it. If Grok does not support `image_url` or the
+camera UVC stream fails, no further iteration starts.
+
+Evidence is written to
+`~/.evoarm/rsi/analysis/<trial_id>/physical_probe.json` and
+`visual_review.json`. A single 1° movement must never be labeled
+"grasp success" even if the ball is visible in RGB. There is still no
+3D collision-free grasp execution until tool/scene geometry is validated.
 
 ## Local mock run
 
