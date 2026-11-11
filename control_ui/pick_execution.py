@@ -426,7 +426,7 @@ class PickExecutor:
                          "since":time.monotonic(),"elapsed_s":0.0,"stable_intervals":0}
             # Exactly one command is sent. The ordinary /api/status loop verifies
             # arrival and clears pending or enters a latched fault; never autoplay.
-            arm_service.arm.send(command)
+            arm_service._send_motion(command)
             arm_service.last_motion_at=time.monotonic()
             arm_service.pending=pending
             arm_service.last_command={

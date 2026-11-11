@@ -6,7 +6,7 @@ import threading
 import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel
 
 from .service import ArmService
@@ -17,12 +17,20 @@ from .pick_teach import observe_tool_pose
 from .fast_teach import read_poses, capture_pose
 from .pick_execution import executor
 from evoarm_rsi import TrialRunner, TrialStore, TrialPolicy, CompanyModelGateway
+from evoarm.serial_arm import ArmCommunicationError
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 rsi_runner = TrialRunner(store=TrialStore())  # P0: strictly simulated, no serial commands
 service = ArmService()
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
+
+
+@app.exception_handler(ArmCommunicationError)
+async def serial_communication_error(request: Request, exc: ArmCommunicationError):
+    # Some read-only routes (e.g. calibration capture) do not use invoke().
+    return JSONResponse(status_code=409, content={
+        "detail": str(exc), "error_code": "serial_communication_error"})
 
 
 class Connect(BaseModel):

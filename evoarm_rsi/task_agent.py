@@ -216,11 +216,20 @@ def doctor(controller):
     """Existing controller GETs only; no serial ownership, torque or motion."""
     from .real_probe import _base_url, _controller_get
     base = _base_url(controller)
-    result = {"kind": "evoarm_readonly_handoff_v1", "robot_moved": False}
+    result = {"kind": "evoarm_readonly_handoff_v1", "robot_moved": False,
+              "fresh_robot_feedback_verified": False}
+    try:
+        result["available_ports"] = _controller_get(base, "/api/ports")
+    except Exception as exc:
+        result["port_list_error_type"] = type(exc).__name__
     try:
         health = _controller_get(base, "/api/health")
         result["health"] = {k: health.get(k) for k in (
-            "connected", "armed", "motion_enabled", "pending", "fault", "torque_status", "last_command")}
+            "connected", "port", "armed", "motion_enabled", "pending", "fault", "torque_status", "last_command")}
+        if isinstance(result.get("available_ports"), list):
+            result["reported_port_present"] = any(
+                row.get("device") == health.get("port") for row in result["available_ports"]
+                if isinstance(row, dict))
         if health.get("connected") and not health.get("pending"):
             result["stationary_samples"] = []
             for index in range(3):
@@ -232,10 +241,20 @@ def doctor(controller):
                 result["stationary_samples"].append({"request_start_monotonic_ns": request_start,
                     "response_monotonic_ns": time.monotonic_ns(), "status": status})
                 result["status"] = status
+                result["fresh_robot_feedback_verified"] = True
                 if index < 2:
                     time.sleep(.65)
     except Exception as exc:
         result["controller_error_type"] = type(exc).__name__
+        from urllib.error import HTTPError
+        if isinstance(exc, HTTPError):
+            result["controller_http_status"] = exc.code
+            try:
+                body = json.loads(exc.read(16*1024))
+                if isinstance(body.get("detail"), str):
+                    result["controller_error_detail"] = body["detail"][:600]
+            except (ValueError, TypeError, AttributeError):
+                pass
     home = Path.home() / ".evoarm"
     for filename in ("robot_xy_calibration.json", "gemini_board_reference.json"):
         file = home / filename

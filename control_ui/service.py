@@ -625,8 +625,21 @@ class ArmService:
             raise UnsafeMotion(f"上一动作正在等待到位反馈（{elapsed:.1f}秒），请查看下方执行状态")
         return status
 
+    def _send_motion(self, command):
+        """One write attempt; a failed flush may follow a received command."""
+        with self.lock:
+            try:
+                self.arm.send(command)
+            except Exception as exc:
+                self.last_command = {"status": "unverified_fault", "command": command,
+                                     "attempted_at": time.time(), "transmission_confirmed": False}
+                self._latch_fault("motion_transmission_unverified",
+                    "运动指令传输失败，是否已生效未知；已锁定后续动作，未自动重发",
+                    detail=str(exc))
+                raise
+
     def _send_move(self, plan):
-        self.arm.send(plan.payload)
+        self._send_motion(plan.payload)
         self.last_motion_at = time.monotonic()
         self.pending = {"joint": plan.joint, "target_deg": plan.target_deg,
                         "since": time.monotonic(), "elapsed_s": 0.0,
@@ -717,7 +730,7 @@ class ArmService:
                    ("torswitchB", "torswitchS", "torswitchE",
                     "torswitchT", "torswitchR", "torswitchG")):
                 raise UnsafeMotion("一个或多个关节扭矩状态未确认，不能执行整臂复位")
-            self.arm.send({"T": 100})
+            self._send_motion({"T": 100})
             self.last_motion_at = time.monotonic()
             self.pending = {"kind": "factory", "target": "official_init",
                             "since": time.monotonic(), "elapsed_s": 0.0,

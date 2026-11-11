@@ -3,12 +3,14 @@
 All media are synthetic. No robot, company service or Langfuse is accessed.
 """
 import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch, Mock
+from urllib.error import HTTPError
 
 import cv2
 import numpy as np
@@ -188,8 +190,24 @@ class TaskTests(unittest.TestCase):
         self.assertFalse(out["robot_moved"])
         self.assertNotIn("status", out)
         self.assertEqual(read.call_args.args[1], "/api/health")
-        read.assert_called_once()
+        self.assertEqual([call.args[1] for call in read.call_args_list], ["/api/ports", "/api/health"])
+        self.assertFalse(out["fresh_robot_feedback_verified"])
         self.assertEqual(camera.call_args.args[1:3], ("GET", "/health"))
+
+    def test_doctor_distinguishes_reported_connection_from_live_feedback(self):
+        failure = HTTPError("http://127.0.0.1:8765/api/status", 409, "Conflict", {},
+                            io.BytesIO(b'{"detail":"Device not configured"}'))
+        health = {"connected": True, "port": "/dev/cu.old", "pending": None}
+        replies = [[{"device": "/dev/cu.new"}], health, health, failure]
+        with patch("pathlib.Path.home", return_value=self.root), patch(
+            "evoarm_rsi.real_probe._controller_get", side_effect=replies), patch(
+            "evoarm_rsi.camera_service.client_request", return_value={"robot_control": False}):
+            out = doctor("http://127.0.0.1:8765")
+        self.assertTrue(out["health"]["connected"])
+        self.assertFalse(out["reported_port_present"])
+        self.assertFalse(out["fresh_robot_feedback_verified"])
+        self.assertEqual(out["controller_http_status"], 409)
+        self.assertEqual(out["controller_error_detail"], "Device not configured")
 
 
 class MemoryTests(unittest.TestCase):

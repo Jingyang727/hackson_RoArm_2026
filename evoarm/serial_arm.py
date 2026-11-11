@@ -35,12 +35,27 @@ class RoArmSerial:
             self.ser.close()
             self.ser = None
 
+    @staticmethod
+    def _serial_io(operation, function, *args):
+        """Normalize driver/termios errors without retrying any I/O.
+
+        POSIX termios.error is NOT an OSError. Restrict this wrapper to
+        transport calls so parsing/planning errors are not concealed.
+        """
+        try:
+            return function(*args)
+        except Exception as exc:
+            kind = type(exc).__module__ + "." + type(exc).__name__
+            raise ArmCommunicationError(
+                f"串口{operation}失败（{kind}: {exc}）；请核查设备连接，未自动重连或重发"
+            ) from exc
+
     def send(self, payload):
         if not self.ser or not self.ser.is_open:
             raise ArmCommunicationError("串口未打开")
         line = json.dumps(payload, separators=(",", ":")) + "\n"
-        self.ser.write(line.encode())
-        self.ser.flush()
+        self._serial_io("写入", self.ser.write, line.encode())
+        self._serial_io("刷新输出", self.ser.flush)
 
     def _wait_until_quiet(self, cap):
         last = time.monotonic()
@@ -56,11 +71,12 @@ class RoArmSerial:
     def status(self, timeout=4.0):
         if not self.ser:
             raise ArmCommunicationError("串口未打开")
-        self.ser.reset_input_buffer()
+        self._serial_io("清空接收缓冲区", self.ser.reset_input_buffer)
         self.send({"T": 105})
         until = time.monotonic() + timeout
         while time.monotonic() < until:
-            data = self.ser.readline().decode("utf-8", errors="replace").strip()
+            raw = self._serial_io("读取", self.ser.readline)
+            data = raw.decode("utf-8", errors="replace").strip()
             if "{" not in data:
                 continue
             try:

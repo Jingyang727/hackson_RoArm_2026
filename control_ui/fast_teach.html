@@ -90,7 +90,15 @@ let health=null,feedback=null,poses=null,busy=false,poll=null;
 let activeTeachingCommand=null,lastPresentedCommand=null,knownExpired=false;
 async function api(path,method="GET",body){
  const res=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
- const data=await res.json();if(!res.ok)throw Error(data.detail||"HTTP "+res.status);return data;
+ const raw=await res.text();let data;
+ try{data=JSON.parse(raw)}catch{
+  throw Error("服务端 HTTP "+res.status+"（"+path+"）返回非 JSON 响应，请检查控制服务终端日志；本次请求未自动重试");
+ }
+ if(!res.ok){
+  const detail=typeof data?.detail==="string"?data.detail:"请求被拒绝";
+  throw Error("HTTP "+res.status+"（"+path+"）："+detail);
+ }
+ return data;
 }
 const finite=v=>typeof v==="number"&&Number.isFinite(v);
 const degrees=v=>v*180/Math.PI;
