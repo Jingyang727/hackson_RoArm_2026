@@ -163,7 +163,16 @@ Occluded checkerboard corners may prevent live board XY; the program
 reports this rather than loading stale old-camera corners.
 
 A 3D camera-space point can optionally be calculated using a separately
-verified **Gemini COLOR-aligned** intrinsics JSON:
+verified **Gemini COLOR-aligned** intrinsics JSON. **New recordings** now
+automatically save `gemini_color_intrinsics.json` from the *active*
+`Pipeline.get_camera_param().rgb_intrinsic` if SDK calibration is valid.
+The file has `verified: false` by default because an SDK value alone does
+not verify RGB/depth optical alignment or camera-to-robot calibration.
+
+Older trials (including Trial 002) do not contain that file; they can still
+run offline 2D + depth analysis without repeating a capture.
+
+Expected structure:
 
 ```json
 {
@@ -173,10 +182,12 @@ verified **Gemini COLOR-aligned** intrinsics JSON:
 }
 ```
 
-Those zeros are placeholders only: **do not use this file as-is**. Obtain
-actual fx/fy/cx/cy from the SDK's active color stream calibration and
-verify them, set `verified` true after checking image resolution and
-alignment, then pass `--intrinsics /path/to/gemini_intrinsics.json`.
+Those zeros are placeholders only: **do not use this file as-is**.
+For a new trial, inspect the automatically saved SDK parameters and verify
+their image resolution against `rgb.mp4` and the RGB-to-depth alignment.
+Only after independent verification, copy the candidate to a separate
+approved calibration file, change `verified` to true, and pass
+`--intrinsics /path/to/approved_intrinsics.json`.
 A camera-space point is still **not a robot-base target**. This stage
 intentionally does not produce robot XYZ or move any actuators until
 camera-to-robot extrinsics, tool TCP and collision constraints have been
