@@ -23,6 +23,8 @@ import pwd
 import socket
 import socketserver
 import stat
+import threading
+import time
 from http.server import BaseHTTPRequestHandler
 
 from .core import TrialStore
@@ -42,11 +44,15 @@ def socket_path(home):
     return Path(home)/".evoarm"/"rsi_camera.sock"
 
 
-class CameraServer(socketserver.UnixStreamServer):
+class CameraServer(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
     allow_reuse_address=False
+    daemon_threads=True
     def __init__(self,path,uid,gid,home):
         self.uid,self.gid,self.home=uid,gid,Path(home)
         self.recording=False
+        self.phase="idle"
+        self.started_monotonic_ns=None
+        self.capture_lock=threading.Lock()
         super().__init__(str(path),CameraHandler)
         os.chown(path,uid,gid)
         os.chmod(path,0o600)
@@ -72,13 +78,15 @@ class CameraHandler(BaseHTTPRequestHandler):
             return
         self._respond(200,{"camera_service":"ready","robot_control":False,
                            "privileged_capture":True,
-                           "recording":self.server.recording})
+                           "recording":self.server.recording,
+                           "phase":self.server.phase,
+                           "recording_started_monotonic_ns":self.server.started_monotonic_ns})
 
     def do_POST(self):
         if self.path!="/record":
             self._respond(404,{"error":"not found"})
             return
-        if self.server.recording:
+        if not self.server.capture_lock.acquire(blocking=False):
             self._respond(409,{"error":"camera already recording"})
             return
         try:
@@ -91,13 +99,22 @@ class CameraHandler(BaseHTTPRequestHandler):
             seconds=args["seconds"]
             if type(seconds) not in (float,int) or not 0<seconds<=20:
                 raise ValueError("seconds must be in (0,20]")
-        except (ValueError,TypeError,UnicodeError,json.JSONDecodeError) as exc:
+        except (ValueError,TypeError,UnicodeError,json.JSONDecodeError):
+            self.server.capture_lock.release()
             self._respond(400,{"error":"invalid capture request"})
             return
         self.server.recording=True
+        self.server.phase="warming"
+        self.server.started_monotonic_ns=None
         try:
             store=TrialStore(self.server.home/".evoarm"/"rsi"/"experiments")
-            result=record_observation(camera="gemini",seconds=seconds,store=store)
+            def on_recording_start(start, duration):
+                self.server.phase="recording"
+                self.server.started_monotonic_ns=int(start*1e9)
+            result=record_observation(
+                camera="gemini",seconds=seconds,store=store,
+                on_recording_start=on_recording_start
+            )
             trial_folder=Path(result["folder"])
             # Only change files CREATED by this recording, never repo or
             # historical calibration files.
@@ -112,6 +129,9 @@ class CameraHandler(BaseHTTPRequestHandler):
                                "error":"Gemini recording failed; inspect the camera service terminal"})
         finally:
             self.server.recording=False
+            self.server.phase="idle"
+            self.server.started_monotonic_ns=None
+            self.server.capture_lock.release()
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
