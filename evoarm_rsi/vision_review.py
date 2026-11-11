@@ -162,6 +162,22 @@ def _validate_review(value, *, motion_recorded, grasp_attempted=True):
     if any(type(v) not in (int,float) or not math.isfinite(v)
            for v in changes.values()):
         raise ValueError("nonfinite proposed changes")
+    if len(changes)>1:
+        raise ValueError("one policy parameter change per experiment only")
+    # Suggestions are small and bounded even though they are not executed by
+    # this reviewer. Full policy range is checked independently.
+    from .core import TrialPolicy
+    baseline=TrialPolicy()
+    if changes:
+        baseline.updated(changes)
+        key,value=next(iter(changes.items()))
+        maximum={
+            "offset_x_mm":2.0,"offset_y_mm":2.0,
+            "grasp_z_offset_mm":2.0,"gripper_close_deg":3.0,
+            "approach_speed":0.02,
+        }[key]
+        if abs(value-getattr(baseline,key))>maximum+1e-9:
+            raise ValueError("agent parameter change exceeds per-trial exploration budget")
     if not motion_recorded or not grasp_attempted:
         # A 1-degree exploration is REAL motion, but NOT a grasp attempt.
         # In neither case may the model hallucinate pick-up or drop.
