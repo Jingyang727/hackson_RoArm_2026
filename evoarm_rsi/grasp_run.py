@@ -188,6 +188,31 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
             path.mkdir(parents=True,exist_ok=True)
             (path/"grasp_attempt.json").write_text(
                 json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+    # One *retrospective* Grok review after motion has stopped. Company-only,
+    # no automatic next motor command even if the model proposes changes.
+    report["grok_review_file"]=None
+    report["grok_review_error"]=None
+    if camera_trials:
+        try:
+            from .gateway import CompanyModelGateway
+            from .vision_review import review_trial
+            gateway=CompanyModelGateway()
+            if gateway.configured():
+                last=camera_trials[-1]
+                last_trial=Path(last["folder"])
+                judged=review_trial(last_trial,gateway=gateway,frames=5)
+                target=(Path.home()/".evoarm"/"rsi"/"analysis"/last_trial.name/
+                        "visual_review.json")
+                target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_text(
+                    json.dumps(judged,ensure_ascii=False,indent=2),encoding="utf-8"
+                )
+                report["grok_review_file"]=str(target)
+            else:
+                report["grok_review_error"]="company Grok token not configured"
+        except Exception as exc:
+            report["grok_review_error"]=f"{type(exc).__name__}: {str(exc)[:200]}"
+    output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     if failure:
         raise RuntimeError(
             f"grasp trial stopped: {failure}. No retry or automatic return. "
