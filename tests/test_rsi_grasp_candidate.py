@@ -10,7 +10,7 @@ Q={
     "robot_xy_preview_mm":[360.68,-11.03],
 }
 POSES={"poses":{
-    "home":{"xyz_mm":[360.339,-4.975,182.572]},
+    "home":{"xyz_mm":[360.339,-4.975,182.572],"pitch_rad":0.31,"roll_rad":0.02},
     "hover":{"xyz_mm":[362.171,-1.111,-34.895],"pitch_rad":0.31,"roll_rad":0.02},
     "grasp":{"xyz_mm":[361.05,-1.108,-86.787],"pitch_rad":0.31,"roll_rad":0.02},
     "place":{"xyz_mm":[266.348,263.099,-32.417]},
@@ -38,6 +38,31 @@ class GraspCandidateTests(unittest.TestCase):
             if previous is not None:
                 self.assertLessEqual(abs(z-previous),20.01)
             previous=z
+
+    def test_live_home_generates_bounded_high_then_vertical_transition(self):
+        start={"x":360.339,"y":-4.975,"z":182.572,
+               "tit":0.31,"r":0.02}
+        plan=build_grasp_candidate(Q,POSES,start_status=start)
+        self.assertEqual(plan["start_mode"],"live_home_transit")
+        self.assertGreater(plan["home_transition_stages"],10)
+        self.assertEqual(plan["waypoints"][0]["stage"],"home_high_align")
+        self.assertAlmostEqual(plan["waypoints"][0]["xyz_mm"][2],182.572,places=2)
+        self.assertIn("hover_ball",[x["stage"] for x in plan["waypoints"]])
+        zs=[x["xyz_mm"][2] for x in plan["waypoints"]
+            if x["kind"]=="cartesian"]
+        self.assertLessEqual(max(abs(b-a) for a,b in zip(zs,zs[1:])),20.01)
+        self.assertFalse(plan["motion_authorized"])
+
+    def test_not_at_taught_home_or_far_xy_does_not_move(self):
+        start={"x":360.339,"y":-4.975,"z":182.572,
+               "tit":0.31,"r":0.02}
+        with self.assertRaisesRegex(GraspCandidateError,"does not match taught Home"):
+            build_grasp_candidate(Q,POSES,
+                                  start_status={**start,"z":100.0})
+        with self.assertRaisesRegex(GraspCandidateError,"local corridor"):
+            build_grasp_candidate({**Q,"robot_xy_preview_mm":[380,-30]},
+                                  POSES,start_status=start,
+                                  max_xy_shift_mm=50)
 
     def test_rejects_stale_ball_and_incomplete_teaching(self):
         with self.assertRaisesRegex(GraspCandidateError,"stable"):
