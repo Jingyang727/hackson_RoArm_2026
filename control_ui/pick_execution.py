@@ -26,6 +26,31 @@ class PickExecutor:
         self.cancelled = False
         self.rsi_batch_approved = False
         self.rsi_batch_until = 0.0
+        self.rsi_runtime_until = 0.0
+
+    def enable_rsi_once(self, arm_service, declaration):
+        """One short RSI permission attached to an EXISTING human arm lease.
+
+        This does not unlock the robot, change torque or recover faults.
+        Avoids restarting the sole serial owner to set three feature flags.
+        """
+        with self.lock, arm_service.lock:
+            if declaration != "已在现场确认本次RSI抓取、运动范围和可断电":
+                raise PickExecutionError("explicit local operator consent required")
+            h=arm_service.health()
+            if not (h.get("connected") and h.get("motion_enabled") and
+                    h.get("armed") and not h.get("fault") and
+                    not h.get("pending") and not h.get("teach_active") and
+                    h.get("torque_status")==[1]*6 and
+                    set(h.get("allowed_joints",[]))==set(range(1,7))):
+                raise PickExecutionError(
+                    "manual arm unlock, six torque locks and fault-free controller required"
+                )
+            self.rsi_runtime_until=min(
+                time.monotonic()+600,arm_service.armed_until
+            )
+            return {"one_trial_enabled":True,"restart_required":False,
+                    "expires_in_s":round(self.rsi_runtime_until-time.monotonic(),1)}
 
     def state(self, arm_service=None):
         with self.lock:
@@ -155,10 +180,12 @@ class PickExecutor:
         from evoarm_rsi.grasp_candidate import build_grasp_candidate
 
         with self.lock, arm_service.lock:
-            if os.getenv("EVOARM_ENABLE_PICK", "0")!="1" or os.getenv(
-                    "EVOARM_ENABLE_RSI_GRASP", "0")!="1":
+            runtime_ok=(time.monotonic()<self.rsi_runtime_until)
+            flags_ok=(os.getenv("EVOARM_ENABLE_PICK","0")=="1" and
+                      os.getenv("EVOARM_ENABLE_RSI_GRASP","0")=="1")
+            if not (runtime_ok or flags_ok):
                 raise PickExecutionError(
-                    "RSI v2 hardware grasp requires explicit ENABLE_PICK and ENABLE_RSI_GRASP"
+                    "RSI grasp requires current one-trial operator permission"
                 )
             if declaration!="已检查当前Gemini黄球位置、夹爪高度和运动区域":
                 raise PickExecutionError("operator confirmation of CURRENT ball/tool is required")
@@ -196,7 +223,24 @@ class PickExecutor:
                 raise PickExecutionError("servo torque feedback must be locked")
             from .pick_plan import _num
             xyz=[_num(fb.get(k),k) for k in "xyz"]
-            # Use LIVE T=1051 Home, measured v2 Home and current ball.
+            # Use actual T=1051 geometry, never the old taught Home
+            # comparison alone. Require the OFFICIAL factory joint posture,
+            # reached through the existing operator-controlled factory init.
+            from .safety import FACTORY_DEGREES, current_degrees
+            joint_angles=current_degrees(fb)
+            deviations={
+                j:round(joint_angles[j]-official,3)
+                for j,official in FACTORY_DEGREES.items()
+            }
+            if any(abs(delta)>5.0 for delta in deviations.values()):
+                raise PickExecutionError(
+                    "not at verified official factory initial posture; "
+                    "use existing guided factory-init UI, then recheck real T1051: "
+                    +str(deviations)
+                )
+            # Use LIVE T=1051 geometry; do not assume factory XYZ is the
+            # same as the old user-taught Home.
+                        # Use LIVE T=1051 Home, measured v2 Home and current ball.
             # Never automatically drive an arbitrary parked pose toward
             # the board; the bounded high-position-to-vertical plan must
             # first fit both recorded and observed robot geometry.
@@ -204,8 +248,8 @@ class PickExecutor:
                 q,json.loads(poses.read_text(encoding="utf-8")),
                 start_status=fb
             )
-            if plan.get("start_mode")!="live_home_transit":
-                raise PickExecutionError("live Home-to-Hover transition not available")
+            if plan.get("start_mode")!="live_high_pose_transit":
+                raise PickExecutionError("live factory-to-Hover transition not available")
             # If any full-board observations show displaced reference,
             # refuse a persisted camera map before moving the robot.
             localization_file=analysis/"rgbd_localization.json"
@@ -220,11 +264,14 @@ class PickExecutor:
             self.next_index=0
             self.cancelled=False
             self.rsi_batch_approved=(
-                os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1"
+                runtime_ok or os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1"
             )
             self.rsi_batch_until=(
-                time.monotonic()+180 if self.rsi_batch_approved else 0.0
+                min(time.monotonic()+600,arm_service.armed_until)
+                if self.rsi_batch_approved else 0.0
             )
+            # Runtime grant applies to exactly ONE session.
+            self.rsi_runtime_until=0.0
             progress=self.state(arm_service)
             progress["rsi_grasp_trial_id"]=trial_id
             progress["grasp_and_lift_only"]=True
@@ -256,14 +303,19 @@ class PickExecutor:
                 raise PickExecutionError("步骤序号不匹配，禁止重复发送或跳步")
             if step_index >= len(self.plan["waypoints"]):
                 raise PickExecutionError("步骤已经完成，禁止重复执行")
-            if os.getenv("EVOARM_ENABLE_PICK", "0") != "1":
+            rsi_granted=(
+                self.plan.get("kind")=="rsi_v2_gemini_grasp_and_lift_candidate"
+                and self.rsi_batch_approved
+                and time.monotonic()<self.rsi_batch_until
+            )
+            if os.getenv("EVOARM_ENABLE_PICK","0")!="1" and not rsi_granted:
                 raise PickExecutionError("真实执行权限未打开")
             is_batch=(
                 declaration=="已批准一次RSI抓取试次自动分段执行" and
                 self.rsi_batch_approved and not self.cancelled and
                 time.monotonic()<self.rsi_batch_until and
                 self.plan.get("kind")=="rsi_v2_gemini_grasp_and_lift_candidate" and
-                os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1"
+                (os.getenv("EVOARM_ENABLE_RSI_BATCH","0")=="1" or rsi_granted)
             )
             if not is_batch and declaration != "已目视确认本步的运动空间与位置":
                 raise PickExecutionError("每步需要人工核查，或已有一次明确授权的有限RSI试次")
