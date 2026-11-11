@@ -286,6 +286,25 @@ class PickExecutor:
             progress["grasp_and_lift_only"]=True
             return progress
 
+    def recover_rsi_stall(self, token, arm_service):
+        """Operator's one-run RSI consent permits a readback-only auto
+        software reset for a stalled Cartesian stage, not motor re-arming.
+        """
+        with self.lock, arm_service.lock:
+            if (self.cancelled or token!=self.session_id or
+                    not self.plan or
+                    self.plan.get("kind")!="rsi_v2_gemini_grasp_and_lift_candidate" or
+                    not self.rsi_batch_approved or
+                    time.monotonic()>=self.rsi_batch_until):
+                raise PickExecutionError("本次RSI抓取会话未授权自动异常复核")
+            result=arm_service.recover_rsi_cartesian_stall(self.session_id)
+            # The action was not confirmed and the physical arm may have
+            # stopped short: this session must never continue blindly.
+            self.cancelled=True
+            self.rsi_batch_approved=False
+            self.rsi_batch_until=0.0
+            return {**result,"session_cancelled":True,"may_resume":False}
+
     def cancel(self, arm_service):
         with self.lock, arm_service.lock:
             self.cancelled = True
