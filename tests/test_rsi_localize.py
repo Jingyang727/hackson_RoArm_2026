@@ -71,7 +71,7 @@ class RGBDLocalizationTests(unittest.TestCase):
             H = np.eye(3,dtype=np.float64)
             with (patch("cv2.VideoCapture",return_value=FakeVideo(frame)),
                   patch("control_ui.vision.find_chessboard",return_value=(grid,H))):
-                report = locate_saved_trial(d)
+                report = locate_saved_trial(d, output_file=Path(d)/"rgbd_localization.json")
             self.assertEqual(report["ball_frames_detected"],2)
             self.assertEqual(report["ball_frames_with_valid_depth"],2)
             self.assertEqual(report["ball_frames_with_live_board_xy"],2)
@@ -102,10 +102,22 @@ class RGBDLocalizationTests(unittest.TestCase):
             path.write_text(json.dumps(base))
             with (patch("cv2.VideoCapture",return_value=FakeVideo(frame)),
                   patch("control_ui.vision.find_chessboard",return_value=(None,None))):
-                report=locate_saved_trial(d,intrinsics_file=path)
+                report=locate_saved_trial(d,intrinsics_file=path,
+                                    output_file=Path(d)/"rgbd_localization.json")
             self.assertTrue(report["camera_intrinsics_verified"])
             self.assertIsNotNone(report["observations"][0]["ball_camera_surface_xyz_mm"])
             self.assertIsNone(report["robot_target_xyz_mm"])
+
+    def test_can_analyze_readonly_source_without_writing_back(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as outdir:
+            frame = self._sample(source)
+            destination = Path(outdir) / "analysis.json"
+            with (patch("cv2.VideoCapture", return_value=FakeVideo(frame)),
+                  patch("control_ui.vision.find_chessboard", return_value=(None, None))):
+                result = locate_saved_trial(source, output_file=destination)
+            self.assertTrue(destination.is_file())
+            self.assertEqual(result["analysis_output_file"], str(destination))
+            self.assertFalse((Path(source)/"rgbd_localization.json").exists())
 
     def test_unmatched_depth_and_rgb_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:
