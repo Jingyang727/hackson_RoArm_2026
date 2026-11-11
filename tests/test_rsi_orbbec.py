@@ -105,6 +105,39 @@ class GeminiWarmupTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "mismatch"):
                 camera.read()
 
+    def test_recording_clock_starts_after_warmup_and_depth_spans_window(self):
+        import tempfile
+        from pathlib import Path
+        from evoarm_rsi.camera import CameraFrame, TrialVideoRecorder
+
+        state = {"t": 0.0, "calls": 0}
+
+        class FakeSource:
+            def read(self):
+                state["calls"] += 1
+                # Simulate a three-second startup before the first frame.
+                state["t"] += 3.0 if state["calls"] == 1 else 0.1
+                return CameraFrame(
+                    rgb_bgr=np.zeros((3, 4, 3), dtype=np.uint8),
+                    depth_mm=np.ones((3, 4), dtype=np.uint16),
+                    monotonic_ns=int(state["t"] * 1e9),
+                    camera_name="mock_rgbd",
+                )
+
+        with tempfile.TemporaryDirectory() as temp:
+            with patch("cv2.VideoWriter") as writer:
+                writer.return_value.isOpened.return_value = True
+                result = TrialVideoRecorder(
+                    FakeSource(), fps=10, max_depth_frames=3
+                ).capture(Path(temp), 1.0, clock=lambda: state["t"])
+                writer.return_value.release.assert_called_once()
+            self.assertGreaterEqual(result["frames"], 7)
+            self.assertEqual(result["depth_samples"], 3)
+            self.assertGreater(state["t"], 4.0)
+            with np.load(Path(temp) / "depth_samples.npz") as depth:
+                stamps = depth["monotonic_ns"]
+                self.assertGreater(float(stamps[-1] - stamps[0]) / 1e9, 0.5)
+
     def test_unstarted_pipeline_fails_immediately(self):
         with self.assertRaisesRegex(RuntimeError, "not started"):
             Gemini335LProvider().read()
