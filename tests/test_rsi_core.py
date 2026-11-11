@@ -117,6 +117,64 @@ class RSICoreTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not configured"):
             OrbbecRGBDAdapter().start()
 
+    def test_company_gateway_long_reasoning_content_and_fenced_json(self):
+        from io import BytesIO
+        from evoarm_rsi.gateway import _extract_changes
+
+        class FakeResponse:
+            status = 200
+            def __init__(self, body):
+                self.body = BytesIO(body)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def read(self, size=-1):
+                return self.body.read(size)
+
+        completion = {
+            "choices": [{"message": {
+                "role": "assistant",
+                "reasoning_content": "analysis " * 28000,
+                "content": 'Final result:\\n```json\\n{"changes":{"offset_x_mm":-2.0}}\\n```',
+            }}]
+        }
+        payload = json.dumps(completion).encode("utf-8")
+        self.assertGreater(len(payload), 128000)
+        def fake_urlopen(req, timeout):
+            self.assertGreaterEqual(timeout, 30)
+            self.assertIn("Bearer example-secret", req.get_header("Authorization"))
+            return FakeResponse(payload)
+
+        with patch.dict(os.environ, {
+            "EVOARM_COMPANY_LLM_BASE_URL": "https://internal.example.test/v1",
+            "EVOARM_COMPANY_LLM_MODEL": "mock",
+            "EVOARM_COMPANY_LLM_TOKEN": "example-secret",
+        }):
+            with patch("evoarm_rsi.gateway.request.urlopen", side_effect=fake_urlopen):
+                result = CompanyModelGateway().propose_next(
+                    TrialPolicy().__dict__, {"simulated": True},
+                )
+        self.assertEqual(result, {"offset_x_mm": -2.0})
+        self.assertEqual(_extract_changes('{"changes":{"offset_y_mm":1}}'),
+                         {"offset_y_mm": 1})
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            _extract_changes('{"changes":{"offset_x_mm":1}} {"changes":{"offset_y_mm":1}}')
+
+    def test_company_gateway_transport_error_retains_reason_without_token(self):
+        from urllib.error import URLError
+        with patch.dict(os.environ, {
+            "EVOARM_COMPANY_LLM_BASE_URL": "https://internal.example.test/v1",
+            "EVOARM_COMPANY_LLM_MODEL": "mock",
+            "EVOARM_COMPANY_LLM_TOKEN": "top-secret",
+        }):
+            with patch("evoarm_rsi.gateway.request.urlopen",
+                       side_effect=URLError("TLS certificate verify failed")):
+                with self.assertRaisesRegex(RuntimeError, "TLS certificate verify failed") as caught:
+                    CompanyModelGateway().propose_next(TrialPolicy().__dict__, {})
+        self.assertIsInstance(caught.exception.__cause__, URLError)
+        self.assertNotIn("top-secret", str(caught.exception))
+
     def test_company_gateway_requires_explicit_env_no_public_fallback(self):
         with patch.dict(os.environ, {}, clear=True):
             gateway = CompanyModelGateway()
