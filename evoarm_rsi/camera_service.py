@@ -108,21 +108,30 @@ class CameraHandler(BaseHTTPRequestHandler):
         self.server.started_monotonic_ns=None
         try:
             store=TrialStore(self.server.home/".evoarm"/"rsi"/"experiments")
+            store.root.mkdir(parents=True,exist_ok=True)
+            before=set(p.name for p in store.root.iterdir() if p.is_dir())
             def on_recording_start(start, duration):
                 self.server.phase="recording"
                 self.server.started_monotonic_ns=int(start*1e9)
-            result=record_observation(
-                camera="gemini",seconds=seconds,store=store,
-                on_recording_start=on_recording_start
-            )
-            trial_folder=Path(result["folder"])
-            # Only change files CREATED by this recording, never repo or
-            # historical calibration files.
-            for path in trial_folder.rglob("*"):
-                if path.is_symlink():
-                    raise RuntimeError("unexpected symlink in trial artifacts")
-                os.chown(path,self.server.uid,self.server.gid)
-            os.chown(trial_folder,self.server.uid,self.server.gid)
+            try:
+                result=record_observation(
+                    camera="gemini",seconds=seconds,store=store,
+                    on_recording_start=on_recording_start
+                )
+            finally:
+                # Make newly created files owner-accessible even on camera
+                # failure. Only affect this service's newly created trial
+                # UUID directories, never calibration or existing trials.
+                for trial_folder in store.root.iterdir():
+                    name=trial_folder.name
+                    if (name in before or not trial_folder.is_dir() or
+                            len(name)!=32 or any(ch not in "0123456789abcdef" for ch in name)):
+                        continue
+                    for path in trial_folder.rglob("*"):
+                        if path.is_symlink():
+                            raise RuntimeError("unexpected symlink in trial artifacts")
+                        os.chown(path,self.server.uid,self.server.gid)
+                    os.chown(trial_folder,self.server.uid,self.server.gid)
             self._respond(200,result)
         except Exception as exc:
             self._respond(500,{"error_type":type(exc).__name__,
