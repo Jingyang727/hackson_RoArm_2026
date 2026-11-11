@@ -100,12 +100,22 @@ def describe_evidence(trial_dir):
     linked_real_motion=bool(
         linked_probe and physical_probe.get("robot_motion_confirmed") is True
     )
+    motion_audit=None
+    if linked_probe:
+        from .motion_audit import audit_physical_probe
+        try:
+            motion_audit=audit_physical_probe(physical_probe)
+        except (TypeError,ValueError,KeyError):
+            # Source log is retained even if an older incomplete trial
+            # cannot support a numeric motion audit.
+            pass
     info={
         "trial_id":manifest.get("trial_id"),
         "trial_kind":manifest.get("kind"),
         "real_video":True,
         "robot_motion_executed":bool(manifest.get("robot_motion_executed",False)) or linked_real_motion,
         "grasp_attempted":bool(manifest.get("grasp_attempted",False)),
+        "motion_audit":motion_audit,
         "linked_physical_probe":(
             {"robot_moved":physical_probe.get("robot_moved",False),
              "command_attempted":physical_probe.get("command_attempted",False),
@@ -253,6 +263,10 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "as -1, +1, or null to choose the next direction. The executor "
         "independently fixes step size at 5 or 10 degrees and applies hardware limits. "
         "Prefer null if observations do not establish a sensible direction. "
+        "If numeric T=1051 motion_audit exists, explicitly state the measured "
+        "displacement, residual target error, and whether actual return "
+        "completed; distinguish motor command acceptance from exact arrival. "
+        "Numeric robot feedback takes precedence over image-only impressions. "
         "Any changes are suggestions for a LATER trial, not motor commands."
     )
     content=[{"type":"text","text":json.dumps({
