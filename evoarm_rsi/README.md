@@ -258,6 +258,34 @@ No robot motion is involved; if the arm is torque-released, keep it
 physically supported during this camera-only trial. Existing calibrations
 are never overwritten.
 
+## Trial 003.1 independent qualification from saved footage
+
+A first analysis of real trial `bca3c4c1d5c449368a2e149f39b8479f`
+found nine yellow-object false positives outside the 9×6 inner-corner
+board. Repeated detection alone is not an on-board ball confirmation.
+
+A new offline `qualify` command requires a stable on-board cluster and
+a positive ball-to-background depth contrast, and combines that cluster
+with the *old measured and held-out validated* 2D board→RoArm transform:
+
+```bash
+python -m unittest tests.test_rsi_qualify -v
+python -m evoarm_rsi.qualify \
+  ~/.evoarm/rsi/experiments/bca3c4c1d5c449368a2e149f39b8479f
+```
+
+Result is written in the user-owned analysis directory as
+`ball_qualification.json` and includes the *preview-only* board XY and
+RoArm-base XY. **Never directly command the robot to this XY.** Whether
+the board's physical origin/orientation still match the old calibration
+must be verified using known reference points. No robot-base Z,
+tool-center-point or collision-free trajectory has been calibrated.
+
+Independent geometric review of this trial reconstructed 93 neighboring
+3D chessboard-corner distances: their median was about 23.88mm against
+the printed 24mm grid pitch. This supports the SDK color intrinsics and
+depth scale locally, **but does not verify a camera→robot 3D transform**.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
