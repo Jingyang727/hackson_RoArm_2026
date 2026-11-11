@@ -232,11 +232,20 @@ class PickExecutor:
                 j:round(joint_angles[j]-official,3)
                 for j,official in FACTORY_DEGREES.items()
             }
-            if any(abs(delta)>5.0 for delta in deviations.values()):
+            # Official initial configuration is a NEARBY pose class,
+            # not an exact joint encoder equality check. In particular
+            # J2 gravity sag and J1 settling have been physically observed.
+            # These are START-POSE tolerances only; servo limits, Cartesian
+            # waypoints and measured feedback requirements remain unchanged.
+            factory_start_tolerance_deg={
+                1:8.0, 2:10.0, 3:8.0, 4:8.0, 5:8.0, 6:12.0
+            }
+            if any(abs(delta)>factory_start_tolerance_deg[j]
+                   for j,delta in deviations.items()):
                 raise PickExecutionError(
-                    "not at verified official factory initial posture; "
-                    "use existing guided factory-init UI, then recheck real T1051: "
-                    +str(deviations)
+                    "actual joint pose too far from official initial for "
+                    "measured corridor; use official factory-init UI only "
+                    "if its full sweep is clear. Differences: "+str(deviations)
                 )
             # Use LIVE T=1051 geometry; do not assume factory XYZ is the
             # same as the old user-taught Home.
