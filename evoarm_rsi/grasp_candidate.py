@@ -86,17 +86,18 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         if any(type(v) not in (float,int) or not math.isfinite(v)
                for v in (*current,hp,hr,home_pitch,home_roll)):
             raise GraspCandidateError("invalid real Home XYZ/Pitch/Roll feedback")
-        if (math.dist(current[:2],home_xyz[:2])>18 or
-                abs(current[2]-home_xyz[2])>18):
-            raise GraspCandidateError(
-                "current robot does not match taught Home XYZ; no blind Home-to-Hover motion"
-            )
+        # Home is a REFERENCE taught earlier, not a mandatory return
+        # target. Do not reject today's real parked pose merely because
+        # J1/J2 gravity offset shifted Z by ~21mm.
+        # Eligibility is based on CURRENT position, tool attitude and
+        # an intentionally narrow high-altitude corridor above the ball.
+        start_to_saved_home_xyz_mm=round(math.dist(current,home_xyz),2)
         pitch_delta=abs(math.degrees(hp-home_pitch))
         roll_delta=abs(math.degrees(math.atan2(
             math.sin(hr-home_roll),math.cos(hr-home_roll)
         )))
         if pitch_delta>15 or roll_delta>15:
-            raise GraspCandidateError("actual Home tool attitude differs from taught Home")
+            raise GraspCandidateError("current tool attitude differs >15deg from taught safe attitude")
         travel_xy=math.dist(current[:2],xy)
         if travel_xy>30:
             raise GraspCandidateError(
@@ -110,11 +111,11 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         # remains subject to a human checking the 3D swept volume.
         if travel_xy>1:
             transit.append({
-                "stage":"home_high_align","kind":"cartesian",
+                "stage":"current_high_align","kind":"cartesian",
                 "xyz_mm":[round(x,2),round(y,2),round(current[2],2)],
                 "t":round(hp,5),"r":round(hr,5),"g":round(open_g,5),
                 "spd":0.08,
-                "reason":"Home高位先对齐球的XY；须确认这段空间无遮挡",
+                "reason":"从当前实测高位小步对齐球的XY；须确认这段空间无遮挡",
                 "requires_operator_confirm":True,
             })
         dz=current[2]-hover[2]
@@ -127,14 +128,14 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         for i in range(1,count+1):
             alpha=i/count
             transit.append({
-                "stage":("hover_ball" if i==count else f"home_descend_{i:02d}"),
+                "stage":("hover_ball" if i==count else f"current_descend_{i:02d}"),
                 "kind":"cartesian",
                 "xyz_mm":[round(x,2),round(y,2),
                           round(current[2]-dz*alpha,2)],
                 "t":round(hp+(pitch_h-hp)*alpha,5),
                 "r":round(hr+roll_short*alpha,5),
                 "g":round(open_g,5),"spd":0.08,
-                "reason":"从实测Home高位沿球上方竖直走廊逐段接近Hover",
+                "reason":"从当前实测高位沿球上方竖直走廊逐段接近Hover",
                 "requires_operator_confirm":True,
             })
 
@@ -174,7 +175,11 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         "ball_board_xy_mm":qualification.get("ball_board_xy_mm"),
         "ball_robot_xy_mm":[round(x,2),round(y,2)],
         "measured_hover_xyz_mm":hover,
-        "start_mode":"live_home_transit" if transit else "hover_only_offline",
+        "start_mode":"live_high_pose_transit" if transit else "hover_only_offline",
+        "start_xyz_from_live_feedback_mm":current if transit else None,
+        "distance_to_old_taught_home_xyz_mm":(
+            start_to_saved_home_xyz_mm if transit else None
+        ),
         "measured_home_xyz_mm":home_xyz,
         "home_transition_stages":len(transit),
         "measured_grasp_xyz_mm":grasp,
@@ -184,7 +189,8 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         "requirements":[
             "This full grasp-and-lift candidate is NOT a current-scene collision-proof plan",
             "The camera board frame must still match the saved robot 2D board fit",
-            ("Robot Home must match saved actual Home XYZ and tool attitude"
+            ("Current measured high pose checked against tool attitude and "
+             "bounded work corridor, independent of old Home XYZ"
              if transit else "Offline candidate assumes a verified Hover start"),
             "Home-to-Hover only permits nearby XY and high-then-vertical segments; check swept volume and IK on hardware",
             "Tool TCP and tabletop clearance must be physically checked",
