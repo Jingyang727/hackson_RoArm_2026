@@ -1,5 +1,6 @@
 """Hardware-free tests of first REAL observation trial orchestration."""
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -37,9 +38,10 @@ class ObservationTrialTests(unittest.TestCase):
                     camera="gemini", seconds=10, store=store, source=fake
                 )
                 rec.assert_called_once_with(fake, fps=20)
-                rec.return_value.capture.assert_called_once_with(
-                    Path(temp) / trial["trial_id"], 10
-                )
+                rec.return_value.capture.assert_called_once()
+                args, kwargs = rec.return_value.capture.call_args
+                self.assertEqual(args, (Path(temp) / trial["trial_id"], 10))
+                self.assertTrue(callable(kwargs["on_start"]))
             self.assertTrue(fake.started)
             self.assertTrue(fake.stopped)
             manifest = store.read(trial["trial_id"])
@@ -71,6 +73,22 @@ class ObservationTrialTests(unittest.TestCase):
                         store=TrialStore(temp), source=fake, seconds=3
                     )
             self.assertTrue(fake.stopped)
+
+    def test_countdown_starts_on_valid_frame_and_cues_ball_at_three_seconds(self):
+        from evoarm_rsi.observe import RecordingCountdown
+        messages = []
+        def output(message, **kwargs):
+            messages.append(message)
+        countdown = RecordingCountdown(output=output)
+        # Simulate a callback invoked after camera warmup. Three seconds
+        # already elapsed to keep this test fast and deterministic.
+        countdown.start(time.monotonic() - 3.1, 4.0)
+        time.sleep(0.06)
+        countdown.stop()
+        self.assertIn("Recording started", messages[0])
+        self.assertTrue(any("PLACE THE YELLOW BALL NOW" in m
+                            for m in messages))
+        self.assertTrue(any("remaining" in m for m in messages))
 
     def test_duration_is_bounded_before_camera_start(self):
         fake = FakeRGBDSource()
