@@ -46,7 +46,7 @@ class MicroAgentTests(unittest.TestCase):
             home=Path(temp)/"poses.json"
             home.write_text(json.dumps({"poses":{"home":HOME}}))
             with (patch("evoarm_rsi.real_probe._controller_get",
-                        side_effect=[HEALTH,{}]) as get,
+                        side_effect=[{},HEALTH]) as get,
                   patch("evoarm_rsi.real_probe._degrees",
                         return_value={j:0.0 for j in range(1,7)}),
                   patch("evoarm_rsi.real_probe._controller_step") as move,
