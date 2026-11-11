@@ -39,7 +39,8 @@ def unproject_depth(u, v, depth_mm, intrinsics):
 
 
 def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
-                       max_depth_age_ms=180.0, output_file=None):
+                       max_depth_age_ms=180.0, output_file=None,
+                       board_reference_file=None):
     import cv2
     from control_ui.vision import find_chessboard, find_yellow_ball
 
@@ -88,11 +89,36 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             selected.append((depth_i, frame_i, round(delta_ms, 3)))
     if not selected:
         raise ValueError("no depth sample aligned to RGB timestamps")
+    # Previously recorded Gemini 9x6 corners can be reused indefinitely
+    # until camera/board/base placement changes. No need to remove the ball.
+    reference_path=(Path(board_reference_file).expanduser()
+        if board_reference_file else Path.home()/".evoarm"/"gemini_board_reference.json")
+    reference=None
+    persistent_h=None
+    ref_corners=None
+    if reference_path.is_file():
+        reference=_read_json(reference_path)
+        if reference.get("kind")!="gemini_checkerboard_reference_v1":
+            raise ValueError("unrecognized Gemini board reference format")
+        ref_corners=np.asarray(reference.get("corners_px"),dtype=float)
+        persistent_h=np.asarray(reference.get("pixel_to_grid_h"),dtype=float)
+        if (ref_corners.shape!=(54,2) or persistent_h.shape!=(3,3)
+            or not np.isfinite(ref_corners).all() or not np.isfinite(persistent_h).all()):
+            raise ValueError("invalid saved board reference")
+        if reference.get("image_size")!=[
+            int(manifest.get("capture",{}).get("width",0)),
+            int(manifest.get("capture",{}).get("height",0))
+        ]:
+            # Some older manifests use raw capture metadata without width/
+            # height: compare against decoded RGB instead below.
+            pass
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise RuntimeError("cannot decode saved RGB video")
     results = []
     board_detections = 0
+    verified_board_against_persistent = 0
+    displaced_board_frames = 0
     board_reference_h = None
     board_reference_frame = None
     reference_xy_uses = 0
@@ -103,14 +129,23 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             if not ok:
                 continue
             depth = depths[depth_i]
+            if reference is not None and reference["image_size"]!=[
+                rgb.shape[1],rgb.shape[0]]:
+                raise ValueError("Gemini image dimensions changed since saved board reference")
             if depth.shape != rgb.shape[:2]:
                 raise ValueError("saved depth shape is not aligned with RGB")
             ball = find_yellow_ball(rgb)
             grid, H = find_chessboard(rgb)
             if grid is not None:
                 board_detections += 1
-                # Reuse only a LIVE board detected in THIS trial, never old
-                # USB camera corners. Refreshed whenever 54 corners are visible.
+                if ref_corners is not None:
+                    shifts=np.linalg.norm(grid.reshape(54,2)-ref_corners,axis=1)
+                    if (float(np.median(shifts))>4.0 or
+                            float(np.max(shifts))>10.0):
+                        displaced_board_frames+=1
+                        # Never update the saved reference with a moved board.
+                        continue
+                    verified_board_against_persistent+=1
                 board_reference_h = H
                 board_reference_frame = frame_i
             if ball is None:
@@ -143,6 +178,15 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
                 transform = board_reference_h
                 xy_source = "same_trial_board_reference_unverified"
                 xy_reference_frame = board_reference_frame
+                reference_xy_uses += 1
+            elif transform is None and persistent_h is not None:
+                transform = persistent_h
+                xy_source = (
+                    "persistent_gemini_board_reference_current_frame_verified"
+                    if verified_board_against_persistent else
+                    "persistent_gemini_board_reference_placement_unverified"
+                )
+                xy_reference_frame = None
                 reference_xy_uses += 1
             elif transform is not None:
                 xy_source = "live_same_frame_54_corners"
@@ -190,6 +234,12 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
         "depth_samples_in_file": len(stamps),
         "rgb_depth_pairs_near_time": len(selected),
         "board_frames_detected": board_detections,
+        "persistent_reference_source_trial_id":(
+            reference.get("source_trial_id") if reference else None
+        ),
+        "persistent_reference_live_matching_board_frames":verified_board_against_persistent,
+        "persistent_reference_displaced_board_frames":displaced_board_frames,
+        "persistent_reference_placement_verified":verified_board_against_persistent>0,
         "board_reference_xy_used_frames": reference_xy_uses,
         "ball_frames_detected": len(results),
         "ball_frames_with_valid_depth": len(with_depth),
@@ -210,7 +260,18 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
     )
     if reference_xy_uses:
         report["warnings"].append(
-            "Board XY from earlier 54-corner reference in SAME trial; camera stability is not independently verified; preview only"
+            "Board XY is from an earlier same-trial or saved Gemini reference; "
+            "physical board/camera/base stability must be checked before motor execution"
+        )
+    if reference is not None and verified_board_against_persistent==0:
+        report["warnings"].append(
+            "Persistent Gemini reference reused with no visible full-board "
+            "cross-check this trial: robot target remains unverified"
+        )
+    if displaced_board_frames:
+        report["warnings"].append(
+            "Current checkerboard differs from saved Gemini reference; "
+            "do not use saved coordinates for robot motion"
         )
     if not with_board:
         report["warnings"].append(
@@ -239,6 +300,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Offline Gemini RGB-D object localization; NO MOTOR COMMANDS")
     parser.add_argument("folder")
     parser.add_argument("--intrinsics", default=None)
+    parser.add_argument("--board-reference",default=None,
+                        help="saved Gemini reference; auto-uses ~/.evoarm/gemini_board_reference.json if present")
     parser.add_argument("--output", default=None,
                         help="write analysis JSON here (default ~/.evoarm/rsi/analysis/<trial_id>/)")
     parser.add_argument("--square-mm",type=float,default=24.0)
@@ -246,7 +309,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     report = locate_saved_trial(args.folder,intrinsics_file=args.intrinsics,
                                 square_mm=args.square_mm,max_depth_age_ms=args.max_depth_age_ms,
-                                output_file=args.output)
+                                output_file=args.output,
+                                board_reference_file=args.board_reference)
     print(json.dumps({
         k:v for k,v in report.items() if k!="observations"
     },ensure_ascii=False,indent=2))
