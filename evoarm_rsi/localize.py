@@ -93,6 +93,9 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
         raise RuntimeError("cannot decode saved RGB video")
     results = []
     board_detections = 0
+    board_reference_h = None
+    board_reference_frame = None
+    reference_xy_uses = 0
     try:
         for depth_i, frame_i, delta_ms in selected:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_i)
@@ -106,6 +109,10 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             grid, H = find_chessboard(rgb)
             if grid is not None:
                 board_detections += 1
+                # Reuse only a LIVE board detected in THIS trial, never old
+                # USB camera corners. Refreshed whenever 54 corners are visible.
+                board_reference_h = H
+                board_reference_frame = frame_i
             if ball is None:
                 continue
             u, v = ball["center_px"]
@@ -129,9 +136,20 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             background_mm = float(np.median(background)) if len(background)>=10 else None
 
             xy = None
-            if H is not None:
+            xy_source = None
+            xy_reference_frame = None
+            transform = H
+            if transform is None and board_reference_h is not None:
+                transform = board_reference_h
+                xy_source = "same_trial_board_reference_unverified"
+                xy_reference_frame = board_reference_frame
+                reference_xy_uses += 1
+            elif transform is not None:
+                xy_source = "live_same_frame_54_corners"
+                xy_reference_frame = frame_i
+            if transform is not None:
                 point = cv2.perspectiveTransform(
-                    np.asarray([[[u,v]]],dtype=np.float32),H
+                    np.asarray([[[u,v]]],dtype=np.float32), transform
                 )[0,0]
                 xy = [round(float(point[0]*square),2),
                       round(float(point[1]*square),2)]
@@ -151,6 +169,8 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
                     if background_mm and ball_surface_mm else None
                 ),
                 "ball_board_xy_mm": xy,
+                "ball_board_xy_source": xy_source,
+                "board_reference_rgb_frame_index": xy_reference_frame,
                 "ball_camera_surface_xyz_mm": camera_xyz,
             })
     finally:
@@ -170,6 +190,7 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
         "depth_samples_in_file": len(stamps),
         "rgb_depth_pairs_near_time": len(selected),
         "board_frames_detected": board_detections,
+        "board_reference_xy_used_frames": reference_xy_uses,
         "ball_frames_detected": len(results),
         "ball_frames_with_valid_depth": len(with_depth),
         "ball_frames_with_live_board_xy": len(with_board),
@@ -187,9 +208,13 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
     report["warnings"].append(
         "Camera-to-robot 3D extrinsics/TCP not verified; never convert this into a robot motion target"
     )
+    if reference_xy_uses:
+        report["warnings"].append(
+            "Board XY from earlier 54-corner reference in SAME trial; camera stability is not independently verified; preview only"
+        )
     if not with_board:
         report["warnings"].append(
-            "No simultaneous full 9x6 checkerboard detection; board XY unavailable"
+            "No 9x6 checkerboard detected earlier or in same ball frame; board XY unavailable"
         )
     if not with_depth:
         report["warnings"].append(
