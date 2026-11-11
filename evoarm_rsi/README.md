@@ -236,10 +236,14 @@ let Grok reflect on observed success/failure. The new v2/Gemini path uses:
    Grasp and gripper open/close Z/pitch/roll snapshots. It produces a
    **complete hover → open → descend → close → lift** sequence, with
    vertical increments ≤20mm, no invented robot Z or TCP.
-3. For first real execution, an operator manually positions the arm near
-   the saved **Hover** XYZ (within 20mm XY / 10mm Z), confirms fixed camera,
-   actual ball, collision-free swept region and emergency power access.
-   The controller explicitly refuses movement from arbitrary Home.
+3. For first real execution, the arm remains at the saved measured
+   **Home**, NOT manually positioned at Hover. The controller reads live
+   T=1051 and generates a short high-XY alignment followed by ≤20mm
+   vertical Home→Hover segments; every stage is checked by the existing
+   controller. The Home XY must be within 30mm of the ball's XY and its
+   physical pose must match the recorded Home. The operator still checks
+   full swept volume, camera/base stability and emergency power access.
+   This is a restricted measured corridor, not arbitrary 3D path planning.
 4. Only under opt-in `EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_PICK=1
    EVOARM_ENABLE_RSI_GRASP=1 EVOARM_ENABLE_RSI_BATCH=1`, one operator can
    approve ONE complete fixed grasp/lift attempt.
@@ -253,14 +257,20 @@ let Grok reflect on observed success/failure. The new v2/Gemini path uses:
    `close_ball` stage with proven pickup.
 
 ```bash
-# 1. Camera and current ball position (normal user shell, not root):
+# 0. ONCE: extract the 54-point Gemini board from the ALREADY
+#    RECORDED Trial 003.1. Do not film another empty board.
+python -m evoarm_rsi.board_reference \
+  ~/.evoarm/rsi/experiments/bca3c4c1d5c449368a2e149f39b8479f
+
+# 1. From now on, just record the yellow ball IN PLACE and localize it:
+python -m evoarm_rsi.camera_service record --seconds 10
 TRIAL=~/.evoarm/rsi/experiments/<YOUR_NEW_TRIAL_ID>
 python -m evoarm_rsi.localize "$TRIAL"
 python -m evoarm_rsi.qualify "$TRIAL"
 python -m evoarm_rsi.grasp_candidate "$(basename "$TRIAL")"
 
 # 2. After controller restarted with all 4 explicit ENABLE flags,
-#    arm is MANUALLY at safe measured Hover, and manually unlocked:
+#    arm is at measured Home (not Hover), and manually unlocked:
 python -m evoarm_rsi.grasp_run "$(basename "$TRIAL")"
 #    This command is READ-ONLY; inspect status and actual XYZ.
 
@@ -488,29 +498,35 @@ user's* `~/.evoarm/rsi/analysis/<trial_id>/rgbd_localization.json`.
 Raw trial directories (possibly root-owned) are left unchanged. Optional:
 `--output /writable/path/report.json`.
 
-To obtain a new same-camera board reference in a single recording:
+**Persistent Gemini reference — no repeated empty-board capture.**
 
-1. Put the Gemini in its fixed experimental position; keep the entire 9×6
-   inner-corner board visible and initially remove the yellow ball.
-2. Start a new 10-second RGB-D recording using the authorized camera terminal.
-   For the first ~2–3 seconds leave the board empty; then place the yellow
-   ball on the board **without moving the camera or board**.
-3. The camera code attempts to persist
-   `gemini_color_intrinsics.json` from the active SDK stream. Its
-   `verified` flag intentionally remains false until geometry is checked.
-4. Analyze the new trial as a regular user:
+Trial 003.1 (`bca3c4c1d5c449368a2e149f39b8479f`) ALREADY recorded
+the full empty 9×6 checkerboard. Do **not** ask the operator to empty the
+board or place the ball during a countdown again. Save that geometry ONCE:
 
 ```bash
-python -m evoarm_rsi.localize ~/.evoarm/rsi/experiments/<new_trial_id>
+python -m evoarm_rsi.board_reference \
+  ~/.evoarm/rsi/experiments/bca3c4c1d5c449368a2e149f39b8479f
 ```
 
-The analyzer detects full checkerboard frames and can reuse a board mapping
-seen **earlier within the same trial** for subsequent ball-obscured frames.
-Those values are tagged `same_trial_board_reference_unverified` and are
-**preview-only**, never an authorization to send a robot command. The RGB-D
-localization will NOT silently use old USB camera corners. Even with
-intrinsics, robot XYZ stays null until camera-to-robot extrinsics and TCP
-validation have been completed.
+The result is `~/.evoarm/gemini_board_reference.json` with the original
+54 corners and pixel-to-board transform, captured with this Gemini.
+For EVERY future ball-only trial, simply leave the ball on the board:
+
+```bash
+python -m evoarm_rsi.camera_service record --seconds 10
+python -m evoarm_rsi.localize ~/.evoarm/rsi/experiments/<new_trial_id>
+python -m evoarm_rsi.qualify ~/.evoarm/rsi/experiments/<new_trial_id>
+```
+
+`localize` automatically uses the persistent reference when no entire
+checkerboard can be seen behind the arm/ball. If a full checkerboard
+is visible, it cross-checks the saved 54 corners and reports any large
+movement; that movement must stop execution. If the board is occluded,
+physical placement is **not independently verified by that recording**:
+the original fixed camera, board and robot base must remain unchanged.
+Gemini's stored image-to-board mapping never substitutes for a full
+camera-to-robot 3D extrinsic calibration.
 
 ## Trial 003.1 camera startup and countdown (November 11 fix)
 
