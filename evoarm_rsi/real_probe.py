@@ -130,7 +130,8 @@ def _wait_settled(base, *, start_deg, expected_delta_deg, timeout_s=10):
 
 def run_real_probe(*,controller="http://127.0.0.1:8765",
                    direction=1, degrees=5, execute=False,
-                   home_path=None, camera_home=None):
+                   home_path=None, camera_home=None,
+                   return_on_failure=False):
     # Distinct flag ensures invoking the module without --execute is
     # a read-only preflight even if the controller is armed.
     if direction not in (-1,1):
@@ -266,7 +267,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         out.parent.mkdir(parents=True,exist_ok=True)
         out.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
         result["report_file"]=str(out)
-    if failure:
+    if failure and not return_on_failure:
         raise RuntimeError(
             f"physical probe stopped: {failure}; command_attempted={command_attempted}; "
             f"reverse_confirmed={reverse_confirmed}; inspect physical_probe report"
