@@ -22,7 +22,7 @@ from .core import TrialStore
 
 
 def record_observation(*, camera="gemini", seconds=10.0, device=0,
-                       store=None, source=None):
+                       store=None, source=None, robot_status_url=None):
     if not 0 < seconds <= 20:
         raise ValueError("observation duration must be in (0,20] seconds")
     store = store if store is not None else TrialStore()
@@ -45,6 +45,7 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
         "robot_feedback_recorded": False,
         "agent_called": False,
         "status": "created",
+        "robot_status_source": robot_status_url or None,
     }
     folder = store.create(trial_id, manifest)
     try:
@@ -52,17 +53,33 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
         try:
             manifest["status"] = "recording"
             store.write(trial_id, "manifest.json", manifest)
-            result = TrialVideoRecorder(source, fps=20).capture(folder, seconds)
+            # Start optional robot read-only capture *concurrently* with the
+            # camera. This does not own serial and never sends motion.
+            sampler = None
+            telemetry = None
+            try:
+                if robot_status_url:
+                    from .robot_telemetry import ReadOnlyRobotSampler
+                    sampler = ReadOnlyRobotSampler(robot_status_url)
+                    sampler.start(store, trial_id)
+                result = TrialVideoRecorder(source, fps=20).capture(folder, seconds)
+            finally:
+                if sampler is not None:
+                    telemetry = sampler.stop()
         finally:
             source.stop()
         manifest.update({
             "status": "recorded", "capture": result,
+            "robot_feedback_recorded": bool(telemetry and telemetry["real_samples"]),
+            "robot_telemetry": telemetry,
             "finished_at": datetime.now(timezone.utc).isoformat()
         })
         store.write(trial_id, "manifest.json", manifest)
         store.write(trial_id, "observation.json", {
-            "camera": camera, "capture": result,
-            "note": "real RGB-D observation only; no robot trajectory or grasp outcome",
+            "camera": camera, "capture": result, "robot_telemetry": telemetry,
+            "note": ("real RGB-D + read-only robot state; no motor commands or grasp outcome"
+                     if telemetry and telemetry["real_samples"] else
+                     "real RGB-D observation only; no motor commands or grasp outcome"),
         })
         store.event(trial_id, "events", {
             "kind": "camera_observation_completed",
@@ -86,10 +103,13 @@ def main(argv=None):
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--store", default=None,
                         help="experiment folder (default ~/.evoarm/rsi/experiments)")
+    parser.add_argument("--robot-status-url", default=None,
+                        help="optional read-only localhost /api/status endpoint; never sends motion")
     args = parser.parse_args(argv)
     outcome = record_observation(
         camera=args.camera, seconds=args.seconds, device=args.device,
-        store=TrialStore(args.store) if args.store else None
+        store=TrialStore(args.store) if args.store else None,
+        robot_status_url=args.robot_status_url
     )
     print(json.dumps(outcome, ensure_ascii=False, indent=2))
     return 0
