@@ -12,11 +12,18 @@ from .camera import CameraFrame
 
 
 class Gemini335LProvider:
-    def __init__(self, *, align_depth=True, timeout_ms=1000):
+    def __init__(self, *, align_depth=True, timeout_ms=1000,
+                 warmup_timeout_s=8.0):
+        if timeout_ms <= 0 or timeout_ms > 5000:
+            raise ValueError("Gemini frame timeout must be between 1 and 5000ms")
+        if not 0 < warmup_timeout_s <= 30:
+            raise ValueError("Gemini warmup timeout must be in (0, 30] seconds")
         self.align_depth = align_depth
         self.timeout_ms = timeout_ms
+        self.warmup_timeout_s = warmup_timeout_s
         self.pipeline = None
         self.aligner = None
+        self.dropped_frames = 0
 
     def start(self):
         from pyorbbecsdk import Pipeline, Config, OBSensorType, OBStreamType, AlignFilter
@@ -54,35 +61,72 @@ class Gemini335LProvider:
         raise RuntimeError(f"unsupported Gemini color format: {fmt}")
 
     def read(self):
+        """Discard transient incomplete frames; fail after bounded warmup.
+
+        The SDK may yield RGB-only/depth-only frames or None from AlignFilter
+        directly after Pipeline.start(). A single such frame is not a fatal
+        capture error. Only valid, depth-aligned RGB-D sets reach the recorder.
+        """
         if self.pipeline is None:
             raise RuntimeError("Gemini pipeline not started")
-        frames = self.pipeline.wait_for_frames(self.timeout_ms)
-        if frames is None:
-            raise RuntimeError("Gemini timed out waiting for RGB-D frames")
-        if self.aligner is not None:
-            aligned = self.aligner.process(frames)
-            if aligned is None:
-                raise RuntimeError("Gemini depth alignment failed")
-            frames = aligned.as_frame_set()
-        color = frames.get_color_frame()
-        depth = frames.get_depth_frame()
-        if color is None or depth is None:
-            raise RuntimeError("Gemini frame set missing RGB or depth")
-        bgr = self._bgr(color)
-        dw, dh = depth.get_width(), depth.get_height()
-        raw = np.frombuffer(depth.get_data(), dtype=np.uint16).reshape((dh, dw))
-        # The raw integer depth is scaled to millimeters by SDK calibration.
-        depth_mm = raw.astype(np.float32) * float(depth.get_depth_scale())
-        if depth_mm.shape != bgr.shape[:2]:
-            raise RuntimeError(
-                f"RGB {bgr.shape[:2]} and depth {depth_mm.shape} mismatch; "
-                "enable software depth-to-color alignment"
-            )
-        depth_mm = np.clip(depth_mm, 0, 65535).astype(np.uint16)
-        return CameraFrame(
-            rgb_bgr=bgr, depth_mm=depth_mm,
-            monotonic_ns=time.monotonic_ns(),
-            camera_name="orbbec_gemini_335l",
+        deadline = time.monotonic() + self.warmup_timeout_s
+        discarded = 0
+        last_reason = "no complete frame"
+        # The count also bounds this loop when an SDK immediately returns
+        # invalid frames without blocking (e.g. a broken mock/driver).
+        for _ in range(240):
+            frames = self.pipeline.wait_for_frames(self.timeout_ms)
+            if frames is None:
+                last_reason = "no frames"
+            else:
+                # Test the raw set first: aligners can reject RGB-only sets.
+                color = frames.get_color_frame()
+                depth = frames.get_depth_frame()
+                if color is None or depth is None:
+                    last_reason = "incomplete RGB/depth pair"
+                else:
+                    if self.aligner is not None:
+                        aligned = self.aligner.process(frames)
+                        if aligned is None:
+                            last_reason = "depth aligner not ready"
+                            frames = None
+                        else:
+                            frames = aligned.as_frame_set()
+                            if frames is None:
+                                last_reason = "aligned set not ready"
+                    if frames is not None:
+                        color = frames.get_color_frame()
+                        depth = frames.get_depth_frame()
+                        if color is not None and depth is not None:
+                            bgr = self._bgr(color)
+                            dw, dh = depth.get_width(), depth.get_height()
+                            raw = np.frombuffer(
+                                depth.get_data(), dtype=np.uint16
+                            ).reshape((dh, dw))
+                            # SDK raw depth * scale is millimeters.
+                            depth_mm = raw.astype(np.float32) * float(
+                                depth.get_depth_scale()
+                            )
+                            if depth_mm.shape != bgr.shape[:2]:
+                                raise RuntimeError(
+                                    f"RGB {bgr.shape[:2]} and depth {depth_mm.shape} mismatch; "
+                                    "enable software depth-to-color alignment"
+                                )
+                            depth_mm = np.clip(depth_mm, 0, 65535).astype(np.uint16)
+                            self.dropped_frames += discarded
+                            return CameraFrame(
+                                rgb_bgr=bgr, depth_mm=depth_mm,
+                                monotonic_ns=time.monotonic_ns(),
+                                camera_name="orbbec_gemini_335l",
+                            )
+                        last_reason = "aligned set missing RGB/depth"
+            discarded += 1
+            if time.monotonic() >= deadline:
+                break
+        self.dropped_frames += discarded
+        raise RuntimeError(
+            f"Gemini RGB-D warmup timed out after {discarded} incomplete frames "
+            f"(last: {last_reason}, limit {self.warmup_timeout_s:g}s)"
         )
 
     def stop(self):
