@@ -87,6 +87,7 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
         raise RuntimeError("Gemini did not start recording: no robot motion")
     steps=[]
     failure=None
+    stall_recovery=None
     session_id=None
     total=0
     try:
@@ -127,6 +128,7 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
                 status=_controller_get(base,"/api/status")
                 health=_controller_get(base,"/api/health")
                 if health.get("fault"):
+                    record["fault_snapshot"]=health["fault"]
                     raise RuntimeError("real controller fault: "+str(health["fault"]))
                 if health.get("pending") is None:
                     result=health.get("last_command") or {}
@@ -150,6 +152,31 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
     except Exception as exc:
         failure=f"{type(exc).__name__}: {str(exc)[:500]}"
         if session_id:
+            # Local operator RUN approved this one session. If a T104 stage
+            # generated a *software-latched* Cartesian stall, investigate
+            # stable T=1051 readings and clear the latch automatically.
+            # Never re-arm or re-send the failed stage, even after success.
+            try:
+                last_health=_controller_get(base,"/api/health")
+                active_fault=last_health.get("fault")
+                if (isinstance(active_fault,dict) and
+                        active_fault.get("code")=="cartesian_stalled"):
+                    stall_recovery=_controller_post(
+                        base,"/api/rsi/grasp/recover-stall",
+                        {"session_id":session_id}
+                    )
+                else:
+                    stall_recovery={
+                        "attempted":False,
+                        "reason":"no matching recoverable cartesian_stalled fault",
+                        "fault":active_fault,
+                    }
+            except Exception as recovery_exc:
+                stall_recovery={
+                    "attempted":True,
+                    "software_fault_cleared":False,
+                    "error":f"{type(recovery_exc).__name__}: {str(recovery_exc)[:300]}",
+                }
             try:
                 _controller_post(base,"/api/pick/cancel",{})
             except Exception:
@@ -177,6 +204,8 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
         "total_steps":total,
         "steps":steps,
         "motion_error":failure,
+        "automatic_stall_recovery":stall_recovery,
+        "motor_retried_after_fault":False,
         "capture_errors":camera_errors,
         "camera_trials":camera_trials,
         "unattended":False,
