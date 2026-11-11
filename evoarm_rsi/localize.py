@@ -38,7 +38,7 @@ def unproject_depth(u, v, depth_mm, intrinsics):
     return [round((u-cx)*z/fx, 3), round((v-cy)*z/fy, 3), round(z, 3)]
 
 
-def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
+def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=None,
                        max_depth_age_ms=180.0, output_file=None,
                        board_reference_file=None):
     import cv2
@@ -72,7 +72,7 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             raise ValueError("expected calibrated intrinsics for COLOR-aligned depth")
         if intrinsics.get("verified") is not True:
             raise ValueError("intrinsics file is not marked verified")
-    square = _number(square_mm,"square_mm")
+    square = _number(24.0 if square_mm is None else square_mm,"square_mm")
     if not 0 < square <= 200:
         raise ValueError("invalid chessboard square size")
     max_age = _number(max_depth_age_ms, "max_depth_age_ms")
@@ -100,6 +100,13 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
         reference=_read_json(reference_path)
         if reference.get("kind")!="gemini_checkerboard_reference_v1":
             raise ValueError("unrecognized Gemini board reference format")
+        reference_square=_number(reference.get("square_mm"),"reference square_mm")
+        if not 0.1 <= reference_square <= 200:
+            raise ValueError("invalid saved reference square size")
+        if square_mm is None:
+            square=reference_square
+        elif not math.isclose(square,reference_square,rel_tol=0,abs_tol=1e-6):
+            raise ValueError("square size differs from saved board reference")
         ref_corners=np.asarray(reference.get("corners_px"),dtype=float)
         persistent_h=np.asarray(reference.get("pixel_to_grid_h"),dtype=float)
         if (ref_corners.shape!=(54,2) or persistent_h.shape!=(3,3)
@@ -304,7 +311,8 @@ def main(argv=None):
                         help="saved Gemini reference; auto-uses ~/.evoarm/gemini_board_reference.json if present")
     parser.add_argument("--output", default=None,
                         help="write analysis JSON here (default ~/.evoarm/rsi/analysis/<trial_id>/)")
-    parser.add_argument("--square-mm",type=float,default=24.0)
+    parser.add_argument("--square-mm",type=float,default=None,
+                        help="measured grid pitch; defaults to saved reference pitch, or legacy 24mm without a reference")
     parser.add_argument("--max-depth-age-ms",type=float,default=180.0)
     args = parser.parse_args(argv)
     report = locate_saved_trial(args.folder,intrinsics_file=args.intrinsics,

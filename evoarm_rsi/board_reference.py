@@ -10,13 +10,17 @@ Does not connect to camera or robot, and NEVER sends motor commands.
 from __future__ import annotations
 import argparse
 import json
+import math
 from pathlib import Path
 import numpy as np
 
 
-def create_reference(trial, *, output=None, min_board_frames=3):
+def create_reference(trial, *, output=None, min_board_frames=3, square_mm=24.0):
     import cv2
     from control_ui.vision import find_chessboard
+    if (type(square_mm) not in (int, float) or not math.isfinite(square_mm)
+            or not 0.1 <= square_mm <= 200):
+        raise ValueError("measured square size must be between 0.1 and 200 mm")
     trial=Path(trial).expanduser()
     manifest=json.loads((trial/"manifest.json").read_text(encoding="utf-8"))
     if manifest.get("simulated") is not False:
@@ -64,7 +68,7 @@ def create_reference(trial, *, output=None, min_board_frames=3):
         "source_trial_id":manifest["trial_id"],
         "source_frame_indices":[int(board[i][0]) for i in stable],
         "image_size":[width,height],
-        "square_mm":24.0,
+        "square_mm":float(square_mm),
         "corners_px":corners.tolist(),
         "pixel_to_grid_h":H.tolist(),
         "frames_verified":len(stable),
@@ -84,8 +88,10 @@ def main(argv=None):
     p=argparse.ArgumentParser(description="Extract and save Gemini board reference once")
     p.add_argument("reference_trial")
     p.add_argument("--output")
+    p.add_argument("--square-mm", type=float, default=24.0,
+                   help="actual measured grid pitch in mm; confirm before a new layout calibration")
     args=p.parse_args(argv)
-    result=create_reference(args.reference_trial,output=args.output)
+    result=create_reference(args.reference_trial,output=args.output,square_mm=args.square_mm)
     print(json.dumps({k:v for k,v in result.items() if k not in
         ("corners_px","pixel_to_grid_h")},ensure_ascii=False,indent=2))
 

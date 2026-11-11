@@ -237,8 +237,7 @@ def doctor(controller):
     except Exception as exc:
         result["controller_error_type"] = type(exc).__name__
     home = Path.home() / ".evoarm"
-    for filename in ("robot_xy_calibration.json", "pick_poses_v2.json",
-                     "gemini_board_reference.json"):
+    for filename in ("robot_xy_calibration.json", "gemini_board_reference.json"):
         file = home / filename
         result[filename] = json.loads(file.read_text()) if file.exists() else None
     experiments = home / "rsi/experiments"
@@ -272,11 +271,19 @@ def main(argv=None):
     sync = actions.add_parser("sync")
     sync.add_argument("trial_id")
     sync.add_argument("--memory", default=str(Path.home()/".evoarm/rsi/task_memory"))
+    plan = actions.add_parser("plan")
+    plan.add_argument("--world", required=True)
+    plan.add_argument("--geometry", required=True)
+    plan.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     if args.command == "doctor":
         result = doctor(args.controller)
     elif args.command == "sync":
         result = TaskMemory(args.memory).publish(args.trial_id)
+    elif args.command == "plan":
+        from .task_planner import plan_from_world
+        result = plan_from_world(json.loads(Path(args.world).read_text()),
+                                 json.loads(Path(args.geometry).read_text()))
     else:
         memory = TaskMemory(args.memory)
         if args.command == "inspect":

@@ -27,6 +27,30 @@ class FiniteVideo:
 
 
 class PersistentGeminiTests(unittest.TestCase):
+    def test_new_layout_reference_uses_measured_square_size_and_separate_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            reference,trial,empty,ball,corners,H=self._fixtures(d)
+            old=Path(d)/"old-reference.json"
+            old.write_text('{"old_layout":true}')
+            candidate=Path(d)/"candidate-reference.json"
+            with (patch("cv2.VideoCapture",return_value=FiniteVideo(empty)),
+                  patch("control_ui.vision.find_chessboard",return_value=(corners,H))):
+                extracted=create_reference(reference,output=candidate,square_mm=20.5)
+            self.assertEqual(extracted["square_mm"],20.5)
+            self.assertEqual(json.loads(old.read_text()),{"old_layout":True})
+            self.assertFalse(extracted["physical_placement_independently_verified"])
+            with (patch("cv2.VideoCapture",return_value=FakeVideo(ball)),
+                  patch("control_ui.vision.find_chessboard",return_value=(None,None))):
+                result=locate_saved_trial(trial,board_reference_file=candidate,
+                                          output_file=Path(d)/"new-localization.json")
+            self.assertAlmostEqual(result["observations"][0]["ball_board_xy_mm"][0],82,delta=.1)
+            with self.assertRaisesRegex(ValueError,"differs"):
+                locate_saved_trial(trial,board_reference_file=candidate,square_mm=24,
+                                    output_file=Path(d)/"mismatch.json")
+            for value in (0,True,float("nan")):
+                with self.assertRaises(ValueError):
+                    create_reference(reference,output=candidate,square_mm=value)
+
     def _fixtures(self,root):
         root=Path(root)
         reference=root/"trial_0031"
