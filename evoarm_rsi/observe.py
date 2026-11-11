@@ -26,8 +26,7 @@ from .core import TrialStore
 class RecordingCountdown:
     """Clock-based cues run independently of blocking camera reads."""
 
-    def __init__(self, *, cue_at_s=3.0, output=print):
-        self.cue_at_s = cue_at_s
+    def __init__(self, *, output=print):
         self.output = output
         self._stop = threading.Event()
         self._thread = None
@@ -35,7 +34,7 @@ class RecordingCountdown:
     def start(self, start_time, duration_s):
         if self._thread is not None:
             raise RuntimeError("recording countdown already running")
-        self.output(f"[REC] Recording started: {duration_s:g}s; KEEP BOARD EMPTY", flush=True)
+        self.output(f"[REC] Recording started: {duration_s:g}s; keep current scene unchanged", flush=True)
         self._thread = threading.Thread(
             target=self._run, args=(start_time, duration_s),
             name="evoarm-rsi-recording-countdown", daemon=True
@@ -51,10 +50,9 @@ class RecordingCountdown:
                 return
             elapsed = time.monotonic() - start
             left = max(0.0, duration - elapsed)
-            if next_second == 3 and duration > 3:
-                self.output(f"[REC] {elapsed:.1f}s elapsed — PLACE THE YELLOW BALL NOW; {left:.1f}s left", flush=True)
-            else:
-                self.output(f"[REC] {elapsed:.1f}s elapsed — {left:.1f}s remaining", flush=True)
+            # Ordinary RSI recordings observe the scene AS-IS.
+            # The empty-board reference was already saved in Trial 003.1.
+            self.output(f"[REC] {elapsed:.1f}s elapsed — {left:.1f}s remaining", flush=True)
             next_second += 1
 
     def stop(self):
