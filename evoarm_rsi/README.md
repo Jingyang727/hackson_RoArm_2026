@@ -80,6 +80,12 @@ Output: `~/.evoarm/rsi/experiments/<trial_id>/` with `rgb.mp4`,
   this is **not** yet a grasp attempt or self-learning outcome.
 - A 10-second live capture is a real elapsed window, unlike P0's
   logical mock timer.
+- The camera provider discards transient RGB-only, Depth-only, null-alignment
+  and incomplete aligned frame sets for up to **8 seconds per read** (maximum
+  240 discarded sets), then fails with the last incomplete-frame reason.
+  Valid RGB-D frames are required; persistent SDK faults are not concealed.
+- The 10-second recording clock begins **after** the first valid aligned
+  RGB-D frame, so startup warmup does not shorten the evidence window.
 - The recorder uses 20fps as a **target**, and preserves actual frame
   timestamps; hardware frames may be delayed or dropped.
 - The optional `--store /absolute/path` controls evidence destination.
