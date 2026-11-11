@@ -81,7 +81,7 @@ class VisionReviewTests(unittest.TestCase):
                   patch("evoarm_rsi.vision_review.describe_evidence",return_value=metadata),
                   patch("evoarm_rsi.vision_review.request.urlopen",side_effect=mock_urlopen)):
                 output=review_trial("/unused",gateway=gateway,frames=2)
-            self.assertEqual(output["observed_outcome"],"unknown")
+            self.assertEqual(output["observed_outcome"],"not_attempted")
             self.assertTrue(output["company_gateway_vision_accepted"])
             parts=captured[0]["messages"][1]["content"]
             self.assertEqual([p["type"] for p in parts],["text","image_url","image_url"])
