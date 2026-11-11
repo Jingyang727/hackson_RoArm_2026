@@ -186,6 +186,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     history=[{"kind":"pre_move","host_monotonic_ns":time.monotonic_ns(),
               "status":status}]
     moved=False
+    confirmed_forward=False
     command_attempted=False
     reverse_attempted=False
     reverse_confirmed=False
@@ -209,6 +210,10 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         history.extend(_wait_settled(
             base,start_deg=before_deg,expected_delta_deg=direction*degrees
         ))
+        confirmed_forward=True
+        history.append({"kind":"forward_motion_confirmed",
+                        "host_monotonic_ns":time.monotonic_ns(),
+                        "requested_delta_deg":direction*degrees})
         # The reverse is attempted only after actual feedback settled,
         # and only if torque remains fully on and no faults are latched.
         fresh_health=_controller_get(base,"/api/health")
@@ -240,11 +245,9 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         "requested_step_deg":direction*degrees,
         "command_attempted":command_attempted,
         "command_acknowledged":moved,
-        "robot_moved":reverse_confirmed or (
-            moved and any(row.get("kind")=="move_command" for row in history)
-            and not failure
-        ),
-        "robot_motion_confirmed":reverse_confirmed,
+        "robot_moved":confirmed_forward,
+        "robot_motion_confirmed":confirmed_forward,
+        "forward_motion_confirmed":confirmed_forward,
         "motion_may_have_occurred":command_attempted,
         "reverse_attempted":reverse_attempted,
         "reverse_confirmed":reverse_confirmed,
