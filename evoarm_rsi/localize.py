@@ -112,17 +112,18 @@ def locate_saved_trial(folder, *, intrinsics_file=None, square_mm=24.0,
             px, py = int(round(u)), int(round(v))
             radius = max(2, int(round(ball["radius_px"])))
             height, width = depth.shape
-            yy, xx = np.ogrid[max(0,py-radius):min(height,py+radius+1),
-                               max(0,px-radius):min(width,px+radius+1)]
-            x0,y0=max(0,px-radius),max(0,py-radius)
-            disk = (xx-px)**2+(yy-py)**2 <= (0.45*radius)**2
-            crop = depth[y0:y0+disk.shape[0],x0:x0+disk.shape[1]]
+            outer = int(math.ceil(2.25*radius))
+            x0, x1 = max(0, px-outer), min(width, px+outer+1)
+            y0, y1 = max(0, py-outer), min(height, py+outer+1)
+            yy, xx = np.ogrid[y0:y1, x0:x1]
+            rr = (xx-px)**2+(yy-py)**2
+            disk = rr <= (0.45*radius)**2
+            crop = depth[y0:y1, x0:x1]
             valid = crop[disk & (crop>0)]
             ball_surface_mm = float(np.median(valid)) if len(valid)>=5 else None
 
             # A ring near the ball is only a local background-depth reference.
             # It is NOT a fitted tabletop plane or a calibrated object height.
-            rr = (xx-px)**2+(yy-py)**2
             ring = (rr >= (1.3*radius)**2) & (rr <= (2.2*radius)**2)
             background = crop[ring & (crop>0)]
             background_mm = float(np.median(background)) if len(background)>=10 else None
