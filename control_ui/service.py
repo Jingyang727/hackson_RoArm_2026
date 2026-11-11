@@ -32,6 +32,9 @@ FACTORY_CONFIRM_TIMEOUT_S = 45.0
 CART_CONFIRM_TIMEOUT_S = 65.0
 CART_ARRIVAL_TOLERANCE_MM = 6.0
 CART_SETTLED_OFFSET_MAX_MM = 10.0
+# Do not classify a slowly-interpolating T104 path as stalled at the
+# generic 2.5s joint-settling threshold; a brief plateau is not completion.
+CART_MIN_STALL_ELAPSED_S = 8.0
 RECOVERY_SAMPLE_GAP_S = 0.75
 # Send T=210 once. Retry only read-only T=105 status verification.
 TORQUE_VERIFY_ATTEMPTS = 3
@@ -240,7 +243,7 @@ class ArmService:
                         self.last_command["status"] = "feedback_confirmed"
                         self.last_command["position_error_mm"] = round(residual,2)
                         self.last_command["confirmed_at"] = time.time()
-                elif stable:
+                elif stable and elapsed >= CART_MIN_STALL_ELAPSED_S:
                     if residual <= CART_SETTLED_OFFSET_MAX_MM and progress >= 0.8:
                         self.pending = None
                         self.armed_until = 0
@@ -533,6 +536,70 @@ class ArmService:
             self.armed_until = 0  # Reconfirm workspace before any subsequent move.
             return {"recovered": True, "previous_fault": previous_fault,
                     "message": "反馈稳定、异常已解除。需要重新点击“确认安全并解锁”"}
+
+    def recover_rsi_cartesian_stall(self, session_id):
+        """Auto-clear ONLY a latched RSI cartesian_stalled fault after
+        repeated stable T=1051 joint AND Cartesian readings.
+
+        This function NEVER enables motion, unlocks a lease, retries a
+        command, changes torque, resets the official pose or advances the
+        pick session. After recovery the human must re-arm for any movement.
+        """
+        with self.lock:
+            fault=self.fault
+            last=self.last_command or {}
+            if (not isinstance(fault,dict) or
+                fault.get("code")!="cartesian_stalled"):
+                raise UnsafeMotion("RSI自动恢复仅支持cartesian_stalled")
+            if (not isinstance(session_id,str) or
+                last.get("pick_session_id")!=session_id):
+                raise UnsafeMotion("故障不属于本次抓取，禁止自动恢复")
+            self.armed_until=0
+            if not self.arm or self.pending is not None or self.teach_active:
+                raise UnsafeMotion("电机状态未确认静止，禁止RSI自动恢复")
+            samples=[]
+            try:
+                for i in range(3):
+                    if i:
+                        time.sleep(RECOVERY_SAMPLE_GAP_S)
+                    raw=self.arm.status()
+                    joint=current_degrees(raw)
+                    xyz=[raw.get(k) for k in "xyz"]
+                    if (any(type(v) not in (int,float) or
+                            not math.isfinite(v) for v in xyz) or
+                        any(raw.get("torswitch"+k)!=1 for k in "BSETRG")):
+                        raise UnsafeMotion("关节扭矩或Cartesian反馈不可信")
+                    samples.append((joint,[float(v) for v in xyz]))
+            except Exception as exc:
+                raise UnsafeMotion("RSI自动恢复失败：连续真实状态检测异常："+str(exc)) from exc
+            joint_drift=max(
+                abs(samples[i][0][j]-samples[0][0][j])
+                for i in (1,2) for j in JOINTS
+            )
+            xyz_drift=max(
+                math.dist(samples[i][1],samples[0][1])
+                for i in (1,2)
+            )
+            if joint_drift>STABLE_POSITION_TOLERANCE_DEG or xyz_drift>1.5:
+                raise UnsafeMotion(
+                    f"RSI自动恢复失败：仍有运动（关节{joint_drift:.2f}°, "
+                    f"XYZ {xyz_drift:.2f}mm）"
+                )
+            if self.fault is not fault and self.fault!=fault:
+                raise UnsafeMotion("恢复期间故障发生变化，拒绝清除")
+            self.fault=None
+            self.pending=None
+            self.armed_until=0
+            return {
+                "software_fault_cleared":True,
+                "motor_command_sent":False,
+                "motion_reauthorized":False,
+                "joint_drift_deg":round(joint_drift,3),
+                "xyz_drift_mm":round(xyz_drift,3),
+                "actual_xyz_mm":[round(v,2) for v in samples[-1][1]],
+                "previous_fault":fault,
+                "message":"已自动清除本次RSI锁存异常；未重新授权运动或补发目标",
+            }
 
     def _preflight(self, joint):
         if self.teach_active:
