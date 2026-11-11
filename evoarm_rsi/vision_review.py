@@ -153,6 +153,9 @@ def _validate_review(value, *, motion_recorded, grasp_attempted=True):
     if not isinstance(notes,list) or len(notes)>10 or any(
         not isinstance(n,str) or len(n)>400 for n in notes):
         raise ValueError("invalid evidence")
+    next_direction=value.get("next_probe_direction")
+    if next_direction not in (None,-1,1) or type(next_direction) is bool:
+        raise ValueError("next_probe_direction must be -1, +1 or null")
     changes=value.get("changes",{})
     if not isinstance(changes,dict) or set(changes)-ALLOWED_CHANGES:
         raise ValueError("invalid next-trial changes")
@@ -169,10 +172,12 @@ def _validate_review(value, *, motion_recorded, grasp_attempted=True):
         # only when real movement occurred. No physical actuation here.
         if not motion_recorded:
             changes={}
+            next_direction=None
     return {
         "observed_outcome":outcome, "confidence":float(conf),
         "failure_type":failure, "evidence":notes,
-        "changes":changes, "motion_recorded":motion_recorded,
+        "changes":changes, "next_probe_direction":next_direction,
+        "motion_recorded":motion_recorded,
         "model_output_is_advisory":True,
     }
 
@@ -195,6 +200,9 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "(none/unknown/missed_ball/gripper_did_not_close/ball_slipped/"
         "insufficient_lift/motion_error/no_attempt), evidence (list of short "
         "observed facts), changes (optional single small numerical policy change). "
+        "For a real single-joint probe, optionally include next_probe_direction "
+        "as -1, +1, or null to choose the next 1-degree joint-1 experiment. "
+        "Prefer null if observations do not establish a sensible direction. "
         "Any changes are suggestions for a LATER trial, not motor commands."
     )
     content=[{"type":"text","text":json.dumps({
