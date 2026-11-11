@@ -490,6 +490,16 @@ def pick_plan_preview(req: PickPlan):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+class RSIOnce(BaseModel):
+    declaration: str
+
+
+@app.post("/api/rsi/grasp/enable-once")
+def rsi_grasp_enable_once(req: RSIOnce):
+    """One local operator-authorized RSI trial; never unlocks the arm."""
+    return invoke(executor.enable_rsi_once, service, req.declaration)
+
+
 @app.post("/api/rsi/grasp/start")
 def rsi_grasp_start(req: RSIGraspStart):
     """Operator-started fresh Gemini/v2 grasp, uses ordinary verified pick steps."""
