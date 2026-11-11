@@ -87,7 +87,7 @@ pre{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 <div class="row"><button id="captureTop" class="primary" disabled style="font-size:16px;font-weight:750;padding:12px 18px">记录当前 P1 的 XYZ</button><span class="muted">对准后立即记录；每个点下方也有独立记录按钮</span></div>
 <details id="calibrationJog" class="connection-settings" open>
  <summary>当前点微调机械臂 · 不用离开标定页面</summary>
- <div class="row"><button id="calUnlock" type="button" class="primary">解锁运动 120 秒</button>
+ <div class="row"><button id="calUnlock" type="button" class="primary">解锁运动 300 秒</button>
  <select id="calJoint" aria-label="调整关节"></select>
  <button type="button" data-cal-jog="-10">−10°</button>
  <button type="button" data-cal-jog="-5">−5°</button>
@@ -495,7 +495,7 @@ function refreshCalibrationJog(){
    health?.fault?"存在动作异常，请先复核":
    health?.pending?"上一条运动尚未完成":
    health?.teach_active?"关节扭矩已释放":
-   !healthReady?"请先点击「解锁运动 120 秒」":"点击方向按钮直接微调，结束后记录当前角点";
+   !healthReady?"请先点击「解锁运动 300 秒」":"点击方向按钮直接微调，结束后记录当前角点";
  $("calUnlock").disabled=busy||!health?.connected||!health?.motion_enabled;
  document.querySelectorAll("[data-cal-jog]").forEach(b=>{
   b.disabled=busy||!healthReady||
@@ -522,7 +522,7 @@ $("calRecover").onclick=async()=>{
   const result=await api("/api/recover","POST",
     {declaration:"已检查机械臂静止且运动区域安全"});
   health=await api("/api/health");
-  $("calJogStatus").textContent="运动异常已解除，没有补发刚才的指令。请点击「解锁运动 120 秒」后继续。";
+  $("calJogStatus").textContent="运动异常已解除，没有补发刚才的指令。请点击「解锁运动 300 秒」后继续。";
   await refreshArm();
  }catch(e){
   $("calJogStatus").textContent="暂未恢复："+e.message;
