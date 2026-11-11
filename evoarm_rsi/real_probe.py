@@ -1,4 +1,4 @@
-"""First physical RSI trial: one ±1° base-joint probe with real RGB-D video.
+"""First physical RSI trial: one bounded 5°/10° base-joint probe with real RGB-D video.
 
 Uses the EXISTING controller as the only serial owner and the dedicated
 camera UNIX service. NO raw serial and NO direct SDK in this user process.
@@ -8,7 +8,7 @@ It only moves if:
 - torque for all 6 joints is ON, no faults/pending operations,
 - current joint feedback agrees with the previously physically taught HOME,
 - the Gemini camera service has actually started recording,
-- motion is a single +/-1 degree BASE (joint 1) jog.
+- motion is a single 5°/10° BASE (joint 1) jog.
 
 After confirmed feedback, it attempts a bounded reverse to the prior pose.
 It DOES NOT try a blind Home/reset after any feedback uncertainty.
@@ -91,7 +91,7 @@ def _ready(health,status,home):
     return differences
 
 
-def _wait_settled(base,*,timeout_s=8):
+def _wait_settled(base, *, start_deg, expected_delta_deg, timeout_s=10):
     until=time.monotonic()+timeout_s
     seen=[]
     while time.monotonic()<until:
@@ -106,18 +106,37 @@ def _wait_settled(base,*,timeout_s=8):
         if health.get("fault"):
             raise RuntimeError("robot reported fault; no automatic reversal")
         if not health.get("pending"):
+            # A settled position without real progress is never success.
+            # Controller distinguishes feedback_confirmed from faults and
+            # settled_with_offset; we independently compare actual J1 motion.
+            last = health.get("last_command") or {}
+            if last.get("status") != "feedback_confirmed":
+                raise RuntimeError(
+                    "controller did not confirm actual motion: "
+                    + str(last.get("status", "no last command"))
+                )
+            actual = _degrees(status)[1]
+            displacement = actual-start_deg
+            required = 0.6 * abs(expected_delta_deg)
+            if displacement*expected_delta_deg <= 0 or abs(displacement) < required:
+                raise RuntimeError(
+                    f"J1 moved {displacement:+.2f}° but needed at least "
+                    f"{required:.2f}° in commanded direction"
+                )
             return seen
         time.sleep(0.25)
     raise RuntimeError("robot move did not settle; no automatic reversal")
 
 
 def run_real_probe(*,controller="http://127.0.0.1:8765",
-                   direction=1, execute=False,
+                   direction=1, degrees=5, execute=False,
                    home_path=None, camera_home=None):
     # Distinct flag ensures invoking the module without --execute is
     # a read-only preflight even if the controller is armed.
     if direction not in (-1,1):
         raise ValueError("direction must be +1 or -1")
+    if type(degrees) is not int or degrees not in (5,10):
+        raise ValueError("probe step must be 5 or 10 degrees")
     base=_base_url(controller)
     home_path=Path(home_path).expanduser() if home_path else (
         Path.home()/".evoarm"/"pick_poses_v2.json"
@@ -128,7 +147,8 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     health=_controller_get(base,"/api/health")
     differences=_ready(health,status,saved)
     if not execute:
-        return {"status":"ready_preview","safe_jog_deg":direction,
+        return {"status":"ready_preview","safe_jog_deg":direction*degrees,
+                "probe_step_deg":degrees,
                 "joint":1,"home_joint_difference_deg":differences,
                 "home_tolerance_deg":{"2":5.0,"other_joints":3.0},
                 "board_visibility_required":False,
@@ -180,12 +200,15 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         command_attempted=True
         history.append({"kind":"move_request_attempted",
                         "host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":direction})
-        command=_controller_step(base,1,direction)
+                        "joint":1,"delta_deg":direction*degrees})
+        before_deg = _degrees(fresh_status)[1]
+        command=_controller_step(base,1,direction*degrees)
         moved=True
         history.append({"kind":"move_command","host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"delta_deg":direction,"controller_ack":command})
-        history.extend(_wait_settled(base))
+        history.extend(_wait_settled(
+            base,start_deg=before_deg,expected_delta_deg=direction*degrees
+        ))
         # The reverse is attempted only after actual feedback settled,
         # and only if torque remains fully on and no faults are latched.
         fresh_health=_controller_get(base,"/api/health")
@@ -195,11 +218,14 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         reverse_attempted=True
         history.append({"kind":"reverse_request_attempted",
                         "host_monotonic_ns":time.monotonic_ns(),
-                        "joint":1,"delta_deg":-direction})
-        reverse_ack=_controller_step(base,1,-direction)
+                        "joint":1,"delta_deg":-direction*degrees})
+        reverse_start=_degrees(_controller_get(base,"/api/status"))[1]
+        reverse_ack=_controller_step(base,1,-direction*degrees)
         history.append({"kind":"reverse_command","host_monotonic_ns":time.monotonic_ns(),
                         "joint":1,"delta_deg":-direction,"controller_ack":reverse_ack})
-        history.extend(_wait_settled(base))
+        history.extend(_wait_settled(
+            base,start_deg=reverse_start,expected_delta_deg=-direction*degrees
+        ))
         reverse_confirmed=True
     except Exception as exc:
         failure=type(exc).__name__+": "+str(exc)
@@ -211,6 +237,7 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         failure="camera_capture_thread_stalled"
     result={
         "kind":"physical_single_joint_probe",
+        "requested_step_deg":direction*degrees,
         "command_attempted":command_attempted,
         "command_acknowledged":moved,
         "robot_moved":moved,
@@ -242,16 +269,17 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
 
 def main(argv=None):
     p=argparse.ArgumentParser(
-        description="Camera-synchronized single +1/-1 degree real RoArm base probe"
+        description="Camera-synchronized single 5°/10° real RoArm base probe"
     )
     p.add_argument("--controller",default="http://127.0.0.1:8765")
     p.add_argument("--direction",type=int,choices=(-1,1),default=1)
+    p.add_argument("--degrees",type=int,choices=(5,10),default=5)
     p.add_argument("--execute",action="store_true",
                    help="send bounded motor step ONLY if existing controller is already armed")
     args=p.parse_args(argv)
     print(json.dumps(run_real_probe(
         controller=args.controller,direction=args.direction,
-        execute=args.execute),ensure_ascii=False,indent=2))
+        degrees=args.degrees,execute=args.execute),ensure_ascii=False,indent=2))
 
 
 if __name__=="__main__":
