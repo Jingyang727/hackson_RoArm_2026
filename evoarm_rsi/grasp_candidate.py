@@ -88,8 +88,11 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
         if any(type(v) not in (float,int) or not math.isfinite(v)
                for v in (*current,hp,hr,home_pitch,home_roll,initial_gripper)):
             raise GraspCandidateError("invalid real XYZ/Pitch/Roll/Gripper feedback")
-        if not 1.08<=initial_gripper<=3.14:
+        # Firmware official initial gripper feedback is pi radians (3.141593),
+        # while T104 documentation caps the *command* at 3.14.
+        if not 1.08<=initial_gripper<=math.pi+0.02:
             raise GraspCandidateError("live gripper angle outside hardware range")
+        initial_gripper=min(initial_gripper,3.14)
         # Home is a REFERENCE taught earlier, not a mandatory return
         # target. Do not reject today's real parked pose merely because
         # J1/J2 gravity offset shifted Z by ~21mm.
