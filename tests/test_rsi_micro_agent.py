@@ -116,6 +116,49 @@ class MicroAgentTests(unittest.TestCase):
                                start_deg=0.0,expected_delta_deg=5.0)
         self.assertEqual(len(rows),1)
 
+    def test_partial_movement_is_not_precise_arrival_and_logs_feedback(self):
+        from evoarm_rsi.real_probe import _wait_settled
+        status={"T":1051,"b":__import__("math").radians(3.87)}
+        health={**HEALTH,"pending":None,
+                "last_command":{"status":"feedback_confirmed"}}
+        log=[]
+        with (patch("evoarm_rsi.real_probe._controller_get",
+                    side_effect=[status,health]),
+              patch("evoarm_rsi.real_probe._degrees",
+                    return_value={1:3.87})):
+            with self.assertRaisesRegex(RuntimeError,"partial_motion"):
+                _wait_settled("http://127.0.0.1:8765",
+                              start_deg=0.,expected_delta_deg=5.,
+                              history=log)
+        self.assertEqual(len(log),1)
+        self.assertEqual(log[0]["kind"],"feedback_sample")
+
+    def test_old_trial_motion_audit_does_not_call_hardware(self):
+        import math
+        from evoarm_rsi.motion_audit import audit_physical_probe
+        def status(angle):
+            return {"T":1051,"b":math.radians(angle)}
+        example={
+            "kind":"physical_single_joint_probe",
+            "requested_step_deg":5,
+            "command_acknowledged":True,
+            "reverse_attempted":True,
+            "reverse_confirmed":False,
+            "motion_error":"HTTP Error 409: Conflict",
+            "controller_feedback":[
+                {"kind":"pre_move","status":status(-0.97)},
+                {"kind":"move_command","controller_ack":{"status":"sent_not_verified"}},
+                {"host_monotonic_ns":123,"robot_status":status(2.90),
+                 "pending":None},
+            ],
+        }
+        outcome=audit_physical_probe(example)
+        self.assertAlmostEqual(outcome["observed_delta_deg"],3.87,places=2)
+        self.assertAlmostEqual(outcome["remaining_target_error_deg"],1.13,places=2)
+        self.assertFalse(outcome["absolute_error_within_0_75deg"])
+        self.assertFalse(outcome["returned_to_initial_position"])
+        self.assertFalse(outcome["original_HTTP_409_cause_recoverable_from_old_log"])
+
     def test_agent_abstains_instead_of_repeating_bounded_trial(self):
         with tempfile.TemporaryDirectory() as temp:
             result={
