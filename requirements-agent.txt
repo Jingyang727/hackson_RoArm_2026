@@ -1,0 +1,3 @@
+# Optional Langfuse OTEL export; core Grok/local memory uses the standard library.
+# Reads use Observations API v2 (Langfuse v4 / Cloud).
+langfuse>=4,<6

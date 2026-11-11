@@ -60,6 +60,47 @@ class CompanyModelGateway:
     def configured(self):
         return bool(self.base_url and self.model and os.getenv("EVOARM_COMPANY_LLM_TOKEN"))
 
+    def complete_json(self, system, content):
+        """Company Grok perception/review only; returns final JSON, never reasoning.
+
+        This method has no robot tools and never opens a public fallback.
+        Callers independently validate the returned schema before using it.
+        """
+        if not self.configured():
+            raise RuntimeError("company Grok gateway not configured")
+        if not self.model.lower().startswith("grok"):
+            raise ValueError("pick/place agent requires the configured company Grok model")
+        endpoint = urlparse(self.base_url)
+        if (endpoint.scheme != "https" or not endpoint.hostname or endpoint.username
+                or endpoint.password or endpoint.query or endpoint.fragment):
+            raise ValueError("company gateway must be an HTTPS base URL")
+        req = request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps({"model": self.model, "temperature": 0.1,
+                             "messages": [{"role": "system", "content": system},
+                                          {"role": "user", "content": content}]}).encode(),
+            headers={"Content-Type": "application/json", "Authorization":
+                     "Bearer " + os.environ["EVOARM_COMPANY_LLM_TOKEN"]}, method="POST")
+        try:
+            with request.urlopen(req, timeout=self.timeout_s) as response:
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+        except error.HTTPError as exc:
+            raise RuntimeError(f"company Grok HTTP {exc.code}") from exc
+        except (error.URLError, TimeoutError, socket.timeout, ssl.SSLError) as exc:
+            raise RuntimeError("company Grok transport failed; request not retried") from exc
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise ValueError("company Grok response too large")
+        answer = json.loads(raw)["choices"][0]["message"]["content"]
+        if not isinstance(answer, str):
+            raise ValueError("company Grok final content must be JSON text")
+        answer = answer.strip()
+        if answer.startswith("```json\n") and answer.endswith("```"):
+            answer = answer[8:-3].strip()
+        result = json.loads(answer)
+        if not isinstance(result, dict):
+            raise ValueError("company Grok final JSON must be an object")
+        return result
+
     def propose_next(self, policy: dict, evaluation: dict):
         if not self.configured():
             raise RuntimeError("company LLM gateway not configured; no external model fallback")
