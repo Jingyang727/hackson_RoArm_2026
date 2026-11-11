@@ -119,6 +119,32 @@ class RGBDLocalizationTests(unittest.TestCase):
             self.assertEqual(result["analysis_output_file"], str(destination))
             self.assertFalse((Path(source)/"rgbd_localization.json").exists())
 
+    def test_same_trial_empty_board_reference_supports_occluded_ball_preview(self):
+        with tempfile.TemporaryDirectory() as d:
+            frame = self._sample(d)
+            grid = np.zeros((6, 9, 2), dtype=np.float32)
+            H = np.eye(3, dtype=np.float64)
+            detected_ball = {
+                "center_px": [160.0, 110.0],
+                "radius_px": 12.0,
+            }
+            with (patch("cv2.VideoCapture", return_value=FakeVideo(frame)),
+                  patch("control_ui.vision.find_chessboard",
+                        side_effect=[(grid, H), (None, None)]),
+                  patch("control_ui.vision.find_yellow_ball",
+                        side_effect=[None, detected_ball])):
+                report = locate_saved_trial(
+                    d, output_file=Path(d)/"rgbd_localization.json"
+                )
+            self.assertEqual(report["board_frames_detected"], 1)
+            self.assertEqual(report["ball_frames_detected"], 1)
+            self.assertEqual(report["board_reference_xy_used_frames"], 1)
+            ball = report["observations"][0]
+            self.assertEqual(ball["ball_board_xy_source"],
+                             "same_trial_board_reference_unverified")
+            self.assertEqual(ball["board_reference_rgb_frame_index"], 0)
+            self.assertFalse(report["motion_authorized"])
+
     def test_unmatched_depth_and_rgb_are_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             self._sample(d)
