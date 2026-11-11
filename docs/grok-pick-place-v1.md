@@ -84,6 +84,14 @@ python -m evoarm_rsi.task_agent inspect /path/to/returned/trial/folder \
 
 动作预算从第一条实际动作开始，到释放并完成必要撤离为止。相机预热、场景定位和Grok事后分析独立计时。模型分析延迟不能从视频长度直接推定。
 
+采集上限20fps不等于真实帧率。新录像会根据帧时间戳核对容器帧率；偏差超过1%时离线修正平均播放速度，并将原始MP4保留为 `rgb-capture-original.mp4`。帧顺序和索引不变，逐帧时间戳仍是实际时间依据；平均帧率不能消除采样抖动。
+
+已有录像无需重拍，可以单独生成正确平均播放速度的副本：
+
+```bash
+python -m evoarm_rsi.video_timing /path/to/existing/trial --output /tmp/rgb-realtime.mp4
+```
+
 当前控制器保持至少0.8秒的指令间隔。因此14个阶段仅间隔下限就是10.4秒，尚未包含最后阶段运动与反馈延迟。`timing_preflight` 会显式报告这种不可满足的计划；不会靠提高速度、忽略反馈或放宽故障判断冒充达标。
 
 10秒内真实抓放能力仍需本地实测。超时后停止后续指令不能保证中止固件中已经执行的动作，软件时限不能充当硬件急停。

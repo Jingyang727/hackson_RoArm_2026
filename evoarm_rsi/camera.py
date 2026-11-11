@@ -166,8 +166,37 @@ class TrialVideoRecorder:
                 np.savez_compressed(folder/"depth_samples.npz",
                                     depth_mm=np.stack(depth_samples),
                                     monotonic_ns=np.asarray(depth_stamps, dtype=np.int64))
+            # A requested 20fps writer can receive only 15 actual frames/s.
+            # Close before offline correction; retain original evidence.
+            writer.release()
+            writer = None
+            video_timing = None
+            if len(frames) >= 2:
+                span = (frames[-1]["host_monotonic_ns"]-frames[0]["host_monotonic_ns"])/1e9
+                if span <= 0:
+                    raise ValueError("capture timestamps must increase")
+                measured_fps = (len(frames)-1)/span
+                video_timing = {"capture_span_s": span, "measured_fps": measured_fps,
+                                "encoded_fps": self.fps, "corrected": False,
+                                "per_frame_timestamps_authoritative": True}
+                # Avoid a second encode for an already matching timebase.
+                if abs(measured_fps-self.fps)/self.fps > .01:
+                    from .video_timing import correct_video_timing
+                    video_timing = correct_video_timing(folder)
+                    original = folder/"rgb.mp4"
+                    backup = folder/"rgb-capture-original.mp4"
+                    if backup.exists():
+                        raise ValueError("original capture backup already exists")
+                    original.rename(backup)
+                    try:
+                        Path(video_timing["output_file"]).rename(original)
+                    except Exception:
+                        backup.rename(original)
+                        raise
+                    video_timing.update(output_file="rgb.mp4", source_file=backup.name, corrected=True)
             return {"rgb_file": "rgb.mp4", "frames": len(frames),
-                    "depth_samples": len(depth_samples), "camera": frames[0]["camera_name"]}
+                    "depth_samples": len(depth_samples), "camera": frames[0]["camera_name"],
+                    "video_timing": video_timing}
         finally:
             if writer is not None:
                 writer.release()
