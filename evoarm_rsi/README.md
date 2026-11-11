@@ -193,6 +193,41 @@ intentionally does not produce robot XYZ or move any actuators until
 camera-to-robot extrinsics, tool TCP and collision constraints have been
 validated.
 
+## Trial 003.1 — new Gemini geometry + robust local analysis
+
+Trial 002 already established 32/32 ball depth observations, but no 54-corner
+board or RGB intrinsics were captured. No need to redo the old RoArm XY
+calibration.
+
+The offline analyzer now defaults to writing its report in the *current
+user's* `~/.evoarm/rsi/analysis/<trial_id>/rgbd_localization.json`.
+Raw trial directories (possibly root-owned) are left unchanged. Optional:
+`--output /writable/path/report.json`.
+
+To obtain a new same-camera board reference in a single recording:
+
+1. Put the Gemini in its fixed experimental position; keep the entire 9×6
+   inner-corner board visible and initially remove the yellow ball.
+2. Start a new 10-second RGB-D recording using the authorized camera terminal.
+   For the first ~2–3 seconds leave the board empty; then place the yellow
+   ball on the board **without moving the camera or board**.
+3. The camera code attempts to persist
+   `gemini_color_intrinsics.json` from the active SDK stream. Its
+   `verified` flag intentionally remains false until geometry is checked.
+4. Analyze the new trial as a regular user:
+
+```bash
+python -m evoarm_rsi.localize ~/.evoarm/rsi/experiments/<new_trial_id>
+```
+
+The analyzer detects full checkerboard frames and can reuse a board mapping
+seen **earlier within the same trial** for subsequent ball-obscured frames.
+Those values are tagged `same_trial_board_reference_unverified` and are
+**preview-only**, never an authorization to send a robot command. The RGB-D
+localization will NOT silently use old USB camera corners. Even with
+intrinsics, robot XYZ stays null until camera-to-robot extrinsics and TCP
+validation have been completed.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
