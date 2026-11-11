@@ -100,6 +100,46 @@ Output: `~/.evoarm/rsi/experiments/<trial_id>/` with `rgb.mp4`,
 Do not reuse the former USB camera's pixel calibration for Gemini. The
 saved robot XY calibration and poses remain untouched.
 
+## P1.5: synchronized real RGB-D and read-only RoArm data
+
+Your first camera-only trial captured real RGB and depth successfully. The
+next trial can also poll the **existing FastAPI serial owner** without issuing
+motor commands or opening the serial device twice.
+
+1. Start the existing EvoArm control service as a regular user, bound to
+   127.0.0.1. Connect the RoArm as usual.
+2. Verify the actual API port and that `curl -s http://127.0.0.1:8765/api/status`
+   returns one T=1051 feedback JSON (substitute your real service port).
+3. In the separately authorized camera terminal, run:
+
+```bash
+python -m evoarm_rsi.observe --camera gemini --seconds 10 \
+  --robot-status-url http://127.0.0.1:8765/api/status
+```
+
+If you still need elevated permissions for **camera capture only**, use the
+same Python module via the manually authorized terminal. Never launch the
+entire robot control API as root. The status URL only accepts localhost
+`GET /api/status`; no motor control endpoint can be provided.
+
+The recorded `trajectory.jsonl` samples have wall-clock and monotonic
+request start/end timestamps. The capture source keeps per-frame monotonic
+timestamps, so camera and robot data can be aligned approximately on the
+same host. A status request may be slow: the sample interval is a target,
+not an assumed device sampling rate. Missing status data are explicitly
+recorded rather than fabricated.
+
+For any saved trial, inspect evidence coverage without network access:
+
+```bash
+python -m evoarm_rsi.audit ~/.evoarm/rsi/experiments/<trial_id>
+```
+
+This remains a **read-only experiment**. No grasp attempts, autonomous retry,
+3D TCP registration or motion control have been implemented yet. The
+camera-only trial and the robot-data trial are preparatory milestones for
+the first true learning loop.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
