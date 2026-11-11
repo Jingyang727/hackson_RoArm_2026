@@ -88,6 +88,7 @@ function loadPage(db,initialTorque=1){
         image:{width:1920,height:1080},
         checkerboard:{
           detected:true,source:hasBall?"reference_partial_verified":"live_54",
+          motion_stable: Boolean(db.boardStable),
           corners_px:Array.from({length:54},(_,i)=>[200+(i%9)*25,200+Math.floor(i/9)*25])
         },
         ball:hasBall?{
@@ -256,7 +257,7 @@ test("manual empty-board button is actionable without yellow ball",async()=>{
 });
 
 test("one physical confirmation opens motion lease and sends exactly first supervised step",async()=>{
- const db={hardwareExecution:true,saved:true,profile:{
+ const db={hardwareExecution:true,boardStable:true,saved:true,profile:{
    grip_z_mm:-116.18,place_z_mm:-103.87,travel_z_mm:-38.82,
    place_xy_mm:[285.35,275.04],pitch_rad:1.24,roll_rad:0.01,
    open_g_rad:2.34,close_g_rad:2.53,ball_diameter_mm:34.7
