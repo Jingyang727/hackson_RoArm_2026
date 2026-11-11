@@ -30,10 +30,41 @@ def summarize_grasp_step(step):
          "observed_fault":step.get("fault_snapshot"),
          "action_confirmed":bool(step.get("feedback_confirmed",False)),
          "motor_commands_sent":None}
-    if not usable or not isinstance(target,list) or len(target)!=3 or not all(
+    if not isinstance(target,list) or len(target)!=3 or not all(
         _finite(v) for v in target
     ):
-        out["diagnosis"]="insufficient actual timestamped T1051 samples"
+        out["diagnosis"]="no valid saved Cartesian target"
+        return out
+    if not usable:
+        # PREVIOUS trials did not record full joint traces. Their
+        # cartesian_stalled snapshots do contain authoritative target
+        # and final XYZ from the actual controller. Recover useful
+        # residual metrics without inventing J1/J2 movement samples.
+        old_fault=step.get("fault_snapshot") or {}
+        last=old_fault.get("actual_xyz_mm")
+        if last is None:
+            last=step.get("actual_xyz_mm")
+        if isinstance(last,list) and len(last)==3 and all(_finite(n) for n in last):
+            remaining=[target[i]-last[i] for i in range(3)]
+            dist=math.sqrt(sum(n*n for n in remaining))
+            out.update({
+                "last_xyz_mm":[round(n,3) for n in last],
+                "target_xyz_mm":[round(n,3) for n in target],
+                "residual_target_minus_actual_xyz_mm":[round(n,3) for n in remaining],
+                "euclidean_residual_mm":round(dist,3),
+                "reached_target":dist<=6.0,
+                "angular_y_difference_deg_at_xy_radius":round(
+                    math.degrees(
+                        math.atan2(target[1],target[0])-
+                        math.atan2(last[1],last[0])
+                    ),3
+                ) if min(math.hypot(*target[:2]),math.hypot(*last[:2]))>50 else None,
+                "diagnosis":"last XYZ is from real controller fault snapshot; "
+                            "J1/J2 progression, voltage, load and initial pose "
+                            "are not available in this older trial",
+            })
+        else:
+            out["diagnosis"]="insufficient saved real controller measurements"
         return out
     start,end=usable[0],usable[-1]
     v0=[start[k] for k in XYZ]; v1=[end[k] for k in XYZ]
