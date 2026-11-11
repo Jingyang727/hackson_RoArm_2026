@@ -20,7 +20,8 @@ class GraspCandidateError(ValueError):
     pass
 
 
-def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0):
+def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0,
+                          start_status=None):
     if qualification.get("read_only") is not True or qualification.get("motion_authorized") is not False:
         raise GraspCandidateError("requires real read-only ball localization")
     if not qualification.get("stable_ball") or not qualification.get("latest_observation_eligible"):
@@ -69,6 +70,74 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0):
         raise GraspCandidateError("measured gripper open/close poses not valid")
     x,y=xy
     steps=[]
+    # The default offline candidate starts at Hover. For a real run, use
+    # *live* T=1051 Home feedback, not the old "already at Hover" shortcut.
+    # This narrow corridor is supported only when the physical Home and
+    # target Hover XY are already nearby; it is not a general IK planner.
+    home_xyz=pos("home")
+    home_pitch=items["home"].get("pitch_rad")
+    home_roll=items["home"].get("roll_rad")
+    transit=[]
+    if start_status is not None:
+        if not isinstance(start_status,dict):
+            raise GraspCandidateError("live T=1051 starting status is required")
+        current=[start_status.get(k) for k in "xyz"]
+        hp,hr=start_status.get("tit"),start_status.get("r")
+        if any(type(v) not in (float,int) or not math.isfinite(v)
+               for v in (*current,hp,hr,home_pitch,home_roll)):
+            raise GraspCandidateError("invalid real Home XYZ/Pitch/Roll feedback")
+        if (math.dist(current[:2],home_xyz[:2])>18 or
+                abs(current[2]-home_xyz[2])>18):
+            raise GraspCandidateError(
+                "current robot does not match taught Home XYZ; no blind Home-to-Hover motion"
+            )
+        pitch_delta=abs(math.degrees(hp-home_pitch))
+        roll_delta=abs(math.degrees(math.atan2(
+            math.sin(hr-home_roll),math.cos(hr-home_roll)
+        )))
+        if pitch_delta>15 or roll_delta>15:
+            raise GraspCandidateError("actual Home tool attitude differs from taught Home")
+        travel_xy=math.dist(current[:2],xy)
+        if travel_xy>30:
+            raise GraspCandidateError(
+                "Home-to-ball XY exceeds measured local corridor 30mm; full IK path required"
+            )
+        if current[2]<=hover[2]+45 or current[2]>hover[2]+300:
+            raise GraspCandidateError("Home height is not above Hover with verified clearance margin")
+        # At the *same high Home Z*, shift XY into the ball's vertical
+        # corridor. Horizontal movement at lower Z is forbidden by the
+        # existing PickExecutor's safety checks. This high-level path
+        # remains subject to a human checking the 3D swept volume.
+        if travel_xy>1:
+            transit.append({
+                "stage":"home_high_align","kind":"cartesian",
+                "xyz_mm":[round(x,2),round(y,2),round(current[2],2)],
+                "t":round(hp,5),"r":round(hr,5),"g":round(open_g,5),
+                "spd":0.08,
+                "reason":"Home高位先对齐球的XY；须确认这段空间无遮挡",
+                "requires_operator_confirm":True,
+            })
+        dz=current[2]-hover[2]
+        count=max(1,math.ceil(dz/20),
+                  math.ceil(abs(math.degrees(pitch_h-hp))/8),
+                  math.ceil(abs(math.degrees(math.atan2(
+                      math.sin(roll_h-hr),math.cos(roll_h-hr)
+                  )))/8))
+        roll_short=math.atan2(math.sin(roll_h-hr),math.cos(roll_h-hr))
+        for i in range(1,count+1):
+            alpha=i/count
+            transit.append({
+                "stage":("hover_ball" if i==count else f"home_descend_{i:02d}"),
+                "kind":"cartesian",
+                "xyz_mm":[round(x,2),round(y,2),
+                          round(current[2]-dz*alpha,2)],
+                "t":round(hp+(pitch_h-hp)*alpha,5),
+                "r":round(hr+roll_short*alpha,5),
+                "g":round(open_g,5),"spd":0.08,
+                "reason":"从实测Home高位沿球上方竖直走廊逐段接近Hover",
+                "requires_operator_confirm":True,
+            })
+
     def go(name,z,gripper,reason):
         steps.append({
             "stage":name,"kind":"cartesian","xyz_mm":[round(x,2),round(y,2),round(z,2)],
@@ -80,7 +149,10 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0):
             "stage":name,"kind":"gripper","g":round(g,5),"spd":100,"acc":10,
             "reason":reason,"requires_operator_confirm":True,
         })
-    go("hover_ball",hover[2],open_g,"仅在机械臂已经位于实测高位Hover附近且桌面空间安全时定位")
+    if transit:
+        steps.extend(transit)
+    else:
+        go("hover_ball",hover[2],open_g,"在已示教Hover附近定位")
     hand("open_before_pick",open_g,"张开夹爪，准备接近黄球")
     n=max(1,math.ceil((hover[2]-grasp[2])/20))
     for i in range(1,n+1):
@@ -102,6 +174,9 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0):
         "ball_board_xy_mm":qualification.get("ball_board_xy_mm"),
         "ball_robot_xy_mm":[round(x,2),round(y,2)],
         "measured_hover_xyz_mm":hover,
+        "start_mode":"live_home_transit" if transit else "hover_only_offline",
+        "measured_home_xyz_mm":home_xyz,
+        "home_transition_stages":len(transit),
         "measured_grasp_xyz_mm":grasp,
         "taught_grasp_xy_gap_mm":round(math.dist(xy,grasp[:2]),2),
         "waypoints":steps,
@@ -109,7 +184,9 @@ def build_grasp_candidate(qualification, poses, *, max_xy_shift_mm=20.0):
         "requirements":[
             "This full grasp-and-lift candidate is NOT a current-scene collision-proof plan",
             "The camera board frame must still match the saved robot 2D board fit",
-            "Robot must already be near physically measured hover before first T104",
+            ("Robot Home must match saved actual Home XYZ and tool attitude"
+             if transit else "Offline candidate assumes a verified Hover start"),
+            "Home-to-Hover only permits nearby XY and high-then-vertical segments; check swept volume and IK on hardware",
             "Tool TCP and tabletop clearance must be physically checked",
             "One actual action at a time, require real T1051 feedback and stop on faults",
             "Always evaluate the lifted ball in RGB-D before another grasp attempt",
