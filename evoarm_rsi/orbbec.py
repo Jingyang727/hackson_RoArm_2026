@@ -24,6 +24,8 @@ class Gemini335LProvider:
         self.pipeline = None
         self.aligner = None
         self.dropped_frames = 0
+        self.color_intrinsics = None
+        self.intrinsics_error = None
 
     def start(self):
         from pyorbbecsdk import Pipeline, Config, OBSensorType, OBStreamType, AlignFilter
@@ -114,6 +116,31 @@ class Gemini335LProvider:
                                 )
                             depth_mm = np.clip(depth_mm, 0, 65535).astype(np.uint16)
                             self.dropped_frames += discarded
+                            # Get active color profile intrinsics only after a
+                            # valid stream frame; SDK may report zeros earlier.
+                            # Missing calibration is not a reason to discard
+                            # otherwise valid camera evidence.
+                            if self.color_intrinsics is None:
+                                try:
+                                    param = self.pipeline.get_camera_param()
+                                    c = param.rgb_intrinsic
+                                    fx,fy = float(c.fx),float(c.fy)
+                                    cx,cy = float(c.cx),float(c.cy)
+                                    if (not np.isfinite([fx,fy,cx,cy]).all() or
+                                            fx <= 10 or fy <= 10 or
+                                            int(c.width) != bgr.shape[1] or
+                                            int(c.height) != bgr.shape[0]):
+                                        raise ValueError("invalid SDK RGB intrinsics or stream dimensions")
+                                    self.color_intrinsics = {
+                                        "fx":fx, "fy":fy, "cx":cx, "cy":cy,
+                                        "width": int(c.width), "height": int(c.height),
+                                        "aligned_to": "color",
+                                        "verified": False,
+                                        "source": "orbbec_sdk_active_color_profile",
+                                        "note": "SDK-provided candidate; verify alignment before 3D use",
+                                    }
+                                except Exception as exc:
+                                    self.intrinsics_error = type(exc).__name__
                             return CameraFrame(
                                 rgb_bgr=bgr, depth_mm=depth_mm,
                                 monotonic_ns=time.monotonic_ns(),
