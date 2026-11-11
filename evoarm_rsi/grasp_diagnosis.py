@@ -66,7 +66,7 @@ def summarize_grasp_step(step):
             if any(_finite(s.get("v")) for s in usable) else None
         ),
         "max_abs_servo_load_raw":{
-            f:max(abs(s[k]) for s in usable if _finite(s.get(k)))
+            k:max(abs(s[k]) for s in usable if _finite(s.get(k)))
             for k in ("tB","tS","tE","tT","tR","tG")
             if any(_finite(s.get(k)) for s in usable)
         },
