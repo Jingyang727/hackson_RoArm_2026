@@ -109,12 +109,34 @@ def describe_evidence(trial_dir):
             # Source log is retained even if an older incomplete trial
             # cannot support a numeric motion audit.
             pass
+    linked_grasp=_read_json(
+        Path.home()/".evoarm"/"rsi"/"analysis"/str(manifest.get("trial_id"))/"grasp_attempt.json",
+        None
+    )
+    grasp_evidence=None
+    if isinstance(linked_grasp,dict) and linked_grasp.get("kind")=="rsi_v2_physical_grasp_and_lift":
+        grasp_evidence={
+            "grasp_attempted":bool(linked_grasp.get("grasp_attempted")),
+            "lift_completed":bool(linked_grasp.get("lift_completed")),
+            "grasp_success_verified":False,
+            "steps_completed":linked_grasp.get("steps_completed"),
+            "total_steps":linked_grasp.get("total_steps"),
+            "motion_error":linked_grasp.get("motion_error"),
+            "steps":linked_grasp.get("steps",[]),
+        }
     info={
         "trial_id":manifest.get("trial_id"),
         "trial_kind":manifest.get("kind"),
         "real_video":True,
-        "robot_motion_executed":bool(manifest.get("robot_motion_executed",False)) or linked_real_motion,
-        "grasp_attempted":bool(manifest.get("grasp_attempted",False)),
+        "robot_motion_executed":(
+            bool(manifest.get("robot_motion_executed",False)) or
+            linked_real_motion or bool(grasp_evidence and grasp_evidence.get("steps_completed",0))
+        ),
+        "grasp_attempted":(
+            bool(manifest.get("grasp_attempted",False)) or
+            bool(grasp_evidence and grasp_evidence.get("grasp_attempted"))
+        ),
+        "linked_grasp_attempt":grasp_evidence,
         "motion_audit":motion_audit,
         "linked_physical_probe":(
             {"robot_moved":physical_probe.get("robot_moved",False),
@@ -267,6 +289,10 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "displacement, residual target error, and whether actual return "
         "completed; distinguish motor command acceptance from exact arrival. "
         "Numeric robot feedback takes precedence over image-only impressions. "
+        "A completed close_ball motor stage is only a grasp ATTEMPT, not proof "
+        "the yellow ball was picked up. If a grasp/lift record exists, decide "
+        "pickup outcome from ball movement in video, accounting for occlusion. "
+        "Unverifiable success must remain unknown. "
         "Any changes are suggestions for a LATER trial, not motor commands."
     )
     content=[{"type":"text","text":json.dumps({
