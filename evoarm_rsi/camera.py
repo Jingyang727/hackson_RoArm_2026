@@ -105,12 +105,19 @@ class TrialVideoRecorder:
         frames = []
         depth_samples = []
         depth_stamps = []
+        # Obtain the first *valid* RGB-D frame before starting the trial
+        # recording clock. Initial Orbbec SDK/aligner warmup can take seconds.
+        # Keep that initialization outside the requested 10s evidence window.
+        first_frame = self.source.read()
         start = clock()
         end = start + duration_s
         next_frame = start
         try:
             while clock() < end:
-                frame = self.source.read()
+                if first_frame is not None:
+                    frame, first_frame = first_frame, None
+                else:
+                    frame = self.source.read()
                 at = clock()
                 if at < next_frame:
                     continue
