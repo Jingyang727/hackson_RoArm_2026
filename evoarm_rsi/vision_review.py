@@ -182,6 +182,11 @@ def _validate_review(value, *, motion_recorded, grasp_attempted=True):
     if next_direction not in (None,-1,1) or type(next_direction) is bool:
         raise ValueError("next_probe_direction must be -1, +1 or null")
     changes=value.get("changes",{})
+    if not motion_recorded:
+        # Camera-only footage has no trial action to tune. Discard any
+        # hallucinated model suggestions before policy checks.
+        changes={}
+        next_direction=None
     if not isinstance(changes,dict) or set(changes)-ALLOWED_CHANGES:
         raise ValueError("invalid next-trial changes")
     if any(type(v) not in (int,float) or not math.isfinite(v)
