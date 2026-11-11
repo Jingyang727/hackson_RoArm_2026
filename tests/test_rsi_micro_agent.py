@@ -41,6 +41,24 @@ class MicroAgentTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"torque feedback"):
                 _ready({**HEALTH,"torque_status":[0]*6},{},HOME)
 
+    def test_gravity_offset_on_shoulder_not_block_j1_probe(self):
+        with patch("evoarm_rsi.real_probe._degrees",
+                   return_value={1:0.,2:-4.04,3:0.,4:0.,5:0.,6:0.}):
+            offsets=_ready(HEALTH,{},HOME)
+        self.assertAlmostEqual(offsets["2"],-4.04)
+
+    def test_shoulder_offset_over_five_degrees_still_blocked(self):
+        with patch("evoarm_rsi.real_probe._degrees",
+                   return_value={1:0.,2:-5.1,3:0.,4:0.,5:0.,6:0.}):
+            with self.assertRaisesRegex(RuntimeError,"allowed 5.0 deg"):
+                _ready(HEALTH,{},HOME)
+
+    def test_other_joint_home_limits_remain_three_degrees(self):
+        with patch("evoarm_rsi.real_probe._degrees",
+                   return_value={1:0.,2:-4.04,3:0.,4:3.1,5:0.,6:0.}):
+            with self.assertRaisesRegex(RuntimeError,"allowed 3.0 deg"):
+                _ready(HEALTH,{},HOME)
+
     def test_readonly_default_does_not_contact_camera_or_send_motion(self):
         with tempfile.TemporaryDirectory() as temp:
             home=Path(temp)/"poses.json"
