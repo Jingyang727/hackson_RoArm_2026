@@ -15,7 +15,7 @@ The real loop (not run automatically on install):
 1. The **dedicated Gemini capture process** starts recording actual RGB-D.
 2. Only after its first valid aligned frame, the existing RoArm controller
    receives exactly **one ±1° base-joint step**, starting from your
-   manually taught Home joint configuration (within 3°).
+   manually taught Home joint configuration (within 3° for J1/J3–J6,\n   5° for J2 shoulder only during this J1 micro-probe).
 3. The existing controller verifies real feedback. If it reports no fault
    and the move is settled, a bounded reverse step is attempted.
    **No blind Home motion occurs on any error.**
@@ -104,6 +104,33 @@ Evidence is written to
 `visual_review.json`. A single 1° movement must never be labeled
 "grasp success" even if the ball is visible in RGB. There is still no
 3D collision-free grasp execution until tool/scene geometry is validated.
+
+## Trial 004: Home visibility, 5-minute authorization, shoulder gravity offset
+
+- A **complete checkerboard is not required** during the first physical
+  ±1° J1 base probe: RGB-D and robot feedback can record the motion when
+  Home occludes some corners. The checkerboard is required again for
+  ball localization and 3D calibration in subsequent *grasp* trials.
+- Manually granted motion authorization now lasts **300 seconds**, not
+  120. It is never auto-renewed, and automatically expires or is revoked
+  on fault / disarm. Restart the ordinary controller process after pulling
+  the code before expecting the new duration.
+- The physically observed **J2 shoulder -4.04°** from taught Home is
+  accepted in the J1 probe's *starting-pose comparison* by widening
+  J2-only tolerance to **5°**. Other joints remain **3°**.
+  No saved Home, calibration or shoulder target is overwritten.
+- This exception does **NOT** apply to arbitrary grasp trajectories or
+  motion verification. J2 commands that fail to show real joint progress
+  still stop and fault according to controller feedback. Do not blindly
+  increase servo current or declare motion successful from a small-angle
+  command alone.
+- Avoid repeatedly jogging the gravity-loaded shoulder solely to chase
+  a numeric Home difference when it would make the camera view worse.
+  If J2 is continuously sagging, or its holding torque fails under load,
+  physically support it, stop trials and inspect mounting, supply and
+  mechanical load before continuing.
+- The first physical probe deliberately has no board-derived target:
+  `board_visibility_required=false` in its preflight result.
 
 ## Local mock run
 
