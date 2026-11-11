@@ -34,6 +34,20 @@ class DiagnosticTests(unittest.TestCase):
         self.assertAlmostEqual(result["min_voltage_v"],11.95)
         self.assertAlmostEqual(result["angular_y_difference_deg_at_xy_radius"],-1.39,delta=.10)
 
+    def test_previous_fault_snapshot_needs_no_new_physical_trial(self):
+        old={"stage":"current_high_align",
+             "target_xyz_mm":[360.88,-11.28,192.74],
+             "fault_snapshot":{
+                 "code":"cartesian_stalled",
+                 "actual_xyz_mm":[363.32,-2.23,181.14],
+             }}
+        report=summarize_grasp_step(old)
+        self.assertEqual(report["valid_xyz_samples"],0)
+        self.assertAlmostEqual(report["euclidean_residual_mm"],14.91,delta=.03)
+        self.assertAlmostEqual(report["residual_target_minus_actual_xyz_mm"][1],-9.05)
+        self.assertIsNone(report.get("joint_feedback_delta_deg"))
+        self.assertFalse(report["reached_target"])
+
     def test_old_report_does_not_fabricate_kinematics(self):
         report={
             "kind":"rsi_v2_physical_grasp_and_lift",
