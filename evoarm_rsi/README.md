@@ -224,6 +224,46 @@ It will not clear faults, unlock motion, or return the arm to Home.
 **Do not run the next physical trial yet**: inspect the actual state
 and confirm the observed robot return geometry first.
 
+## 当前优先任务：灵敏控制的真实 10° 往返实验
+
+先不要运行黄球抓取、Gemini 或 Grok。机械臂 **1° 不一定响应**，
+而过去要求 J1 转动 5°，有过实测仅转动约 3.87° 的情况。
+这版专门让机械臂执行 **10° 主测试、5° 备用测试**，
+不再从旧示教 Home 强制开始，也不凭空认为指令等于运动。
+
+1. 本机运行原有控制服务，串口已经连接、六关节扭矩开启、
+   已在现场人工解锁一次；该程序不会重启或重新解锁服务。
+2. 从最新 T=1051 读取 **当前实际角度和末端 XYZ**。
+3. 对 J1、J2、J3 分别执行一次朝 +10° 和 -10° 的试验，
+   每次实际动作后测量真实位移，再**回到动作前的实际起点角度**，
+   而不是盲目反转 -10°。
+4. 每次保存发出的真实目标、全部关节反馈、末端 XYZ、
+   实际运动比例、位置误差及返回误差，实验中途异常保留完整文件。
+5. 控制器若报故障、扭矩断开、授权过期或动作未经确认，则停止本批。
+   **不自动重发、不通过 T=100 强制复位、不静默清除真实故障。**
+
+```bash
+# 只读预检，确认当前实际关节姿态及计划（不运动）
+python -m evoarm_rsi.control_calibration
+
+# 确认机械臂周边在整段运动范围无碰撞，且能切断电源后，
+# 才执行一次批次（每个关节有正向、反向和实测回位）
+python -m evoarm_rsi.control_calibration --joints 1,2,3 --degrees 10 --cycles 1 --execute
+# 终端输入 RUN 后才实际驱动机械臂
+
+# 想先针对底座和肩关节可仅选这两个：
+python -m evoarm_rsi.control_calibration --joints 1,2 --degrees 10 --cycles 1 --execute
+
+# 仅在实测 10° 行程不适合时才选择 5°；不再测试 1°/2°微动
+python -m evoarm_rsi.control_calibration --joints 1,2,3 --degrees 5 --cycles 1 --execute
+```
+
+实际结果写入 `~/.evoarm/rsi/control_experiments/<本批编号>.json`。
+一次批次默认最多 3 个关节 × 2 个方向 × 2 次往返，共 12 条
+受控电机动作（每次反馈不符合则立即中止），不依赖相机服务。
+它不是“完成了抓球”，只衡量角度响应和末端位置变化。
+小角度补偿先通过统计获得真实规律，不能再靠 <3° 指令硬凑。
+
 ## Trial 005: real first FULL grasp/lift attempt (not more J1-only probing)
 
 The current user goal is **actually try to pick up the yellow ball**, and
