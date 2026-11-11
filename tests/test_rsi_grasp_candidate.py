@@ -43,9 +43,9 @@ class GraspCandidateTests(unittest.TestCase):
         start={"x":360.339,"y":-4.975,"z":182.572,
                "tit":0.31,"r":0.02}
         plan=build_grasp_candidate(Q,POSES,start_status=start)
-        self.assertEqual(plan["start_mode"],"live_home_transit")
+        self.assertEqual(plan["start_mode"],"live_high_pose_transit")
         self.assertGreater(plan["home_transition_stages"],10)
-        self.assertEqual(plan["waypoints"][0]["stage"],"home_high_align")
+        self.assertEqual(plan["waypoints"][0]["stage"],"current_high_align")
         self.assertAlmostEqual(plan["waypoints"][0]["xyz_mm"][2],182.572,places=2)
         self.assertIn("hover_ball",[x["stage"] for x in plan["waypoints"]])
         zs=[x["xyz_mm"][2] for x in plan["waypoints"]
@@ -56,9 +56,10 @@ class GraspCandidateTests(unittest.TestCase):
     def test_not_at_taught_home_or_far_xy_does_not_move(self):
         start={"x":360.339,"y":-4.975,"z":182.572,
                "tit":0.31,"r":0.02}
-        with self.assertRaisesRegex(GraspCandidateError,"does not match taught Home"):
-            build_grasp_candidate(Q,POSES,
-                                  start_status={**start,"z":100.0})
+        plan=build_grasp_candidate(Q,POSES,
+                                   start_status={**start,"z":204.0})
+        self.assertEqual(plan["start_mode"],"live_high_pose_transit")
+        self.assertGreater(plan["distance_to_old_taught_home_xyz_mm"],20)
         with self.assertRaisesRegex(GraspCandidateError,"local corridor"):
             build_grasp_candidate({**Q,"robot_xy_preview_mm":[380,-30]},
                                   POSES,start_status=start,
