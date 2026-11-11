@@ -115,9 +115,24 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
                 "stage":waypoint.get("stage"),
                 "target_xyz_mm":waypoint.get("xyz_mm"),
                 "target_gripper_rad":waypoint.get("g"),
+                "target_pitch_rad":waypoint.get("t"),
+                "target_roll_rad":waypoint.get("r"),
                 "host_monotonic_ns":time.monotonic_ns(),
+                "feedback_trace":[],
             }
             steps.append(record)
+            # Read before-send telemetry: distinguishes a small J1 change
+            # from changing gripper/pitch/shoulder under T104.
+            first_feedback=_controller_get(base,"/api/status")
+            def stamp(feedback,phase):
+                fields=("x","y","z","b","s","e","t","r","g","tit",
+                        "v","tB","tS","tE","tT","tR","tG")
+                record["feedback_trace"].append({
+                    "host_monotonic_ns":time.monotonic_ns(),
+                    "phase":phase,
+                    **{k:feedback.get(k) for k in fields}
+                })
+            stamp(first_feedback,"before_command")
             ack=_controller_post(base,"/api/pick/step",{
                 "session_id":session_id,"step_index":i,
                 "declaration":"已批准一次RSI抓取试次自动分段执行",
@@ -126,6 +141,7 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
             deadline=time.monotonic()+(70 if waypoint.get("kind")=="cartesian" else 15)
             while time.monotonic()<deadline:
                 status=_controller_get(base,"/api/status")
+                stamp(status,"after_command")
                 health=_controller_get(base,"/api/health")
                 if health.get("fault"):
                     record["fault_snapshot"]=health["fault"]
@@ -188,6 +204,9 @@ def run_grasp_attempt(trial_id,*,controller="http://127.0.0.1:8765",
         camera_errors.append("camera recording thread did not exit")
     completed=bool(steps and len(steps)==total and
                    all(x.get("feedback_confirmed") for x in steps))
+    from .grasp_diagnosis import summarize_grasp_step
+    for step in steps:
+        step["feedback_diagnosis"]=summarize_grasp_step(step)
     report={
         "kind":"rsi_v2_physical_grasp_and_lift",
         "source_ball_trial_id":trial_id,
