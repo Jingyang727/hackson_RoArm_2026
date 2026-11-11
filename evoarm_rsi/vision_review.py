@@ -250,7 +250,8 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "insufficient_lift/motion_error/no_attempt), evidence (list of short "
         "observed facts), changes (optional single small numerical policy change). "
         "For a real single-joint probe, optionally include next_probe_direction "
-        "as -1, +1, or null to choose the next 1-degree joint-1 experiment. "
+        "as -1, +1, or null to choose the next direction. The executor "
+        "independently fixes step size at 5 or 10 degrees and applies hardware limits. "
         "Prefer null if observations do not establish a sensible direction. "
         "Any changes are suggestions for a LATER trial, not motor commands."
     )
