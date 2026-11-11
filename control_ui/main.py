@@ -16,8 +16,10 @@ from .pick_plan import PickPlanningError, plan_pick_place, build_from_saved_file
 from .pick_teach import observe_tool_pose
 from .fast_teach import read_poses, capture_pose
 from .pick_execution import executor
+from evoarm_rsi import TrialRunner, TrialStore, TrialPolicy, CompanyModelGateway
 
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
+rsi_runner = TrialRunner(store=TrialStore())  # P0: strictly simulated, no serial commands
 service = ArmService()
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
@@ -593,3 +595,48 @@ def home_step(req: HomeMove):
 @app.on_event("shutdown")
 def close_serial():
     service.disconnect()
+
+# RSI P0 deliberately never takes a live ArmService or any serial handle.
+class RSIMockTrialRequest(BaseModel):
+    action_window_s: float = 10.0
+    policy: dict | None = None
+    use_company_agent: bool = False
+
+
+@app.get("/api/rsi/status")
+def rsi_status():
+    gateway = CompanyModelGateway()
+    return {
+        "phase": "P0_mock_only",
+        "hardware_enabled": False,
+        "autonomous_hardware_loop": False,
+        "max_action_window_s": 10,
+        "company_gateway_configured": gateway.configured(),
+        "storage": str(rsi_runner.store.root),
+        "notice": "模拟实验不会读取相机或驱动机械臂；真实10秒视频与轨迹采集尚未接入",
+    }
+
+
+@app.post("/api/rsi/mock-trial")
+def rsi_mock_trial(req: RSIMockTrialRequest):
+    try:
+        policy = TrialPolicy(**(req.policy or {}))
+        agent = CompanyModelGateway() if req.use_company_agent else None
+        return rsi_runner.run_once(
+            policy, action_window_s=req.action_window_s,
+            propose_next=agent.propose_next if agent is not None else None,
+        )
+    except (TypeError, ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/rsi/trials/{trial_id}")
+def rsi_trial_info(trial_id: str):
+    try:
+        return {
+            "manifest": rsi_runner.store.read(trial_id),
+            "evaluation": rsi_runner.store.read(trial_id, "evaluation.json"),
+        }
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="trial not found") from exc
+
