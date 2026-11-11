@@ -148,6 +148,11 @@ From this commit:
 - Trial physical probe accepts **`--degrees 5`** (default) or
   **`--degrees 10`** with existing controller allowlists and joint limits.
   Start at **5°**, only consider 10° after verifying motor operation.
+- After an attempted physical action stalls, the real motion record is
+  retained and passed to Grok with RGB keyframes, depth statistics and
+  controller feedback, so failures contribute to the learning dataset.
+  **No second action** is sent until an operator has explicitly cleared
+  faults and re-authorized movement.
 - The physical probe checks both the controller's
   `feedback_confirmed` and measured J1 displacement ≥60% of
   the requested angular change **in the correct direction**, before
