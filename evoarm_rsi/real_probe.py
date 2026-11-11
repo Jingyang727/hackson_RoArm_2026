@@ -115,8 +115,9 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
         Path.home()/".evoarm"/"pick_poses_v2.json"
     )
     saved=json.loads(home_path.read_text(encoding="utf-8"))["poses"]["home"]
-    health=_controller_get(base,"/api/health")
+    # Status refreshes the controller's actual torque feedback flags.
     status=_controller_get(base,"/api/status")
+    health=_controller_get(base,"/api/health")
     differences=_ready(health,status,saved)
     if not execute:
         return {"status":"ready_preview","safe_jog_deg":direction,
@@ -161,8 +162,8 @@ def run_real_probe(*,controller="http://127.0.0.1:8765",
     failure=None
     try:
         # All controller state is re-read at execution time.
-        fresh_health=_controller_get(base,"/api/health")
         fresh_status=_controller_get(base,"/api/status")
+        fresh_health=_controller_get(base,"/api/health")
         _ready(fresh_health,fresh_status,saved)
         # HTTP timeout AFTER a POST may mean the controller ACTED but the
         # response was lost. Mark the attempt BEFORE sending the request.
