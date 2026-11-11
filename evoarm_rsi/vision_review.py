@@ -297,7 +297,8 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         "model":gateway.model,
         "number_of_rgb_keyframes":len(keyframes),
         "input_modality":"timestamped_rgb_keyframes_plus_structured_depth_and_telemetry",
-        "company_gateway_vision_accepted":True,
+        "image_payload_accepted_by_company_gateway":True,
+        "visual_understanding_independently_verified":False,
         "no_public_fallback":True,
     })
     return reviewed
