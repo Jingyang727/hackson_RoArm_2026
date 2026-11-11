@@ -228,6 +228,36 @@ localization will NOT silently use old USB camera corners. Even with
 intrinsics, robot XYZ stays null until camera-to-robot extrinsics and TCP
 validation have been completed.
 
+## Trial 003.1 camera startup and countdown (November 11 fix)
+
+If the SDK opens Pipeline but sends **zero frames**, the capture now
+reports `Gemini stream stalled: received NO frames` separately from
+transient RGB-only/depth-only/alignment warmup. Neither error should be
+mistaken for successful recording, and both preserve the failed manifest.
+Zero frames for 8 seconds can indicate a blocked USB data stream, another
+camera owner, or SDK/device state; the error label is diagnostic, not a
+guaranteed fix to the underlying UVC stream. Close other camera apps,
+reconnect USB directly, and run capture from the terminal that previously
+opened the device.
+
+The CLI now prints `[CAM] Waiting...` while the first complete aligned
+RGB-D frame is sought. **Only after that frame arrives** will it print
+`[REC] Recording started` and begin a real-time countdown in a separate
+thread. Keep the empty board visible for the first 3 seconds; at
+`[REC] 3.0s elapsed — PLACE THE YELLOW BALL NOW` put the ball in place.
+Remaining seconds are printed every second until 10s, independent of
+blocking SDK frame reads.
+
+```bash
+python -m unittest tests.test_rsi_orbbec tests.test_rsi_observe -v
+sudo /Users/jyang51/miniconda3/envs/evoarm/bin/python \
+  -m evoarm_rsi.observe --camera gemini --seconds 10
+```
+
+No robot motion is involved; if the arm is torque-released, keep it
+physically supported during this camera-only trial. Existing calibrations
+are never overwritten.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
