@@ -18,6 +18,7 @@ class FakeElement {
     this.children = [];
     this.style = {};
     this.events = {};
+    this.dataset = {};
     this.classList = {add() {},remove() {},contains() {return false}};
   }
   addEventListener(type,callback) {this.events[type]=callback}
@@ -35,6 +36,11 @@ function makePage({initiallyConnected=true,previousSession=null}={}) {
   const html = fs.readFileSync(path.join(__dirname,"..","control_ui","calibration.html"),"utf8");
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
   const elements = new Map(ids.map(id=>[id,new FakeElement(id)]));
+  const jogButtons=[-10,-5,5,10].map(delta=>{
+    const button=new FakeElement("cal-jog-"+delta);
+    button.dataset.calJog=String(delta);
+    return button;
+  });
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script,"inline JS must exist");
   let torque = 1;
@@ -106,6 +112,7 @@ function makePage({initiallyConnected=true,previousSession=null}={}) {
     document:{
       getElementById:id=>elements.get(id)||null,
       createElement:tag=>new FakeElement(tag),
+      querySelectorAll:selector=>selector==="[data-cal-jog]"?jogButtons:[],
     },
     window:{addEventListener() {}},
     navigator:{mediaDevices:{enumerateDevices:async()=>[]}},
