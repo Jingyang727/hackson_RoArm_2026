@@ -136,6 +136,79 @@ class PickExecutor:
             self.cancelled=False
             return self.state(arm_service)
 
+    def start_rsi_grasp(self, trial_id, arm_service, declaration):
+        """Start first v2 Gemini grasp/lift from a *recent* real trial.
+
+        This uses the SAME one-step-at-a-time verified PickExecutor.step
+        implementation. Never automatically jogs, moves, resets or clears
+        faults. It does not use the old USB camera pixel calibration.
+        """
+        import json
+        from pathlib import Path
+        from evoarm_rsi.grasp_candidate import build_grasp_candidate
+
+        with self.lock, arm_service.lock:
+            if os.getenv("EVOARM_ENABLE_PICK", "0")!="1" or os.getenv(
+                    "EVOARM_ENABLE_RSI_GRASP", "0")!="1":
+                raise PickExecutionError(
+                    "RSI v2 hardware grasp requires explicit ENABLE_PICK and ENABLE_RSI_GRASP"
+                )
+            if declaration!="已检查当前Gemini黄球位置、夹爪高度和运动区域":
+                raise PickExecutionError("operator confirmation of CURRENT ball/tool is required")
+            if (not isinstance(trial_id,str) or len(trial_id)!=32 or
+                    any(ch not in "0123456789abcdef" for ch in trial_id)):
+                raise PickExecutionError("invalid real Gemini trial ID")
+            home=Path.home()
+            trial=home/".evoarm"/"rsi"/"experiments"/trial_id
+            analysis=home/".evoarm"/"rsi"/"analysis"/trial_id
+            source=trial/"manifest.json"
+            qual=analysis/"ball_qualification.json"
+            poses=home/".evoarm"/"pick_poses_v2.json"
+            if any(not p.is_file() for p in (source,qual,poses)):
+                raise PickExecutionError("missing fresh real Gemini qualification or v2 poses")
+            # A stale image is not proof the ball remains in place. Require
+            # a new trial and its qualification from the last 5 minutes.
+            now=time.time()
+            if any(not 0<=now-p.stat().st_mtime<=300 for p in (source,qual)):
+                raise PickExecutionError("camera evidence is older than 5 minutes; capture new ball")
+            manifest=json.loads(source.read_text(encoding="utf-8"))
+            if manifest.get("simulated") is not False or manifest.get("trial_id")!=trial_id:
+                raise PickExecutionError("source is not the matching real trial")
+            q=json.loads(qual.read_text(encoding="utf-8"))
+            if q.get("trial_id")!=trial_id:
+                raise PickExecutionError("qualified ball does not match trial")
+            plan=build_grasp_candidate(
+                q,json.loads(poses.read_text(encoding="utf-8"))
+            )
+            h=arm_service.health()
+            if (not h["connected"] or not h["motion_enabled"] or
+                    not h["armed"] or h["pending"] or h["fault"] or
+                    h.get("teach_active")):
+                raise PickExecutionError("controller needs manual unlock, no fault and all torque enabled")
+            if set(h["allowed_joints"])!={1,2,3,4,5,6}:
+                raise PickExecutionError("all six authorized joints required")
+            fb=arm_service.status()
+            if any(fb.get("torswitch"+c)!=1 for c in "BSETRG"):
+                raise PickExecutionError("servo torque feedback must be locked")
+            from .pick_plan import _num
+            xyz=[_num(fb.get(k),k) for k in "xyz"]
+            hover=plan["measured_hover_xyz_mm"]
+            if math.dist(xyz[:2],hover[:2])>20 or abs(xyz[2]-hover[2])>10:
+                raise PickExecutionError(
+                    "arm must be manually positioned at taught safe Hover "
+                    "before the first complete grasp attempt; do not auto move from Home"
+                )
+            # The operator consent is for the scene/plan. Each actual
+            # step still requires the existing explicit step declaration.
+            self.plan=plan
+            self.session_id=uuid.uuid4().hex
+            self.next_index=0
+            self.cancelled=False
+            progress=self.state(arm_service)
+            progress["rsi_grasp_trial_id"]=trial_id
+            progress["grasp_and_lift_only"]=True
+            return progress
+
     def cancel(self, arm_service):
         with self.lock, arm_service.lock:
             self.cancelled = True
