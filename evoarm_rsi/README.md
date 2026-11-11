@@ -326,6 +326,37 @@ the planner still declines the motion. Tolerance of ~4° motor
 settling is not proof of precise pickup. Model success must come
 from actual ball motion.
 
+## Trial 005 f69a: auto-diagnose and recover only a settled RSI stall
+
+The real physical first T104 move asked for XYZ [360.9,-11.2,204.4]mm.
+T1051 reported approximately [360.0,-2.2,186.2]mm, residual 20.35mm.
+This is **real movement with large residual**, not a successful arrival.
+The existing controller previously classified stable T104 status at 2.5s,
+which can prematurely fault during slow interpolation. A generic Cartesian
+stalled verdict now requires at least 8s after sending T104 plus the
+ordinary multiple time-spaced stable joint-feedback checks. True feedback
+timeout still faults after 65s.
+
+With ONE physical RUN already approved, `grasp_run` automatically invokes
+`POST /api/rsi/grasp/recover-stall` for that SAME session's
+`cartesian_stalled` only. The endpoint:
+- Reads three genuine T=1051 joint and XYZ status samples separated by
+  0.75s; rejects changed joint angles (>0.6°), XYZ displacement (>1.5mm),
+  torque missing, pending motion, or any different fault code.
+- Clears **only** the software-latched `cartesian_stalled` error, writes
+  `automatic_stall_recovery` into `grasp_run.json`, and cancels the
+  failed grasp session.
+- Never sends T104/T106/T121/T210/T100, never changes torque, never
+  unlocks the arm and **never retries or continues** on a 20mm target error.
+  New physical movement requires operator inspection and another normal
+  manually armed session. Auto-recovery is not proof of mechanical freedom
+  from obstruction, even if motors have stopped moving.
+
+No repeated manual `/api/recover` click is necessary for this one
+well-classified software error if the stability test passes. Other faults
+continue to need manual fault resolution. Both success and denial
+are retained with exact reasons.
+
 ## Local mock run
 
 Start the existing FastAPI service as usual, then inspect:
