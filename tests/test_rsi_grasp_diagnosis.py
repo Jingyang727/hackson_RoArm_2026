@@ -34,6 +34,21 @@ class DiagnosticTests(unittest.TestCase):
         self.assertAlmostEqual(result["min_voltage_v"],11.95)
         self.assertAlmostEqual(result["angular_y_difference_deg_at_xy_radius"],-1.39,delta=.10)
 
+    def test_old_real_command_payload_can_be_inspected_offline(self):
+        stage={
+            "stage":"current_high_align",
+            "target_xyz_mm":[360.88,-11.28,192.75],
+            "ack":{"sent":True,"command":{
+                "T":104,"x":360.88,"y":-11.28,"z":192.75,
+                "t":0.129,"r":0.01,"g":2.588,"spd":0.08,
+            }},
+        }
+        diag=summarize_grasp_step(stage)
+        self.assertTrue(diag["motor_commands_sent"])
+        self.assertEqual(diag["actual_sent_motor_payload"]["T"],104)
+        self.assertAlmostEqual(diag["command_vs_stage_target"]["g"],2.588)
+        self.assertIsNone(diag["reached_target"])
+
     def test_previous_fault_snapshot_needs_no_new_physical_trial(self):
         old={"stage":"current_high_align",
              "target_xyz_mm":[360.88,-11.28,192.74],
