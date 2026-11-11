@@ -88,11 +88,31 @@ def describe_evidence(trial_dir):
     trajectory=folder/"trajectory.jsonl"
     commands=folder/"commands.jsonl"
     depth=folder/"depth_samples.npz"
+    physical_probe=_read_json(
+        Path.home()/".evoarm"/"rsi"/"analysis"/str(manifest.get("trial_id"))/"physical_probe.json",
+        None
+    )
+    linked_real_motion=bool(
+        isinstance(physical_probe,dict) and
+        physical_probe.get("kind")=="physical_single_joint_probe" and
+        physical_probe.get("robot_moved") is True and
+        isinstance(physical_probe.get("controller_feedback"),list) and
+        any(row.get("kind")=="move_command"
+            for row in physical_probe["controller_feedback"])
+    )
     info={
         "trial_id":manifest.get("trial_id"),
         "trial_kind":manifest.get("kind"),
         "real_video":True,
-        "robot_motion_executed":bool(manifest.get("robot_motion_executed",False)),
+        "robot_motion_executed":bool(manifest.get("robot_motion_executed",False)) or linked_real_motion,
+        "grasp_attempted":bool(manifest.get("grasp_attempted",False)),
+        "linked_physical_probe":(
+            {"robot_moved":physical_probe["robot_moved"],
+             "reverse_confirmed":physical_probe["reverse_confirmed"],
+             "motion_error":physical_probe.get("motion_error"),
+             "controller_feedback":physical_probe.get("controller_feedback",[])}
+            if linked_real_motion else None
+        ),
         "robot_feedback_recorded":bool(manifest.get("robot_feedback_recorded",False)),
         "robot_feedback_samples":sum(1 for row in trajectory.open(encoding="utf-8")
                                       if row.strip()) if trajectory.exists() else 0,
@@ -117,7 +137,7 @@ def describe_evidence(trial_dir):
     return info
 
 
-def _validate_review(value, *, motion_recorded):
+def _validate_review(value, *, motion_recorded, grasp_attempted=True):
     if not isinstance(value,dict):
         raise ValueError("model review must be a JSON object")
     outcome=value.get("observed_outcome")
@@ -139,13 +159,16 @@ def _validate_review(value, *, motion_recorded):
     if any(type(v) not in (int,float) or not math.isfinite(v)
            for v in changes.values()):
         raise ValueError("nonfinite proposed changes")
-    if not motion_recorded:
-        # No movement -> no grasp attempt -> cannot claim success or failure
-        # or change a physical policy based on non-existent outcome.
+    if not motion_recorded or not grasp_attempted:
+        # A 1-degree exploration is REAL motion, but NOT a grasp attempt.
+        # In neither case may the model hallucinate pick-up or drop.
         outcome="not_attempted"
         conf=1.0
         failure="no_attempt"
-        changes={}
+        # Keep policy suggestions advisory for the next micro-exploration
+        # only when real movement occurred. No physical actuation here.
+        if not motion_recorded:
+            changes={}
     return {
         "observed_outcome":outcome, "confidence":float(conf),
         "failure_type":failure, "evidence":notes,
@@ -220,7 +243,8 @@ def review_trial(trial_dir, *, gateway=None, frames=5):
         lines=answer.splitlines()
         answer="\n".join(lines[1:-1]).strip()
     reviewed=_validate_review(json.loads(answer),
-                             motion_recorded=evidence["robot_motion_executed"])
+                             motion_recorded=evidence["robot_motion_executed"],
+                             grasp_attempted=evidence.get("grasp_attempted",False))
     reviewed.update({
         "trial_id":evidence["trial_id"],
         "model":gateway.model,
