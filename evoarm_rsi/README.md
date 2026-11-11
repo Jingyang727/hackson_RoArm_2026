@@ -140,6 +140,48 @@ This remains a **read-only experiment**. No grasp attempts, autonomous retry,
 camera-only trial and the robot-data trial are preparatory milestones for
 the first true learning loop.
 
+## Trial 003 — offline Gemini RGB-D localization (NO motion)
+
+Use Trial 002 or another real Gemini capture containing the yellow ball:
+
+```bash
+python -m unittest tests.test_rsi_localize -v
+python -m evoarm_rsi.localize \
+  ~/.evoarm/rsi/experiments/f830fd33ce6b41869d85285a48f7274c
+```
+
+Produces `rgbd_localization.json` in the same trial directory. It aligns
+sparse depth samples to RGB video **by recorded monotonic timestamps** rather
+than assuming 20fps; runs the existing yellow-ball detector and, when the
+full 9×6 board is independently detected in the same RGB image, estimates
+board-plane XY. For each observation it stores center pixel, ball surface
+depth, nearby-background depth, depth contrast and pairing time offset.
+
+**Important:** Background-vs-sphere depth contrast is a rough apparent
+depth difference, not a fitted tabletop plane or certified ball height.
+Occluded checkerboard corners may prevent live board XY; the program
+reports this rather than loading stale old-camera corners.
+
+A 3D camera-space point can optionally be calculated using a separately
+verified **Gemini COLOR-aligned** intrinsics JSON:
+
+```json
+{
+  "fx": 0, "fy": 0, "cx": 0, "cy": 0,
+  "aligned_to": "color",
+  "verified": false
+}
+```
+
+Those zeros are placeholders only: **do not use this file as-is**. Obtain
+actual fx/fy/cx/cy from the SDK's active color stream calibration and
+verify them, set `verified` true after checking image resolution and
+alignment, then pass `--intrinsics /path/to/gemini_intrinsics.json`.
+A camera-space point is still **not a robot-base target**. This stage
+intentionally does not produce robot XYZ or move any actuators until
+camera-to-robot extrinsics, tool TCP and collision constraints have been
+validated.
+
 ## P1/P2 remaining work (NOT implemented)
 
 - Orbbec Gemini 335L RGB/depth calibration, preserving prior
