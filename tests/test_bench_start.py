@@ -34,6 +34,14 @@ def fixture(path):
     return session, status
 
 
+def high_pose(status, wrist=80.):
+    result = {**status, "s": math.radians(32), "e": math.radians(58), "t": math.radians(wrist)}
+    pose = forward(result)
+    result.update(zip("xyz", pose["xyz_mm"]))
+    result["tit"] = pose["pitch_rad"]
+    return result
+
+
 class LiftGeometry(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -50,15 +58,36 @@ class LiftGeometry(unittest.TestCase):
         self.assertFalse(plan["taught_positions_used"])
         self.assertEqual(self.status["s"], math.radians(53))
 
-    def test_changed_tool_model_open_gripper_or_wrong_height_rejected(self):
+    def test_changed_tool_model_or_open_gripper_rejected_without_forcing_a_contact_pose(self):
         for change in ({"x": self.status["x"]+10}, {"g": 2.},
                        {"tit": .5}, {"torswitchS": 0}):
             with self.assertRaises(ValueError):
                 start.plan_lift(self.session, {**self.status, **change})
         for record in self.session["records"].values():
             record["robot_xyz_mm"][2] -= 30
-        with self.assertRaisesRegex(ValueError, "contact pose"):
-            start.plan_lift(self.session, self.status)
+        self.assertEqual(start.plan_start(self.session, self.status)["start_mode"],"low_pose_lift")
+
+    def test_high_flat_tool_does_not_need_to_reproduce_calibration_pitch(self):
+        status = high_pose(self.status, wrist=0)
+        plan = start.plan_start(self.session, status)
+        self.assertEqual(plan["start_mode"], "already_clear")
+        self.assertFalse(plan["motion_required"])
+        self.assertFalse(plan["full_pick_place_ready"])
+
+    def test_high_vertical_pose_gets_inward_wrist_recovery_without_lowering_limits(self):
+        from control_ui.safety import JOINTS, plan_to_angle, UnsafeMotion
+        status = high_pose(self.status)
+        plan = start.plan_start(self.session, status)
+        self.assertEqual(plan["start_mode"], "high_wrist_recovery")
+        self.assertEqual(plan["target_deg"], 55.)
+        self.assertTrue(all(p["height_mm"] >= 100 for p in plan["predicted_path"]))
+        self.assertEqual(JOINTS[4][2:], (-60.,60.))
+        with self.assertRaises(UnsafeMotion): plan_to_angle(status,4,55.)
+
+    def test_recovery_rejects_other_outside_joints_and_vendor_limit_violations(self):
+        for status in (high_pose(self.status,95), {**high_pose(self.status),"b":math.radians(80)}):
+            pose=forward(status);status.update(zip("xyz",pose["xyz_mm"]));status["tit"]=pose["pitch_rad"]
+            with self.assertRaises(ValueError): start.plan_start(self.session,status)
 
     def test_failed_heldout_calibration_is_not_motion_authority(self):
         self.session["records"]["V1"]["robot_xyz_mm"][0] += 30
@@ -77,10 +106,12 @@ class LiftLifecycle(unittest.TestCase):
         self.done = threading.Event(); self.warming = threading.Event()
         self.request_id = None
         self.fail_command = False; self.no_progress = False; self.wrong_record = False
+        self.last_joint = 3
         self.health = lambda: {"connected": True, "motion_enabled": True, "armed": self.armed,
             "teach_active": False, "torque_status": [1]*6, "pending": None, "fault": None,
-            "last_command": {"status": "feedback_confirmed", "joint": 3,
-                             "to_deg": math.degrees(self.status["e"])}}
+            "last_command": {"status": "feedback_confirmed", "joint": self.last_joint,
+                             "to_deg": math.degrees(self.status["e" if self.last_joint==3 else "t"]),
+                             "bench_camera_request_id": self.request_id}}
 
     def get(self, base, endpoint):
         if endpoint == "/api/status":
@@ -88,24 +119,30 @@ class LiftLifecycle(unittest.TestCase):
         if endpoint == "/api/health":
             if self.command: self.done.set()
             return self.health()
+        if endpoint == "/api/bench/motion/capabilities": return {"high_wrist_recovery":True}
         raise AssertionError(endpoint)
 
     def post(self, base, endpoint, payload):
         self.calls.append((endpoint, payload))
         if endpoint == "/api/disarm":
             self.armed = False; return {"armed": False}
-        self.assertEqual(endpoint, "/api/step")
         self.assertTrue(self.warming.is_set(), "motion must follow this camera's start")
-        self.assertEqual(payload, {"joint": 3, "delta": -5})
+        if endpoint == "/api/step":
+            self.assertEqual(payload, {"joint": 3, "delta": -5})
+            field="e";target=self.status[field]-math.radians(5)
+        else:
+            self.assertEqual(endpoint,"/api/bench/motion/start-once")
+            self.assertEqual(payload["camera_request_id"],self.request_id)
+            self.last_joint=4;field="t";target=math.radians(55)
         self.command = True
         if self.fail_command:
             self.done.set()
             raise OSError("response lost after a possible physical write")
         if not self.no_progress:
-            self.status["e"] -= math.radians(5)
+            self.status[field] = target
             pose = forward(self.status)
             self.status.update(zip("xyz", pose["xyz_mm"])); self.status["tit"] = pose["pitch_rad"]
-        return {"joint": 3, "to_deg": math.degrees(self.status["e"])}
+        return {"joint": self.last_joint, "to_deg": math.degrees(self.status[field])}
 
     def camera(self, home, method, endpoint, payload=None):
         if endpoint == "/health":
@@ -140,6 +177,15 @@ class LiftLifecycle(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertFalse(self.warming.is_set())
 
+    def test_rejected_prediction_returns_observed_state_without_motion_or_recording(self):
+        self.status["x"]+=20
+        report=self.run_lift()
+        self.assertTrue(report["blocked"])
+        self.assertFalse(report["command_attempted"])
+        self.assertEqual(report["observed_status"]["x"],self.status["x"])
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.warming.is_set())
+
     def test_real_execution_contract_records_before_motion_and_disarms_without_torque(self):
         report = self.run_lift()
         self.assertTrue(report["motion_feedback_verified"])
@@ -156,7 +202,7 @@ class LiftLifecycle(unittest.TestCase):
         # physical command when a response may have been lost.
         self.armed = True
         before = len(self.calls)
-        with self.assertRaises(ValueError): self.run_lift()
+        with self.assertRaisesRegex(RuntimeError,"receipt"): self.run_lift()
         self.assertEqual(len(self.calls), before)
 
     def test_uncertain_post_is_never_retried_or_reversed(self):
@@ -183,9 +229,34 @@ class LiftLifecycle(unittest.TestCase):
         self.assertEqual([c[0] for c in self.calls], ["/api/disarm"])
         self.assertFalse((self.path.parent/"first-motion/lift-attempt.json").exists())
 
+    def test_already_high_execute_does_not_unlock_record_or_send_a_motion(self):
+        self.status=high_pose(self.status,wrist=0)
+        self.armed=False
+        report=self.run_lift()
+        self.assertTrue(report["start_clearance_ready"])
+        self.assertFalse(report["motion_required"])
+        self.assertFalse(report["robot_moved"])
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.warming.is_set())
+
+    def test_high_wrist_recovery_records_and_verifies_j4_not_another_lift(self):
+        self.status=high_pose(self.status)
+        report=self.run_lift()
+        self.assertEqual(report["start_mode"],"high_wrist_recovery")
+        self.assertTrue(report["motion_feedback_verified"],report)
+        self.assertTrue(report["start_clearance_ready"],report)
+        self.assertLessEqual(math.degrees(report["final_status"]["t"]),60.)
+        self.assertEqual([c[0] for c in self.calls],["/api/bench/motion/start-once","/api/disarm"])
+
 
 class EndToEndSimulatedLift(unittest.TestCase):
     def test_existing_armservice_and_real_camera_http_recording_contract(self):
+        self._exercise()
+
+    def test_high_wrist_recovery_through_guarded_api_and_ten_second_recording(self):
+        self._exercise(recovery=True)
+
+    def _exercise(self, recovery=False):
         """Real ASGI, UNIX HTTP and MP4/depth writing; both devices synthetic."""
         from control_ui import main
         from control_ui.service import ArmService
@@ -197,14 +268,16 @@ class EndToEndSimulatedLift(unittest.TestCase):
             home=Path(temp); path=home/".evoarm/rsi/calibrations/bench-layout-v2/session.json"
             path.parent.mkdir(parents=True)
             _, status=fixture(path)
+            if recovery:status=high_pose(status)
             class Arm:
                 def __init__(self): self.commands=[]
                 def status(self): return dict(status)
                 def send(self, payload):
                     self.commands.append(payload)
-                    if payload["T"]!=121 or payload["joint"]!=3:
+                    joint=4 if recovery else 3
+                    if payload["T"]!=121 or payload["joint"]!=joint:
                         raise AssertionError("unexpected motor command")
-                    status["e"]=math.radians(payload["angle"])
+                    status["t" if recovery else "e"]=math.radians(payload["angle"])
                     pose=forward(status);status.update(zip("xyz",pose["xyz_mm"]))
                     status["tit"]=pose["pitch_rad"]
             service=ArmService();service.arm=Arm();service.armed_until=time.monotonic()+60
@@ -220,13 +293,16 @@ class EndToEndSimulatedLift(unittest.TestCase):
                 if response["status"]!=200: raise RuntimeError(body)
                 return body
             try:
-                with (patch.dict(os.environ,{"EVOARM_ENABLE_MOTION":"1"}),
+                with (patch.dict(os.environ,{"EVOARM_ENABLE_MOTION":"1","EVOARM_SETUP_ID":"bench-layout-v2"}),
                       patch.object(main,"service",service),
+                      patch("control_ui.bench_ui.session_path",return_value=path),
                       patch.object(start,"_controller_get",side_effect=get),
                       patch.object(start,"_controller_post",side_effect=post),
                       patch("evoarm_rsi.camera_service.socket_path",return_value=home/"camera.sock")):
                     report=start.run(setup_id="bench-layout-v2",home=home,execute=True)
                 self.assertTrue(report["motion_feedback_verified"],report)
+                self.assertEqual(report["start_mode"],"high_wrist_recovery" if recovery else "low_pose_lift")
+                if recovery:self.assertTrue(report["start_clearance_ready"],report)
                 self.assertTrue(report["movement_covered_by_recording"],report)
                 self.assertNotIn("camera_error",report)
                 self.assertGreater(report["recording_observed_span_s"],9.)

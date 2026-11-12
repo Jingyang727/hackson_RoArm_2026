@@ -24,6 +24,8 @@ rsi_runner = TrialRunner(store=TrialStore())  # P0: strictly simulated, no seria
 service = ArmService()
 from .bench_ui import install as install_bench_ui
 install_bench_ui(app, lambda: service)
+from .start_motion import install as install_start_motion
+install_start_motion(app, lambda: service)
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
 
