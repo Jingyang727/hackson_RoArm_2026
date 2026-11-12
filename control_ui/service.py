@@ -187,7 +187,7 @@ class ArmService:
                 # Firmware T=100 can block other commands during reset.
                 if pending and pending.get("kind") == "factory":
                     result = self.arm.status(timeout=20)
-                elif pending and (pending.get("kind") == "cartesian" or
+                elif pending and (pending.get("kind") in ("cartesian", "coordinate_test") or
                                   pending.get("kind") == "ball_trial" and pending.get("stage_kind") == "cartesian"):
                     result = self.arm.status(timeout=30)
                 else:
@@ -217,6 +217,10 @@ class ArmService:
             now = time.monotonic()
             elapsed = now - pending["since"]
             pending["elapsed_s"] = round(elapsed, 1)
+            if pending.get("kind") == "coordinate_test":
+                from .coordinates import observe_pending
+                observe_pending(self, pending, result, now)
+                return result
             if pending.get("kind") == "ball_trial":
                 from .ball_trial import observe_pending
                 observe_pending(self, pending, result, now)

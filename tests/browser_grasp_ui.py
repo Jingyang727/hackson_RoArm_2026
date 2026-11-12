@@ -36,12 +36,12 @@ def check(url, output):
         elif path=='/api/bench/grasp/prepare':
             model['job']={'status':'idle'};model['plan']=None
             if model['conflict']:
-                detail={'code':'table_coordinate_conflict','message':'当前桌面深度与保存平面相差80.0mm，存在明确坐标冲突。',
+                detail={'code':'target_coordinate_conflict','message':'当前球面深度与保存平面模型相差80.0mm，存在明确坐标冲突。',
                         'image_url':'/api/bench/grasp/diagnostics/'+'b'*32+'/observation'}
                 model['job']['last_error']=detail;data={'detail':detail};status=409
             else:
                 model['counter']+=1;key=f'{model["counter"]:032x}'
-                warnings=['当前角点/深度证据不足；沿用已有五点标定，允许本轮试抓。','黄色轮廓尺寸偏差+42.9%；作为估计偏差记录，允许试抓。'] if model['uncertain'] else []
+                warnings=['黄球表面深度稀疏；沿用已有五点标定和34mm球径估计目标，允许本轮试抓。','黄色轮廓尺寸偏差+42.9%；作为估计偏差记录，允许试抓。'] if model['uncertain'] else []
                 measured={**size,'observed_area_diameter_px':60.,'relative_error_percent':42.9} if model['uncertain'] else size
                 model['plan']={'plan_id':key,'status':'prepared','seconds_left':179,'expired':False,'warnings':warnings,
                                'image_size':[1280,720],'size':measured,'preview_url':f'/api/bench/grasp/plans/{key}/preview',
@@ -134,7 +134,7 @@ def check(url, output):
             'checks':['no actuation on load/reload','explicit image review before run','expired plan blocks run',
                       'single run under double click','live preview during execution','stop blocks following actions',
                       'reload reconnects to running job without resubmission','completion keeps visual success unknown',
-                      'occluded board and size warnings allow an explicit trial','coordinate conflict shows evidence and blocks run','390px responsive layout','no page errors']}
+                      'sparse ball depth and size warnings allow an explicit trial','coordinate conflict shows evidence and blocks run','390px responsive layout','no page errors']}
     (output/'report.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2))
 
 

@@ -73,9 +73,9 @@ class GraspUI(unittest.TestCase):
         _,jpeg=cv2.imencode('.jpg',image)
         with patch('control_ui.ball_trial.preview_frame',return_value={'jpeg':jpeg.tobytes()}):
             plan=self.prepare();ball=plan['plan']['ball'];key=plan['plan_id']
-            self.assertEqual(ball['board_check']['status'],'reference_reused')
-            self.assertEqual(ball['board_check']['rgb_corners'],0)
-            self.assertGreaterEqual(len(ball['warnings']),2)
+            self.assertEqual(ball['board_check']['status'],'saved_calibration_in_use')
+            self.assertIsNone(ball['board_check']['rgb_corners'])
+            self.assertGreaterEqual(len(ball['warnings']),1)
             self.assertEqual(self.arm.commands,[])
             self.recording=True;self.camera_start=time.monotonic_ns()
             response,data=self.request('begin',{'plan_id':key,'camera_request_id':self.nonce})
@@ -89,14 +89,14 @@ class GraspUI(unittest.TestCase):
         self.assertTrue(saved['target_estimated']);self.assertTrue(saved['warnings'])
         self.assertFalse(plan['plan']['experimental_policy']['grasp_tcp_globally_verified'])
 
-    def test_many_visible_depth_contradictions_reject_with_image_and_actual_numbers(self):
+    def test_target_depth_contradiction_rejects_without_requiring_the_physical_board(self):
         with np.load(self.folder/'depth_samples.npz') as data:
             depths=data['depth_mm'].copy()+80;stamps=data['monotonic_ns'].copy()
         np.savez_compressed(self.folder/'depth_samples.npz',depth_mm=depths,monotonic_ns=stamps)
         response,data=self.request('prepare',{})
         self.assertEqual(response['status'],409,data);detail=data['detail']
-        self.assertEqual(detail['code'],'table_coordinate_conflict')
-        self.assertGreater(detail['observation']['board_check']['median_absolute_plane_residual_mm'],70)
+        self.assertEqual(detail['code'],'target_coordinate_conflict')
+        self.assertGreater(detail['observation']['ball_depth']['surface_residual_mm'],70)
         self.assertTrue((self.folder/'grasp-observation.json').is_file())
         response,raw=asyncio.run(api_request(detail['image_url'],{},method='GET',decode_json=False))
         self.assertEqual(response['status'],200);self.assertGreater(len(raw),100)

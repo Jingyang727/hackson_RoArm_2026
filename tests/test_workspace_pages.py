@@ -15,11 +15,12 @@ class WorkspacePages(unittest.TestCase):
             self.assertEqual(result.status_code, 307)
             self.assertEqual(result.headers["location"], target)
 
-    def test_two_workspaces_have_consistent_navigation_without_joint_controls(self):
-        for filename in ("manual_calibration.html", "experiments.html"):
+    def test_workspaces_have_consistent_navigation_without_joint_controls(self):
+        for filename in ("manual_calibration.html", "experiments.html", "coordinates.html"):
             text = (ROOT/filename).read_text()
             self.assertIn('href="/calibration"', text)
             self.assertIn('href="/experiments"', text)
+            self.assertIn('href="/coordinates"', text)
             for obsolete in ('href="/teach"', 'href="/pick"', 'data-cal-jog', 'id="unlock"', 'id="joint"'):
                 self.assertNotIn(obsolete, text)
         script = (ROOT/"workspace.js").read_text()

@@ -28,6 +28,8 @@ from .start_motion import install as install_start_motion
 install_start_motion(app, lambda: service)
 from .ball_trial import install as install_ball_trial
 install_ball_trial(app, lambda: service)
+from .coordinates import install as install_coordinates
+install_coordinates(app, lambda: service)
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
 
@@ -361,6 +363,18 @@ def pick_page():
 def experiments_page():
     return HTMLResponse(Path(__file__).with_name("experiments.html").read_text(encoding="utf-8"),
                         headers={"Cache-Control": "no-store"})
+
+
+@app.get("/coordinates", response_class=HTMLResponse)
+def coordinates_page():
+    return HTMLResponse(Path(__file__).with_name("coordinates.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/assets/coordinates.js")
+def coordinates_script():
+    return Response(Path(__file__).with_name("coordinates.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript",headers={"Cache-Control":"no-store"})
 
 
 @app.get("/assets/workspace.css")

@@ -119,7 +119,11 @@ def observe_ball(folder, session):
     if list(latest["bgr"].shape[1::-1])!=session["reference"]["image_size"]:
         raise ValueError("current image dimensions changed")
     if latest["trial_id"]!=folder.name:raise ValueError("observation manifest identifier does not match its folder")
-    board=visible_board_check(latest["bgr"],latest["depth_mm"],session,geometry)
+    # The operator declares camera/base/table fixed until reporting a change.
+    # The physical calibration target is no longer a runtime dependency.
+    board={"status":"saved_calibration_in_use","calibration_source":"saved_five_point_session",
+           "rgb_corners":None,"depth_corners":None,"visible_corners":None,"warnings":[],
+           "board_required":False,"layout_assumption":"operator_declared_static"}
     warnings=list(board["warnings"])
     evidence={"kind":"supervised_rsi_observation_v1","trial_id":folder.name,"frame_index":latest["frame_index"],
               "calibration_session_id":session["session_id"],"board_check":board,"warnings":warnings,
@@ -128,16 +132,13 @@ def observe_ball(folder, session):
     def save_evidence():
         (folder/"grasp-observation.json").write_text(json.dumps(evidence,ensure_ascii=False,indent=2,allow_nan=False))
         out=latest["bgr"].copy()
-        cv2.putText(out,f"SAVED CALIBRATION / {board['rgb_corners']} RGB CORNERS / {board['depth_corners']} DEPTH CORNERS",
+        cv2.putText(out,"SAVED CALIBRATION / STATIC CAMERA + BASE + TABLE / BOARD NOT REQUIRED",
                     (15,30),cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,230),2)
         if not cv2.imwrite(str(folder/"grasp-observation.jpg"),out):raise OSError("cannot save observation image")
     def reject(message,code):
         evidence.update(rejection_code=code,rejection_message=message);save_evidence()
         raise ObservationRejected(message,evidence)
     save_evidence()
-    if board["status"]=="conflict":
-        reject(f"当前{board['depth_corners']}个可见角点的桌面深度与保存平面相差约{board['median_absolute_plane_residual_mm']:.1f}mm，"
-               "存在明确坐标冲突；已保存当前画面和数值，请检查相机位置或深度数据。","table_coordinate_conflict")
     rows=[json.loads(row) for row in (folder/"frames.jsonl").read_text().splitlines() if row]
     indices=sorted(set([0,len(rows)//2,latest["frame_index"]]))
     detections=[]

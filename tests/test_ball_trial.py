@@ -107,7 +107,7 @@ class BallGeometry(unittest.TestCase):
             ball,geometry,image=ball_trial.observe_ball(folder,session)
             plan=ball_trial.build_plan(session,SimulatedArm().status(),ball,geometry)
             self.assertEqual([s["stage"] for s in plan["steps"]],["align_open","hover","descend","close","lift"])
-            self.assertGreater(ball["board_check"]["visible_corners"],12)
+            self.assertFalse(ball["board_check"]["board_required"])
             self.assertFalse(plan["taught_positions_used"])
             self.assertFalse(plan["experimental_policy"]["grasp_tcp_globally_verified"])
             self.assertFalse(K["verified"])
