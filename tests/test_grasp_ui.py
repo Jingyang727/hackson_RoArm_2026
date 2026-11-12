@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import cv2
+import numpy as np
 
 from control_ui.ball_trial import UI_DECLARATION
 from evoarm_rsi import ball_trial
@@ -44,25 +45,81 @@ class GraspUI(unittest.TestCase):
         self.assertEqual(self.service.armed_until,0)
         self.assertEqual(self.arm.commands,[])
 
-    def test_size_failure_includes_numbers_and_actual_mask_without_motion(self):
+    def test_size_deviation_becomes_a_recorded_warning_and_plan_not_a_409(self):
         image,_=scene()
         cv2.circle(image,(715,381),34,(0,210,230),-1)
         rewrite_rgb(self.folder,image)
+        data=self.prepare();size=data['plan']['ball']['size_evidence']
+        self.assertGreater(size['relative_error_percent'],22)
+        self.assertEqual(size['reference_relative_error_percent'],22)
+        self.assertFalse(size['passed']);self.assertFalse(size['blocks_execution'])
+        self.assertTrue(any('尺寸偏差' in w for w in data['plan']['observation_warnings']))
+        for name in ('grasp-observation.json','grasp-observation.jpg','ball-size-diagnostic.json','ball-size-mask.png','ball-size-overlay.jpg'):
+            self.assertTrue((self.folder/name).is_file())
+        _,state=self.get('ui-state')
+        self.assertEqual(state['plan']['status'],'prepared')
+        self.assertTrue(state['plan']['warnings']);self.assertEqual(self.arm.commands,[])
+        for path in ('diagnostics/'+self.folder.name+'/image','diagnostics/'+self.folder.name+'/mask'):
+            response,raw=self.get(path,image=True)
+            self.assertEqual(response['status'],200);self.assertGreater(len(raw),100)
+
+    def test_occluded_board_and_no_depth_still_allow_an_actual_grasp_attempt(self):
+        image,depth=scene();image[:]=215
+        cv2.circle(image,(715,381),21,(0,210,230),-1)
+        rewrite_rgb(self.folder,image)
+        with np.load(self.folder/'depth_samples.npz') as data:
+            stamps=data['monotonic_ns'].copy()
+        np.savez_compressed(self.folder/'depth_samples.npz',depth_mm=np.zeros((6,720,1280),np.uint16),monotonic_ns=stamps)
+        _,jpeg=cv2.imencode('.jpg',image)
+        with patch('control_ui.ball_trial.preview_frame',return_value={'jpeg':jpeg.tobytes()}):
+            plan=self.prepare();ball=plan['plan']['ball'];key=plan['plan_id']
+            self.assertEqual(ball['board_check']['status'],'reference_reused')
+            self.assertEqual(ball['board_check']['rgb_corners'],0)
+            self.assertGreaterEqual(len(ball['warnings']),2)
+            self.assertEqual(self.arm.commands,[])
+            self.recording=True;self.camera_start=time.monotonic_ns()
+            response,data=self.request('begin',{'plan_id':key,'camera_request_id':self.nonce})
+            self.assertEqual(response['status'],200,data)
+            for index in range(5):
+                response,data=self.request('step',{'plan_id':key,'step_index':index})
+                self.assertEqual(response['status'],200,data)
+                self.service.status();self.assertIsNone(self.service.pending);self.service.last_motion_at-=1
+            self.assertEqual([c['T'] for c in self.arm.commands],[104,104,104,106,104])
+        saved=json.loads((self.folder/'grasp-observation.json').read_text())
+        self.assertTrue(saved['target_estimated']);self.assertTrue(saved['warnings'])
+        self.assertFalse(plan['plan']['experimental_policy']['grasp_tcp_globally_verified'])
+
+    def test_many_visible_depth_contradictions_reject_with_image_and_actual_numbers(self):
+        with np.load(self.folder/'depth_samples.npz') as data:
+            depths=data['depth_mm'].copy()+80;stamps=data['monotonic_ns'].copy()
+        np.savez_compressed(self.folder/'depth_samples.npz',depth_mm=depths,monotonic_ns=stamps)
+        response,data=self.request('prepare',{})
+        self.assertEqual(response['status'],409,data);detail=data['detail']
+        self.assertEqual(detail['code'],'table_coordinate_conflict')
+        self.assertGreater(detail['observation']['board_check']['median_absolute_plane_residual_mm'],70)
+        self.assertTrue((self.folder/'grasp-observation.json').is_file())
+        response,raw=asyncio.run(api_request(detail['image_url'],{},method='GET',decode_json=False))
+        self.assertEqual(response['status'],200);self.assertGreater(len(raw),100)
+        self.assertEqual(self.arm.commands,[])
+
+    def test_ball_outside_checkerboard_inner_frame_uses_the_same_reachable_table_plane(self):
+        image,depth=scene(camera_xy=(120.,16.8));rewrite_rgb(self.folder,image)
+        with np.load(self.folder/'depth_samples.npz') as data:stamps=data['monotonic_ns'].copy()
+        np.savez_compressed(self.folder/'depth_samples.npz',depth_mm=np.stack([depth]*6),monotonic_ns=stamps)
+        plan=self.prepare()['plan']
+        self.assertTrue(any('超出棋盘内框' in w for w in plan['observation_warnings']))
+        self.assertEqual(len(plan['steps']),5);self.assertEqual(self.arm.commands,[])
+
+    def test_no_board_does_not_hide_a_strong_target_depth_conflict(self):
+        image,_=scene();image[:]=215;cv2.circle(image,(715,381),21,(0,210,230),-1)
+        rewrite_rgb(self.folder,image)
+        with np.load(self.folder/'depth_samples.npz') as data:stamps=data['monotonic_ns'].copy()
+        depth=np.zeros((720,1280),np.uint16);depth[370:395,704:728]=600
+        np.savez_compressed(self.folder/'depth_samples.npz',depth_mm=np.stack([depth]*6),monotonic_ns=stamps)
         response,data=self.request('prepare',{})
         self.assertEqual(response['status'],409,data)
-        detail=data['detail'];self.assertEqual(detail['code'],'ball_size_mismatch')
-        self.assertGreater(detail['size']['relative_error_percent'],22)
-        self.assertEqual(detail['size']['allowed_relative_error_percent'],22)
-        self.assertFalse(detail['size']['passed'])
-        for name in ('ball-size-diagnostic.json','ball-size-mask.png','ball-size-overlay.jpg'):
-            self.assertTrue((self.folder/name).is_file())
-        for url in (detail['image_url'],detail['mask_url']):
-            response,raw=asyncio.run(api_request(url,{},method='GET',decode_json=False))
-            self.assertEqual(response['status'],200)
-            self.assertGreater(len(raw),100)
-        _,state=self.get('ui-state')
-        self.assertEqual(state['job']['last_error']['size'],detail['size'])
-        self.assertIsNone(state['plan']);self.assertEqual(self.arm.commands,[])
+        self.assertEqual(data['detail']['code'],'target_coordinate_conflict')
+        self.assertEqual(self.arm.commands,[])
 
     def test_small_attached_yellow_spur_does_not_enlarge_ball_to_enclosing_circle(self):
         image,_=scene()

@@ -22,10 +22,10 @@
     <main>
       <div class="page-heading">
         <div>
-          <div class="eyebrow">实物抓取 / 一次试验</div>
-          <h1>看清位置，再抓一次。</h1>
+          <div class="eyebrow">RSI / 抓取试验</div>
+          <h1>先试一次，再看结果调整。</h1>
           <p>
-            观察当前黄球，核对路径后执行抓取与提升。录像和反馈自动保存。
+            按当前黄球位置估计抓取与提升，录像和反馈用于下一轮调整。
           </p>
         </div>
         <span id="setupBadge" class="setup-badge"></span>
@@ -45,6 +45,7 @@
         <div class="card grasp-controls">
           <div class="card-heading"><h2>执行一次抓取</h2><span id="motionBadge" class="mini-badge">状态未确认</span></div>
           <p id="readiness" class="inline-note">正在读取控制服务状态。</p>
+          <div id="observationWarnings" class="observation-warnings" role="status" hidden></div>
           <button id="connect" class="secondary" hidden>连接机械臂</button>
           <button id="prepare" class="secondary" disabled>1 · 观察并规划</button>
           <div id="sizeMetrics" class="size-metrics" hidden>

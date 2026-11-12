@@ -32,7 +32,7 @@ TB=np.array([395.,110.,-115.])
 TC=np.array([-96.,-60.,500.])
 
 
-def scene(ball_height=17.):
+def scene(ball_height=17., camera_xy=(60.,16.8)):
     image=np.full((720,1280,3),215,np.uint8)
     depth=np.full((720,1280),500,np.uint16)
     for r in range(-1,6):
@@ -40,7 +40,7 @@ def scene(ball_height=17.):
             u0=round(640+600*(24*c-96)/500);v0=round(360+600*(24*r-60)/500)
             u1=round(640+600*(24*(c+1)-96)/500);v1=round(360+600*(24*(r+1)-60)/500)
             cv2.rectangle(image,(u0,v0),(u1,v1),(25,25,25) if (r+c)%2 else (245,245,245),-1)
-    z=500-ball_height;u=round(640+600*60/z);v=round(360+600*16.8/z);radius=round(600*17/z)
+    z=500-ball_height;u=round(640+600*camera_xy[0]/z);v=round(360+600*camera_xy[1]/z);radius=round(600*17/z)
     cv2.circle(image,(u,v),radius,(0,210,230),-1)
     yy,xx=np.ogrid[:720,:1280];rho=((xx-u)*z/600)**2+((yy-v)*z/600)**2
     mask=rho<=17**2;depth[mask]=np.round(z-np.sqrt(np.maximum(0,17**2-rho[mask]))).astype(np.uint16)
@@ -116,7 +116,7 @@ class BallGeometry(unittest.TestCase):
     def test_bad_depth_or_camera_profile_does_not_become_verified(self):
         with tempfile.TemporaryDirectory() as temp:
             session=layout(Path(temp));geometry=ball_trial.camera_geometry(session,K);image,depth=scene()
-            with self.assertRaises(ValueError):ball_trial.visible_board_check(image,depth+80,session,geometry)
+            self.assertEqual(ball_trial.visible_board_check(image,depth+80,session,geometry)["status"],"conflict")
             with self.assertRaises(ValueError):ball_trial.camera_geometry(session,{**K,"width":640})
 
 
@@ -211,7 +211,12 @@ class BallEndToEnd(unittest.TestCase):
                 def stop(self):pass
                 def read(self):
                     time.sleep(.02);image,depth=scene(arm.ball_height)
-                    return CameraFrame(image,time.monotonic_ns(),depth)
+                    # Occluded checkerboard and missing depth: the existing
+                    # calibration still supports a supervised planar trial.
+                    image[:]=215
+                    z=500-arm.ball_height
+                    cv2.circle(image,(round(640+600*60/z),round(360+600*16.8/z)),round(600*17/z),(0,210,230),-1)
+                    return CameraFrame(image,time.monotonic_ns(),np.zeros_like(depth))
             server=CameraServer(home/"camera.sock",os.getuid(),os.getgid(),home,hub=CameraHub(Source))
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             def get(base,path):
@@ -248,6 +253,8 @@ class BallEndToEnd(unittest.TestCase):
                 self.assertTrue(report["recording_covers_motion"],report)
                 self.assertIn("contact_hold",report)
                 self.assertIsNone(report["visual_grasp_success"])
+                self.assertTrue(report["observation_warnings"])
+                self.assertEqual(report["perception_policy"],"supervised_rsi_saved_plane_v1")
                 self.assertEqual([c["T"] for c in arm.commands],[104,104,104,106,106,104])
                 self.assertAlmostEqual(arm.commands[-1]["g"],math.radians(158),places=5)
                 self.assertEqual(service.armed_until,0)

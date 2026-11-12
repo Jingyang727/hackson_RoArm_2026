@@ -17,13 +17,13 @@ def check(url, output):
     _,jpeg=cv2.imencode('.jpg',image)
     calls=[];errors=[]
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None}
-    model={'health':health,'job':{'status':'idle'},'plan':None,'counter':0,'size_error':False,'sequence':0,'trials':[]}
+    model={'health':health,'job':{'status':'idle'},'plan':None,'counter':0,'uncertain':False,'conflict':False,'sequence':0,'trials':[]}
     size={'observed_area_diameter_px':43.,'observed_enclosing_diameter_px':48.,'expected_diameter_px':42.,
           'relative_error_percent':2.38,'allowed_relative_error_percent':22.}
     def route(handler):
         request=handler.request;path=urlsplit(request.url).path;body=request.post_data_json if request.method=='POST' else None
         calls.append((request.method,path,body))
-        if path.endswith('/preview') or path.endswith('/image') or path.endswith('/mask') or path.endswith('/keyframes'):
+        if path.endswith('/preview') or path.endswith('/image') or path.endswith('/mask') or path.endswith('/keyframes') or path.endswith('/observation'):
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path=='/api/bench/live-frame':
             after=int(parse_qs(urlsplit(request.url).query).get('after',['0'])[0]);model['sequence']=max(after+1,model['sequence']+1)
@@ -35,16 +35,17 @@ def check(url, output):
         elif path=='/api/auto-connect':health['connected']=True;data={'connected':True}
         elif path=='/api/bench/grasp/prepare':
             model['job']={'status':'idle'};model['plan']=None
-            if model['size_error']:
-                detail={'code':'ball_size_mismatch','message':'黄色轮廓尺寸偏差 +42.9%，请查看识别图和轮廓。',
-                        'size':{**size,'observed_area_diameter_px':60.,'relative_error_percent':42.9},
-                        'image_url':'/api/bench/grasp/diagnostics/'+'b'*32+'/image',
-                        'mask_url':'/api/bench/grasp/diagnostics/'+'b'*32+'/mask'}
+            if model['conflict']:
+                detail={'code':'table_coordinate_conflict','message':'当前桌面深度与保存平面相差80.0mm，存在明确坐标冲突。',
+                        'image_url':'/api/bench/grasp/diagnostics/'+'b'*32+'/observation'}
                 model['job']['last_error']=detail;data={'detail':detail};status=409
             else:
                 model['counter']+=1;key=f'{model["counter"]:032x}'
-                model['plan']={'plan_id':key,'status':'prepared','seconds_left':179,'expired':False,
-                               'image_size':[1280,720],'size':size,'preview_url':f'/api/bench/grasp/plans/{key}/preview'}
+                warnings=['当前角点/深度证据不足；沿用已有五点标定，允许本轮试抓。','黄色轮廓尺寸偏差+42.9%；作为估计偏差记录，允许试抓。'] if model['uncertain'] else []
+                measured={**size,'observed_area_diameter_px':60.,'relative_error_percent':42.9} if model['uncertain'] else size
+                model['plan']={'plan_id':key,'status':'prepared','seconds_left':179,'expired':False,'warnings':warnings,
+                               'image_size':[1280,720],'size':measured,'preview_url':f'/api/bench/grasp/plans/{key}/preview',
+                               'mask_url':'/api/bench/grasp/diagnostics/'+'b'*32+'/mask'}
                 data=model['plan']
         elif path=='/api/bench/grasp/run':
             assert body['plan_id']==model['plan']['plan_id']
@@ -105,22 +106,35 @@ def check(url, output):
         page.set_viewport_size({'width':390,'height':844})
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'grasp-result-mobile.png'),full_page=True)
-        model['size_error']=True;page.locator('#prepare').click()
-        page.locator('#error').filter(has_text='42.9%').wait_for()
+        model['uncertain']=True;page.locator('#prepare').click()
+        page.locator('#observationWarnings').filter(has_text='允许带估计偏差试抓').wait_for()
+        page.wait_for_function("!document.getElementById('confirmed').disabled")
         assert page.locator('#observedSize').inner_text()=='60.0 px'
-        assert page.locator('#maskLink').is_visible();assert page.locator('#run').is_disabled()
+        assert page.locator('#maskLink').is_visible();assert not page.locator('#error').is_visible()
+        page.locator('#confirmed').check();assert page.locator('#run').is_enabled()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-        page.screenshot(path=str(output/'grasp-size-diagnostic-mobile.png'),full_page=True)
+        page.screenshot(path=str(output/'grasp-uncertain-allowed-mobile.png'),full_page=True)
         count=len([c for c in calls if c[0]=='POST'])
-        page.reload();page.locator('#error').filter(has_text='42.9%').wait_for()
+        page.reload();page.locator('#observationWarnings').filter(has_text='允许带估计偏差试抓').wait_for()
         assert len([c for c in calls if c[0]=='POST'])==count
+        page.locator('#confirmed').check();assert page.locator('#run').is_enabled()
+        page.locator('#run').click();page.locator('#stop').wait_for(state='visible')
+        assert len([c for c in calls if c[1]=='/api/bench/grasp/run'])==3
+        model['job'].update(status='completed',result={'motion_completed':True,'grasp_attempted':True})
+        model['plan']['status']='completed_motion';page.locator('#stop').wait_for(state='hidden')
+        model['conflict']=True;page.locator('#prepare').click()
+        page.locator('#error').filter(has_text='80.0mm').wait_for()
+        assert page.locator('#run').is_disabled();assert page.locator('#confirmed').is_disabled()
+        assert not page.locator('#observationWarnings').is_visible()
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.screenshot(path=str(output/'grasp-conflict-rejected-mobile.png'),full_page=True)
         assert not errors,errors
         browser.close()
     result={'browser':'Chromium','real_hardware_access':False,'api_calls':len(calls),
             'checks':['no actuation on load/reload','explicit image review before run','expired plan blocks run',
                       'single run under double click','live preview during execution','stop blocks following actions',
                       'reload reconnects to running job without resubmission','completion keeps visual success unknown',
-                      'size failure shows diagnostics and blocks run','390px responsive layout','no page errors']}
+                      'occluded board and size warnings allow an explicit trial','coordinate conflict shows evidence and blocks run','390px responsive layout','no page errors']}
     (output/'report.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2))
 
 

@@ -28,7 +28,7 @@ LIFT_MM = 50.
 SPEED = .12  # unchanged conservative Cartesian speed used by existing execution
 
 
-class BallSizeMismatch(ValueError):
+class ObservationRejected(ValueError):
     def __init__(self,message,evidence):
         super().__init__(message)
         self.evidence=evidence
@@ -72,9 +72,14 @@ def pixel_at_height(pixel, height, geometry):
 
 
 def visible_board_check(image, depth, session, geometry):
-    """Check visible known corners and plane depth without requiring all 54."""
+    """Assess optional current evidence; occlusion does not erase calibration.
+
+    Keep raw residuals before classifying them. Missing corner/depth evidence
+    is uncertainty; many visible corners with contradictory depth are a
+    coordinate conflict. The old code discarded the latter as 'not enough'.
+    """
     gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-    matched=[];residuals=[]
+    visible=[];sampled=[];matched=[];residuals=[]
     height,width=gray.shape
     for uv in session["reference"]["corners_px"]:
         u,v=np.round(uv).astype(int)
@@ -84,18 +89,26 @@ def visible_board_check(image, depth, session, geometry):
         corner=np.array([[uv]],np.float32)
         cv2.cornerSubPix(gray,corner,(5,5),(-1,-1),(cv2.TERM_CRITERIA_EPS|cv2.TERM_CRITERIA_MAX_ITER,20,.01))
         if float(np.linalg.norm(corner[0,0]-uv))>3:continue
-        patch=depth[v-3:v+4,u-3:u+4];values=patch[patch>0]
+        visible.append(uv)
+        patch=depth[v-3:v+4,u-3:u+4];values=patch[np.isfinite(patch)&(patch>0)]
         if len(values)<25:continue
         z=float(np.median(values));ray=geometry["inverse_K"]@np.array([u,v,1.])
         residual=float((ray*z)@geometry["normal_camera"]+geometry["d_camera"])
-        if abs(residual)>15:continue
-        matched.append(uv);residuals.append(residual)
-    if len(matched)<12 or np.ptp(np.asarray(matched),axis=0).min()<50:
-        raise ValueError("not enough distributed visible checkerboard/depth evidence; retain current image for review")
-    median=float(np.median(np.abs(residuals)))
-    if median>8:raise ValueError("depth/table consistency exceeds the bounded-trial tolerance")
-    return {"visible_corners":len(matched),"median_absolute_plane_residual_mm":median,
-            "scope":"local evidence only; no global intrinsic verification flag changed"}
+        sampled.append(uv);residuals.append(residual)
+        if abs(residual)<=15:matched.append(uv)
+    distributed=len(sampled)>=12 and float(np.ptp(np.asarray(sampled),axis=0).min())>=50
+    median=float(np.median(np.abs(residuals))) if residuals else None
+    conflict=bool(distributed and median>25)
+    warnings=[]
+    if not distributed:
+        warnings.append(f"当前角点/深度证据不足（可见角点{len(visible)}个，含有效深度{len(sampled)}个）；沿用已有五点标定，允许本轮试抓。")
+    elif median>8 and not conflict:
+        warnings.append(f"当前桌面深度与保存平面相差约{median:.1f}mm；作为估计不确定性记录，沿用已标定平面试抓。")
+    return {"status":"conflict" if conflict else "consistent" if distributed and median<=8 else "reference_reused",
+            "visible_corners":len(matched),"rgb_corners":len(visible),"depth_corners":len(sampled),
+            "distributed_depth_evidence":bool(distributed),"median_absolute_plane_residual_mm":median,
+            "warnings":warnings,"calibration_source":"saved_five_point_session",
+            "scope":"optional current evidence; no global intrinsic/TCP verification flag changed"}
 
 
 def observe_ball(folder, session):
@@ -105,7 +118,26 @@ def observe_ball(folder, session):
     latest=load_rgbd(folder)
     if list(latest["bgr"].shape[1::-1])!=session["reference"]["image_size"]:
         raise ValueError("current image dimensions changed")
+    if latest["trial_id"]!=folder.name:raise ValueError("observation manifest identifier does not match its folder")
     board=visible_board_check(latest["bgr"],latest["depth_mm"],session,geometry)
+    warnings=list(board["warnings"])
+    evidence={"kind":"supervised_rsi_observation_v1","trial_id":folder.name,"frame_index":latest["frame_index"],
+              "calibration_session_id":session["session_id"],"board_check":board,"warnings":warnings,
+              "target_estimated":False,"policy":"reuse saved planar calibration; perception quality is recorded, not a success prerequisite",
+              "assumptions":["camera and robot base have not moved since calibration", "34mm ball rests on the calibrated table plane"]}
+    def save_evidence():
+        (folder/"grasp-observation.json").write_text(json.dumps(evidence,ensure_ascii=False,indent=2,allow_nan=False))
+        out=latest["bgr"].copy()
+        cv2.putText(out,f"SAVED CALIBRATION / {board['rgb_corners']} RGB CORNERS / {board['depth_corners']} DEPTH CORNERS",
+                    (15,30),cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,230),2)
+        if not cv2.imwrite(str(folder/"grasp-observation.jpg"),out):raise OSError("cannot save observation image")
+    def reject(message,code):
+        evidence.update(rejection_code=code,rejection_message=message);save_evidence()
+        raise ObservationRejected(message,evidence)
+    save_evidence()
+    if board["status"]=="conflict":
+        reject(f"当前{board['depth_corners']}个可见角点的桌面深度与保存平面相差约{board['median_absolute_plane_residual_mm']:.1f}mm，"
+               "存在明确坐标冲突；已保存当前画面和数值，请检查相机位置或深度数据。","table_coordinate_conflict")
     rows=[json.loads(row) for row in (folder/"frames.jsonl").read_text().splitlines() if row]
     indices=sorted(set([0,len(rows)//2,latest["frame_index"]]))
     detections=[]
@@ -115,12 +147,12 @@ def observe_ball(folder, session):
             cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,image=cap.read()
             ball=find_yellow_ball(image) if ok else None
             if not ball or ball["candidate_count"]!=1 or ball["near_edge"]:
-                raise ValueError("one unambiguous yellow ball must be visible in each current observation")
+                reject("当前未找到唯一、完整的黄色球目标；已保存当前画面。","target_unavailable")
             detections.append(ball)
     finally:cap.release()
     pixels=np.asarray([b["center_px"] for b in detections])
     if np.max(np.linalg.norm(pixels-pixels.mean(axis=0),axis=1))>4:
-        raise ValueError("ball moved during scene capture")
+        reject("黄球在观察期间明显移动；本次目标位置未稳定，已保存画面。","target_moved")
     ball=detections[-1];center,camera=pixel_at_height(ball["center_px"],BALL_RADIUS_MM,geometry)
     expected_radius=float(intr["fx"]*BALL_RADIUS_MM/camera[2])
     # An enclosing circle is disproportionately enlarged by a small yellow
@@ -132,9 +164,10 @@ def observe_ball(folder, session):
           "measured_ball_diameter_mm":34.,"observed_area_diameter_px":round(2*size_radius,2),
           "observed_enclosing_diameter_px":round(2*ball["enclosing_radius_px"],2),
           "expected_diameter_px":round(2*expected_radius,2),"relative_error_percent":round(relative*100,2),
-          "inferred_diameter_mm":round(34*(1+relative),2),"allowed_relative_error_percent":22.,
+          "inferred_diameter_mm":round(34*(1+relative),2),"reference_relative_error_percent":22.,
           "predicted_center_camera_z_mm":round(float(camera[2]),2),"pixel_center":ball["center_px"],
-          "method":"equal-area contour radius; enclosing circle retained as a diagnostic", "passed":abs(relative)<=.22}
+          "method":"equal-area contour radius; enclosing circle retained as a diagnostic", "passed":abs(relative)<=.22,
+          "blocks_execution":False}
     (folder/"ball-size-diagnostic.json").write_text(json.dumps(size,ensure_ascii=False,indent=2,allow_nan=False))
     mask=yellow_ball_mask(latest["bgr"]);cv2.imwrite(str(folder/"ball-size-mask.png"),mask)
     overlay=latest["bgr"].copy();pixel=tuple(np.round(ball["center_px"]).astype(int))
@@ -144,20 +177,28 @@ def observe_ball(folder, session):
                 (15,overlay.shape[0]-20),cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,230),2)
     cv2.imwrite(str(folder/"ball-size-overlay.jpg"),overlay)
     if abs(relative)>.22:
-        raise BallSizeMismatch(f"尺寸核对未通过：黄色轮廓等效直径 {2*size_radius:.1f}px，预期 {2*expected_radius:.1f}px，"
-                               f"偏差 {relative*100:+.1f}%（允许±22%）。请先查看识别图和轮廓。",size)
+        warnings.append(f"黄色轮廓尺寸偏差{relative*100:+.1f}%，超出±22%参考带；保留实测34mm球径进行一次估计抓取，请核对预览。")
     local=geometry["board_rotation"].T@(center-geometry["board_translation"])
     square=session["reference"]["square_mm"]
     if not BALL_RADIUS_MM<=local[0]<=8*square-BALL_RADIUS_MM or not BALL_RADIUS_MM<=local[1]<=5*square-BALL_RADIUS_MM:
-        raise ValueError("first grasp requires the entire ball inside the observed checkerboard region")
+        warnings.append("黄球超出棋盘内框；沿用同一桌面平面外推目标，运动仍需通过可达性、限位和离桌检查。")
     u,v=np.round(ball["center_px"]).astype(int)
-    patch=latest["depth_mm"][v-6:v+7,u-6:u+7];values=patch[patch>0]
-    if len(values)<80 or abs(float(np.median(values))-(camera[2]-BALL_RADIUS_MM))>12:
-        raise ValueError("ball surface depth does not agree with a 34mm ball resting on this plane")
+    patch=latest["depth_mm"][v-6:v+7,u-6:u+7];values=patch[np.isfinite(patch)&(patch>0)]
+    error=float(np.median(values)-(camera[2]-BALL_RADIUS_MM)) if len(values) else None
+    depth_evidence={"valid_samples":len(values),"expected_surface_camera_z_mm":float(camera[2]-BALL_RADIUS_MM),
+                    "surface_residual_mm":error,"target_source":"saved_table_plane_plus_measured_ball_radius"}
+    evidence.update(ball_size=size,ball_depth=depth_evidence)
+    if len(values)>=80 and abs(error)>50:
+        reject(f"黄球表面深度与桌面球模型相差约{abs(error):.1f}mm，存在明确目标坐标冲突；已保存画面和测量。","target_coordinate_conflict")
+    if len(values)<80 or abs(error)>12:
+        warnings.append("黄球表面深度稀疏或偏差较大；本轮用已有平面标定和34mm球径估计目标，将不确定性与动作一起记录。")
+    evidence.update(target_estimated=True,pixel_center=ball["center_px"],center_robot_mm=center.tolist())
+    save_evidence()
     return {"pixel_center":ball["center_px"],"radius_px":ball["radius_px"],"center_robot_mm":center.tolist(),
             "frame_index":latest["frame_index"],"host_monotonic_ns":latest["host_monotonic_ns"],
             "source_trial_id":latest["trial_id"],"board_check":board,
             "size_evidence":size,
+            "depth_evidence":depth_evidence,"warnings":warnings,"observation_file":"grasp-observation.json",
             "reprojection_rms_px":geometry["reprojection_rms_px"]},geometry,latest["bgr"]
 
 
@@ -235,6 +276,7 @@ def build_plan(session,status,ball,geometry):
                 "image_size":session["reference"]["image_size"],
                 "calibration_session_id":session["session_id"],"reference_sha256":session["reference_sha256"],
                 "initial_status":status,"ball":ball,"table_plane":geometry["plane"],"steps":steps,
+                "observation_warnings":ball.get("warnings",[]),"perception_policy":"supervised_rsi_saved_plane_v1",
                 "experimental_policy":{"open_deg":OPEN_DEG,"close_deg":CLOSE_DEG,
                     "fixed_finger_margin_mm":FIXED_FINGER_MARGIN_MM,"grasp_extra_height_mm":GRASP_EXTRA_HEIGHT_MM,
                     "stock_fixed_finger_side":"inward radial side","grasp_tcp_globally_verified":False},
@@ -258,6 +300,6 @@ def preview(image,plan,geometry):
         if pixel:
             cv2.drawMarker(out,pixel,(50,70,255),cv2.MARKER_CROSS,18,2)
             cv2.putText(out,step["stage"],(pixel[0]+10,pixel[1]+15),cv2.FONT_HERSHEY_SIMPLEX,.55,(50,70,255),2)
-    cv2.putText(out,"FIRST GRASP PLAN / EXPERIMENTAL TOOL OFFSET / NO MOTION YET",(15,out.shape[0]-20),
+    cv2.putText(out,f"RSI TRIAL / SAVED CALIBRATION / {len(plan.get('observation_warnings',[]))} OBSERVATION WARNINGS / NO MOTION YET",(15,out.shape[0]-20),
                 cv2.FONT_HERSHEY_SIMPLEX,.6,(40,40,230),2)
     return out

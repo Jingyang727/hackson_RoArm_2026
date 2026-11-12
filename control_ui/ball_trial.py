@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
 from .safety import GRIPPER_SPEED_STEPS_S, GRIPPER_ACCEL_100_STEPS_S2
-from evoarm_rsi.ball_trial import observe_ball, build_plan, preview, check_segment, SPEED, BallSizeMismatch
+from evoarm_rsi.ball_trial import observe_ball, build_plan, preview, check_segment, SPEED, ObservationRejected
 from evoarm_rsi.bench_calibration import load_session, _digest
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
@@ -134,9 +134,10 @@ def install(app,service_provider):
             raise ValueError("live camera dimensions changed since scene review")
         ball=find_yellow_ball(image) if image is not None else None
         expected=plan["ball"]
+        reference_radius=expected["size_evidence"]["observed_area_diameter_px"]/2
         if (not ball or ball["candidate_count"]!=1 or
                 math.dist(ball["center_px"],expected["pixel_center"])>4 or
-                abs(ball["radius_px"]/expected["radius_px"]-1)>.2):
+                abs(ball["area_radius_px"]/reference_radius-1)>.2):
             raise ValueError("current ball does not match the reviewed plan; no command sent")
     def confirmed(service,state,index):
         last=service.last_command or {}
@@ -196,11 +197,10 @@ def install(app,service_provider):
             return {"plan_id":key,"plan":plan,"preview_file":str(root/"preview.jpg"),
                     "preview_url":f"/api/bench/grasp/plans/{key}/preview",
                     "plan_file":str(root/"state.json"),"next_action":"review image then execute this plan_id; prepare alone never moves"}
-        except BallSizeMismatch as exc:
-            trial=exc.evidence["source_trial_id"]
-            detail={"code":"ball_size_mismatch","message":str(exc),"size":exc.evidence,
-                    "image_url":f"/api/bench/grasp/diagnostics/{trial}/image",
-                    "mask_url":f"/api/bench/grasp/diagnostics/{trial}/mask"}
+        except ObservationRejected as exc:
+            trial=exc.evidence["trial_id"]
+            detail={"code":exc.evidence["rejection_code"],"message":str(exc),"observation":exc.evidence,
+                    "image_url":f"/api/bench/grasp/diagnostics/{trial}/observation"}
             with run_lock:ui["last_error"]=detail
             raise HTTPException(status_code=409,detail=detail) from exc
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
@@ -340,9 +340,9 @@ def install(app,service_provider):
 
     @router.get("/diagnostics/{trial_id}/{kind}")
     def diagnostic_image(trial_id:str,kind:str):
-        if kind not in ("image","mask"):raise HTTPException(status_code=404,detail="unknown image")
-        name="ball-size-overlay.jpg" if kind=="image" else "ball-size-mask.png"
-        return image_file(trial_id,bench_ui.experiment_root()/trial_id/name,"image/jpeg" if kind=="image" else "image/png")
+        names={"image":"ball-size-overlay.jpg","mask":"ball-size-mask.png","observation":"grasp-observation.jpg"}
+        if kind not in names:raise HTTPException(status_code=404,detail="unknown image")
+        return image_file(trial_id,bench_ui.experiment_root()/trial_id/names[kind],"image/png" if kind=="mask" else "image/jpeg")
 
     @router.get("/evidence/{trial_id}/keyframes")
     def keyframes(trial_id:str):return image_file(trial_id,bench_ui.experiment_root()/trial_id/"grasp-keyframes.jpg","image/jpeg")
@@ -358,6 +358,8 @@ def install(app,service_provider):
                 plan={"plan_id":latest["id"],"status":latest["status"],"seconds_left":max(0,180-age),
                       "image_size":latest["plan"]["image_size"],
                       "preview_url":f"/api/bench/grasp/plans/{latest['id']}/preview",
+                      "warnings":latest["plan"].get("observation_warnings",[]),
+                      "mask_url":f"/api/bench/grasp/diagnostics/{latest['plan']['ball']['source_trial_id']}/mask",
                       "size":latest["plan"]["ball"].get("size_evidence"),"expired":age>=180}
         health=cached_health if job["status"]=="running" and cached_health else service_provider().health()
         return {"job":job,"plan":plan,"health":health,"setup_id":bench_ui.setup_id()}

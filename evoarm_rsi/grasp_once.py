@@ -67,6 +67,8 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None,progress=None
         request_id=uuid.uuid4().hex
         report={"kind":"first_ball_grasp_execution_v1","plan_id":plan_id,"camera_request_id":request_id,
                 "setup_id":prepared["setup_id"],"created_at_unix":time.time(),
+                "perception_policy":prepared["plan"].get("perception_policy"),
+                "observation_warnings":prepared["plan"].get("observation_warnings",[]),
                 "events":[],"steps":[],"feedback":[],"motion_error":None,
                 "grasp_attempted":False,"grasp_command_attempted":False,"placement_attempted":False,
                 "motion_completed":False,"visual_grasp_success":None,"robot_moved":False}

@@ -42,14 +42,14 @@ function staticImage(url, kind, planId = null) {
   $("graspFrame").onerror = () => { planReady = false; $("imageCaption").textContent = "图片加载失败，请重新观察。"; render(); };
   $("graspFrame").src = url; $("graspFrame").hidden = false; $("graspEmpty").hidden = true;
   $("streamNotice").hidden = true;
-  $("imageCaption").textContent = kind === "plan" ? "本次观察生成的计划预览 · 非实时" : kind === "diagnostic" ? "尺寸核对诊断 · 蓝圈为预期尺寸，橙圈为轮廓等效尺寸" : "实测关键帧 · 抓取结果需根据画面核对";
+  $("imageCaption").textContent = kind === "plan" ? "本次观察生成的计划预览 · 非实时" : kind === "diagnostic" ? "本次观察诊断 · 原因与数值见提示" : "实测关键帧 · 抓取结果需根据画面核对";
 }
 function sizeMetrics(size) {
   $("sizeMetrics").hidden = !size;
   if (!size) return;
   $("observedSize").textContent = size.observed_area_diameter_px.toFixed(1) + " px";
   $("expectedSize").textContent = size.expected_diameter_px.toFixed(1) + " px";
-  $("sizeNote").textContent = `偏差 ${size.relative_error_percent >= 0 ? "+" : ""}${size.relative_error_percent.toFixed(1)}%；外接圆直径 ${size.observed_enclosing_diameter_px.toFixed(1)} px。允许范围保持 ±22%。`;
+  $("sizeNote").textContent = `偏差 ${size.relative_error_percent >= 0 ? "+" : ""}${size.relative_error_percent.toFixed(1)}%；外接圆直径 ${size.observed_enclosing_diameter_px.toFixed(1)} px。±22%为参考带，超出会记录估计偏差，允许核对后试抓。`;
 }
 function showDiagnostic(detail) {
   if (detail.size) sizeMetrics(detail.size);
@@ -60,6 +60,13 @@ function showDiagnostic(detail) {
 function render() {
   const h = state?.health || {}, job = state?.job || {}, plan = state?.plan;
   const running = job.status === "running", locked = Array.isArray(h.torque_status) && h.torque_status.length === 6 && h.torque_status.every(v => v === 1);
+  const warnings = plan?.warnings || [];
+  $("observationWarnings").hidden = warnings.length === 0;
+  $("observationWarnings").replaceChildren();
+  if (warnings.length) {
+    const title = document.createElement("strong"); title.textContent = "本轮允许带估计偏差试抓"; $("observationWarnings").append(title);
+    for (const message of warnings) { const p = document.createElement("p"); p.textContent = message; $("observationWarnings").append(p); }
+  }
   $("setupBadge").textContent = state?.setup_id || "当前布置";
   $("connection").textContent = h.connected ? h.fault ? "机械臂反馈异常" : "机械臂已连接" : "机械臂未连接";
   $("connection").className = "status-chip " + (h.connected && !h.fault ? "connected" : "");
@@ -108,6 +115,9 @@ async function refresh() {
         staticImage(state.plan.preview_url, "plan", state.plan.plan_id);
       }
       if (state.plan?.status === "prepared" && state.plan.size) sizeMetrics(state.plan.size);
+      if (state.plan?.status === "prepared" && sameOriginImage(state.plan.mask_url)) {
+        $("maskLink").hidden = false; $("maskLink").href = state.plan.mask_url;
+      }
       if (state.job.last_error) { $("error").textContent = state.job.last_error.message; $("error").hidden = false; showDiagnostic(state.job.last_error); }
       if (wasRunning) loadTrials();
     }
