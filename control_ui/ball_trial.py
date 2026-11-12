@@ -91,7 +91,7 @@ class Begin(PlanID):
 
 
 class Step(PlanID):
-    step_index:int=Field(ge=0,le=3)
+    step_index:int=Field(ge=0,le=4)
 
 
 def install(app,service_provider):
@@ -217,7 +217,7 @@ def install(app,service_provider):
                 _,fingerprint=calibration()
                 if fingerprint!=state["fingerprint"]:raise ValueError("calibration changed during trial")
                 camera_active(state["camera_request_id"])
-                if stage["stage"]=="descend":validate_ball(state["plan"])
+                if stage["stage"]=="hover":validate_ball(state["plan"])
                 if stage["kind"]=="cartesian":
                     target={**stage}
                     if stage["stage"]=="lift":target["gripper_rad"]=actual["g"]
@@ -240,7 +240,7 @@ def install(app,service_provider):
                              "pitch_start":actual["tit"],"pitch_target":target["pitch_rad"],
                              "roll_target":target["roll_rad"],"grip_start":actual["g"],"grip_target":target["gripper_rad"]}
                 else:
-                    expected=state["plan"]["steps"][1]
+                    expected=state["plan"]["steps"][2]
                     if (math.dist([actual[k] for k in "xyz"],expected["xyz_mm"])>10 or
                             abs(actual["tit"]-expected["pitch_rad"])>math.radians(3)):
                         raise ValueError("tool left the reviewed grasp pose before closing")
@@ -256,7 +256,7 @@ def install(app,service_provider):
         try:
             with service.lock:
                 state=load(req.plan_id)
-                if state["status"]!="active" or state["next_step"]!=3 or state["hold_attempted"]:
+                if state["status"]!="active" or state["next_step"]!=4 or state["hold_attempted"]:
                     raise ValueError("no unconsumed grasp contact candidate")
                 actual=service.status();health=service.health();pending=service.pending or {}
                 if (not health["armed"] or health["fault"] or pending.get("kind")!="ball_trial" or
@@ -272,7 +272,7 @@ def install(app,service_provider):
                 service.last_motion_at=time.monotonic()
                 service.pending={"kind":"ball_trial","stage_kind":"hold","since":time.monotonic(),
                                  "grip_start":target,"grip_target":target}
-                service.last_command={"status":"sent_not_verified","grasp_plan_id":req.plan_id,"grasp_step":2,
+                service.last_command={"status":"sent_not_verified","grasp_plan_id":req.plan_id,"grasp_step":3,
                                       "contact_candidate":True,"sent_at":time.time()}
                 return {"hold_sent":True,"contact_candidate_only":True}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:reject(exc)
@@ -284,8 +284,8 @@ def install(app,service_provider):
             with service.lock:
                 state=load(req.plan_id)
                 complete=False
-                if state["next_step"]==4:
-                    try:confirmed(service,state,3);complete=True
+                if state["next_step"]==5:
+                    try:confirmed(service,state,4);complete=True
                     except ValueError:pass
                 state["status"]="completed_motion" if complete else "aborted"
                 persist(req.plan_id,state);service.disarm()

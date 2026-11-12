@@ -85,22 +85,22 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
                     if time.monotonic()>until:raise RuntimeError("camera never started this recording; no motion sent")
                     time.sleep(.05)
                 session=_controller_post(base,"/api/bench/grasp/begin",{"plan_id":plan_id,"camera_request_id":request_id})
-                if session.get("steps")!=4:raise RuntimeError("unexpected grasp execution contract")
-                for index,stage in enumerate(("approach","approach","close","lift")):
+                if session.get("steps")!=5:raise RuntimeError("unexpected grasp execution contract")
+                for index,stage in enumerate(("approach","approach","approach","close","lift")):
                     pause=.8-(time.monotonic()-last_dispatch)
                     if pause>0:time.sleep(pause)
                     if time.monotonic_ns()-capture_start>=9_250_000_000:raise RuntimeError("ten-second budget reached; no further command")
                     if video.done():video.result();raise RuntimeError("recording ended before next action")
                     if index==0:event("start")
                     event(stage)
-                    if index==2:report["grasp_command_attempted"]=True
+                    if index==3:report["grasp_command_attempted"]=True
                     if report["robot_moved"] is False:report["robot_moved"]=None
                     _write(receipt,report)
                     ack=_controller_post(base,"/api/bench/grasp/step",{"plan_id":plan_id,"step_index":index})
                     report["steps"].append({"index":index,"stage":stage,"ack":ack,"sent_ns":time.monotonic_ns()})
                     if ack.get("sent"):last_dispatch=time.monotonic()
                     elif report["robot_moved"] is None:report["robot_moved"]=False
-                    if index==2:report["grasp_attempted"]=True
+                    if index==3:report["grasp_attempted"]=True
                     held=False
                     while True:
                         status=_controller_get(base,"/api/status");h=_controller_get(base,"/api/health")
@@ -134,7 +134,7 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
                 try:
                     state=_controller_get(base,"/api/bench/grasp/plans/"+plan_id)
                     report["controller_dispatches"]=state["dispatches"]
-                    if any(d["step"]==2 for d in state["dispatches"]):report["grasp_attempted"]=True
+                    if any(d["step"]==3 for d in state["dispatches"]):report["grasp_attempted"]=True
                 except Exception as exc:report["dispatch_evidence_error"]=type(exc).__name__
                 try:
                     capture=video.result(timeout=35)

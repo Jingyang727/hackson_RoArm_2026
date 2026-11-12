@@ -177,13 +177,18 @@ def build_plan(session,status,ball,geometry):
         grasp=center+normal*GRASP_EXTRA_HEIGHT_MM-(BALL_RADIUS_MM+FIXED_FINGER_MARGIN_MM)*opening_direction
         if height_above_plane(grasp,geometry["plane"])<12:continue
         align=[float(grasp[0]),float(grasp[1]),float(status["z"])]
-        # Preserve measured clearance over a slightly tilted calibrated plane.
+        # Align along a high corridor, allowing an unnecessarily tall start
+        # to descend at the same time instead of making an extra XY detour.
         current_height=height_above_plane(model["xyz_mm"],geometry["plane"])
-        deficit=current_height-height_above_plane(align,geometry["plane"])
-        if deficit>0:align[2]+=deficit/normal[2]
+        align_height=min(current_height,150.)
+        align[2]=float((align_height-geometry["plane"]["d_mm"]-normal[0]*align[0]-normal[1]*align[1])/normal[2])
+        align_pitch=min(max(status["tit"],math.radians(30)),math.radians(60))
         lift=(grasp+normal*LIFT_MM).tolist()
-        steps=[{"stage":"align_open","kind":"cartesian","xyz_mm":align,"pitch_rad":status["tit"],
+        hover=(grasp+normal*(50.-height_above_plane(grasp,geometry["plane"]))).tolist()
+        steps=[{"stage":"align_open","kind":"cartesian","xyz_mm":align,"pitch_rad":align_pitch,
                 "roll_rad":roll,"gripper_rad":math.radians(OPEN_DEG),"minimum_tip_height_mm":100},
+               {"stage":"hover","kind":"cartesian","xyz_mm":hover,"pitch_rad":pitch,
+                "roll_rad":roll,"gripper_rad":math.radians(OPEN_DEG),"minimum_tip_height_mm":50},
                {"stage":"descend","kind":"cartesian","xyz_mm":grasp.tolist(),"pitch_rad":pitch,
                 "roll_rad":roll,"gripper_rad":math.radians(OPEN_DEG),"minimum_tip_height_mm":12},
                {"stage":"close","kind":"gripper","gripper_rad":math.radians(CLOSE_DEG)},

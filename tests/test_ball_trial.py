@@ -85,7 +85,7 @@ class SimulatedArm:
         if self.failed:raise OSError("synthetic uncertain transmission")
         if payload["T"]==104:
             self.raw=inverse([payload[k] for k in "xyz"],payload["t"],payload["r"],payload["g"])
-            if len([c for c in self.commands if c["T"]==104])==3:self.ball_height=67.
+            if len([c for c in self.commands if c["T"]==104])==4:self.ball_height=67.
         elif payload["T"]==106:
             self.raw["g"]=min(payload["cmd"],math.radians(158)) if self.contact else payload["cmd"]
         else:raise AssertionError("unexpected command")
@@ -106,12 +106,12 @@ class BallGeometry(unittest.TestCase):
             home=Path(temp);session=layout(home);folder=observation(home)
             ball,geometry,image=ball_trial.observe_ball(folder,session)
             plan=ball_trial.build_plan(session,SimulatedArm().status(),ball,geometry)
-            self.assertEqual([s["stage"] for s in plan["steps"]],["align_open","descend","close","lift"])
+            self.assertEqual([s["stage"] for s in plan["steps"]],["align_open","hover","descend","close","lift"])
             self.assertGreater(ball["board_check"]["visible_corners"],12)
             self.assertFalse(plan["taught_positions_used"])
             self.assertFalse(plan["experimental_policy"]["grasp_tcp_globally_verified"])
             self.assertFalse(K["verified"])
-            self.assertEqual(plan["steps"][2]["gripper_rad"],math.radians(162))
+            self.assertEqual(plan["steps"][3]["gripper_rad"],math.radians(162))
 
     def test_bad_depth_or_camera_profile_does_not_become_verified(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -168,12 +168,12 @@ class BallAPITest(unittest.TestCase):
         self.assertEqual(response["status"],409);self.assertEqual(len(self.arm.commands),1)
     def test_full_angle_reached_trial_closes_and_lifts_without_old_teaching(self):
         data=self.prepare();key=data["plan_id"];self.begin(key)
-        for i in range(4):
+        for i in range(5):
             response,body=self.request("step",{"plan_id":key,"step_index":i});self.assertEqual(response["status"],200,body)
             self.confirm()
         response,body=self.request("end",{"plan_id":key});self.assertTrue(body["completed_motion"])
         self.assertIsNone(body["visual_grasp_success"])
-        self.assertEqual([p["T"] for p in self.arm.commands],[104,104,106,104])
+        self.assertEqual([p["T"] for p in self.arm.commands],[104,104,104,106,104])
         self.assertEqual(self.service.armed_until,0)
     def test_already_aligned_and_open_is_a_readback_noop_not_an_infinite_pending(self):
         first=self.prepare();align=first["plan"]["steps"][0]
@@ -231,7 +231,7 @@ class BallEndToEnd(unittest.TestCase):
                 self.assertTrue(report["recording_covers_motion"],report)
                 self.assertIn("contact_hold",report)
                 self.assertIsNone(report["visual_grasp_success"])
-                self.assertEqual([c["T"] for c in arm.commands],[104,104,106,106,104])
+                self.assertEqual([c["T"] for c in arm.commands],[104,104,104,106,106,104])
                 self.assertAlmostEqual(arm.commands[-1]["g"],math.radians(158),places=5)
                 self.assertEqual(service.armed_until,0)
                 self.assertEqual(len(sources),1)
