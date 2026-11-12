@@ -299,6 +299,17 @@ def calibration_status():
     return calibration.summary()
 
 
+@app.get("/api/calibration/stationary-sample")
+def calibration_stationary_sample():
+    # Sampling uses the serial owner's lock, but does not touch the legacy
+    # calibration session, unlock motion, open serial or change any torque.
+    from evoarm_rsi.bench_calibration import stationary_sample
+    try:
+        return stationary_sample(service)
+    except CalibrationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/calibration/start")
 def calibration_start(req: CalibrationStart):
     try:
