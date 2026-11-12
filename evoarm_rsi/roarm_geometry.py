@@ -38,3 +38,25 @@ def height_above_plane(xyz, plane):
     if type(offset) not in (int, float) or not math.isfinite(offset):
         raise ValueError("finite plane offset required")
     return sum(a*b for a, b in zip(xyz, normal))+offset
+
+
+def inverse(xyz, pitch, roll, gripper):
+    """Vendor's positive-elbow IK branch, for the default edge-tool only."""
+    if len(xyz)!=3 or any(type(v) not in (int,float) or not math.isfinite(v)
+                          for v in [*xyz,pitch,roll,gripper]):
+        raise ValueError("finite XYZ and tool angles required")
+    x,y,z=xyz
+    l2,a2=math.hypot(236.82,30.),math.atan2(30.,236.82)
+    l3=144.49;le,ae=math.hypot(171.67,13.69),math.atan2(13.69,171.67)
+    wr=math.hypot(x,y)-le*math.cos(pitch+ae)
+    wz=z+le*math.sin(pitch+ae)
+    length=math.hypot(wr,wz)
+    if wr<=0 or not abs(l2-l3)+.01<=length<=l2+l3-.01:
+        raise ValueError("pose is outside the nonsingular vendor IK branch")
+    psi=math.acos(max(-1.,min(1.,(l2*l2+length*length-l3*l3)/(2*l2*length))))+a2
+    shoulder=math.pi/2-math.atan2(wz,wr)-psi
+    omega=math.acos(max(-1.,min(1.,(l3*l3+length*length-l2*l2)/(2*l3*length))))
+    elbow=psi+omega
+    wrist=math.pi/2-shoulder-elbow+pitch
+    return {"T":1051,"b":math.atan2(y,x),"s":shoulder,"e":elbow,"t":wrist,"r":roll,"g":gripper,
+            "x":x,"y":y,"z":z,"tit":pitch}

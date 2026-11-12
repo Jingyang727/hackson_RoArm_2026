@@ -185,5 +185,21 @@ def install(app, service_provider):
                     rows.append(value)
             except (OSError, ValueError, KeyError, TypeError):
                 continue
+        known={row["trial_id"] for row in rows}
+        for file in experiment_root().glob("*/grasp-trial.json"):
+            try:
+                value=json.loads(file.read_text())
+                trial_id=valid_id(value["capture_trial_id"])
+                if (value.get("kind")!="first_ball_grasp_execution_v1" or value.get("setup_id")!=setup_id()
+                        or trial_id!=file.parent.name or trial_id in known):continue
+                completed=value.get("motion_completed") is True
+                evidence=["已进入闭爪尝试；是否抓起需看录像" if value.get("grasp_attempted") else "闭爪动作尚未执行",
+                          "抓取与提升动作序列已完成，视觉结果待确认" if completed else "动作中止："+str(value.get("motion_error") or value.get("camera_error") or "待核对")[:150]]
+                rows.append({"trial_id":trial_id,"setup_id":setup_id(),"phase":"grasp_lift",
+                             "pickup_observed":None,"ball_entered_funnel":None,
+                             "within_10s":value.get("within_10s") if completed else None,
+                             "failure_type":"motion_error" if value.get("motion_error") else "unknown",
+                             "evidence":evidence,"policy":{},"created_at_unix":float(value["created_at_unix"])})
+            except (OSError, ValueError, KeyError, TypeError):continue
         return {"setup_id": setup_id(), "trials": sorted(rows, key=lambda r: r["created_at_unix"], reverse=True)[:50],
-                "execution_available": False}
+                "execution_available": True,"execution_scope":"single_grasp_lift","placement_available":False}

@@ -2,7 +2,7 @@
 
 五点已完成，保持相机、棋盘和底座固定，不重采、不使用旧Home/Hover/Grasp/Place。
 无需把机械臂放回标定角点，也无需在高位维持标点时的俯仰。起步状态由新鲜T1051和本次桌面模型判断。
-本入口只处理准备动作，完整抓放执行器仍在接入中；`grasp_attempted=false`，不计作抓取成功。
+本入口只处理准备动作，`grasp_attempted=false`，不计作抓取成功。**`already_clear` 后，同一个本机Agent应立即继续[首轮实物抓取](bench-first-grasp.md)，不要提交起步结果后就结束任务。**
 
 ## 起步状态与动作
 

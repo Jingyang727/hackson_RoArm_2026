@@ -39,7 +39,7 @@
         <div id="emptyTrials" class="empty-trials">
           <span class="empty-cross">↗</span>
           <h2>还没有抓放试次</h2>
-          <p>标定通过后，由本机控制 Agent 启动实物试验。完成的评估会列在这里。</p>
+          <p>由本机控制 Agent 观察并执行一次抓取后，这里会显示实测记录和待确认的视觉结果。</p>
           <a class="button primary" href="/calibration">查看标定结果</a>
         </div>
         <div id="trials"></div>
@@ -67,9 +67,9 @@
             const row = document.createElement("article");
             row.className = "trial-row";
             const title = document.createElement("strong");
-            title.textContent = "试次 " + trial.trial_id.slice(0, 10);
+            title.textContent = (trial.phase === "grasp_lift" ? "抓取试次 " : "试次 ") + trial.trial_id.slice(0, 10);
             const result = document.createElement("p");
-            result.textContent = `抓起：${label(trial.pickup_observed)}　入漏斗：${label(trial.ball_entered_funnel)}　10秒内：${trial.within_10s === true ? "是" : trial.within_10s === false ? "否" : "未知"}`;
+            result.textContent = `抓起：${label(trial.pickup_observed)}　${trial.phase === "grasp_lift" ? "投放：本轮未执行　抓取动作" : "入漏斗：" + label(trial.ball_entered_funnel) + "　完整动作"}10秒内：${trial.within_10s === true ? "是" : trial.within_10s === false ? "否" : "未知"}`;
             row.append(title, result);
             for (const evidence of trial.evidence) {
               const note = document.createElement("p");

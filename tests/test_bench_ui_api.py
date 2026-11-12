@@ -43,6 +43,19 @@ class BenchUIApi(unittest.TestCase):
         self.assertEqual(len(body["overlay_points"]), 5)
         self.assertEqual(body["overlay_points"][0]["pixel_xy"], [20.,20.])
 
+    def test_actual_grasp_execution_appears_before_visual_review_without_fake_success(self):
+        home=Path(self.temp.name);experiments=home/".evoarm/rsi/experiments";trial=experiments/("a"*32)
+        trial.mkdir(parents=True)
+        (trial/"grasp-trial.json").write_text(json.dumps({"kind":"first_ball_grasp_execution_v1",
+            "capture_trial_id":trial.name,"setup_id":"bench-layout-v2","created_at_unix":1.,
+            "motion_completed":True,"grasp_attempted":True,"within_10s":True,"motion_error":None}))
+        with patch.object(Path,"home",return_value=home):
+            start,body=self.request("/api/task/trials",method="GET")
+        self.assertEqual(start["status"],200)
+        self.assertEqual(body["trials"][0]["phase"],"grasp_lift")
+        self.assertIsNone(body["trials"][0]["pickup_observed"])
+        self.assertFalse(body["placement_available"])
+
     def test_live_camera_start_never_touches_the_arm(self):
         with (patch.object(self.service, "status", side_effect=AssertionError("serial touched")),
               patch("evoarm_rsi.camera_service.client_request", return_value={"started":True}) as camera):

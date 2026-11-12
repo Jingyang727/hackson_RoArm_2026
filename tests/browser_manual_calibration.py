@@ -75,7 +75,7 @@ def check(url, output):
             if data['next_point'] is None:
                 model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
-        elif path=='/task/trials':data={"setup_id":"bench-layout-v2","trials":[]}
+        elif path=='/task/trials':data={"setup_id":"bench-layout-v2","trials":model.get('trials',[])}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=200,content_type='application/json',body=json.dumps(data))
     with sync_playwright() as playwright:
@@ -152,6 +152,12 @@ def check(url, output):
         page.goto(url+'/experiments');page.get_by_text('还没有抓放试次',exact=True).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'experiments-mobile.png'),full_page=True)
+        model['trials']=[{'trial_id':'a'*32,'phase':'grasp_lift','pickup_observed':None,
+                         'ball_entered_funnel':None,'within_10s':True,'evidence':['模拟执行完成，视觉结果待确认']}]
+        page.reload();page.get_by_text('抓取试次 aaaaaaaaaa',exact=True).wait_for()
+        page.get_by_text('抓起：无法确认',exact=False).wait_for()
+        assert '投放：本轮未执行' in page.locator('#trials').inner_text()
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         for source,target in (('/teach','/calibration'),('/pick','/experiments'),('/','/calibration')):
             page.goto(url+source);assert page.url.endswith(target)
         assert not errors,errors
