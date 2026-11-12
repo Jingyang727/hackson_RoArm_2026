@@ -8,6 +8,7 @@ out. A passed planar fit is not a verified RGB-D extrinsic or grasping TCP.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -35,13 +36,14 @@ SAMPLE_KIND = "stationary_robot_feedback_v1"
 SESSION_KIND = "bench_calibration_session_v1"
 
 
-def _idle(health):
+def _idle(health, *, allow_manual=False):
     if (health.get("connected") is not True or health.get("fault") is not None
-            or health.get("pending") is not None or health.get("teach_active") is not False):
-        raise CalibrationError("需要已连接、无故障、无待完成运动且扭矩未释放的控制器")
+            or health.get("pending") is not None
+            or (not allow_manual and health.get("teach_active") is not False)):
+        raise CalibrationError("需要已连接、无故障且无待完成运动的控制器；手动采点需持续支撑")
 
 
-def validate_sample(sample):
+def validate_sample(sample, *, allow_manual=False):
     if not isinstance(sample, dict) or sample.get("kind") != SAMPLE_KIND:
         raise CalibrationError("需要新版控制器的静止采样接口，请核对实际运行的服务代码")
     rows = sample.get("samples")
@@ -58,31 +60,34 @@ def validate_sample(sample):
     spread = max(float(np.linalg.norm(a-b)) for a in xyz for b in xyz)
     if spread > STILL_XYZ_LIMIT_MM or float(np.max(np.ptp(angles, axis=0))) > STILL_JOINT_LIMIT_DEG:
         raise CalibrationError("机械臂反馈未静止；未记录此点，不会重试运动")
-    if any([s.get(k) for k in TORQUE_KEYS] != [1]*6 for s in statuses):
-        raise CalibrationError("三次反馈均需确认六关节扭矩已锁定")
+    torque = [[s.get(k) for k in TORQUE_KEYS] for s in statuses]
+    accepted = ([1]*6, [0]*6) if allow_manual else ([1]*6,)
+    if torque[0] not in accepted or any(row != torque[0] for row in torque):
+        raise CalibrationError("扭矩状态不完整、不一致或采样期间发生变化；未记录此点")
     if np.max(np.abs(xyz)) > 2000:
         raise CalibrationError("机械臂XYZ反馈超出合理范围")
     poses = np.asarray([[_finite_number(s.get(k), k) for k in ("tit", "r", "g")]
                         for s in statuses])
     return {"robot_xyz_mm": np.mean(xyz, axis=0).tolist(),
             "tool_pose_rad": dict(zip(("pitch", "roll", "gripper"), np.mean(poses, axis=0).tolist())),
-            "xyz_spread_mm": spread}
+            "xyz_spread_mm": spread, "torque_locked": torque[0] == [1]*6,
+            "operator_support_required": torque[0] == [0]*6}
 
 
-def stationary_sample(arm_service, *, sleep_fn=time.sleep):
+def stationary_sample(arm_service, *, sleep_fn=time.sleep, allow_manual=False):
     """Hold the serial owner's lock across all three samples, excluding jogs."""
     with arm_service.lock:
-        _idle(arm_service.health())
+        _idle(arm_service.health(), allow_manual=allow_manual)
         rows = []
         for index in range(3):
             if index:
                 sleep_fn(.35)
             status = arm_service.status()
             rows.append({"host_monotonic_ns": time.monotonic_ns(), "robot_status": status})
-            _idle(arm_service.health())
+            _idle(arm_service.health(), allow_manual=allow_manual)
         result = {"kind": SAMPLE_KIND, "samples": rows,
                   "source": "T1051_encoder_forward_kinematics", "motion_commands_sent": False}
-        result.update(validate_sample(result))
+        result.update(validate_sample(result, allow_manual=allow_manual))
         return result
 
 
@@ -164,14 +169,17 @@ def start_session(trial, *, setup_id, square_mm, output):
     return session_status(path)
 
 
-def capture_point(path, point_id, *, aligned=False, controller="http://127.0.0.1:8765", replace=False):
+def capture_point(path, point_id, *, aligned=False, controller="http://127.0.0.1:8765", replace=False,
+                  arm_service=None, allow_manual=False):
     if aligned is not True:
         raise CalibrationError("先现场对准图中角点，再以 --aligned 声明已对准；程序不会移动机械臂")
     with _session_lock(path):
-        return _capture_point(path, point_id, controller=controller, replace=replace)
+        with arm_service.lock if arm_service is not None else nullcontext():
+            return _capture_point(path, point_id, controller=controller, replace=replace,
+                                  arm_service=arm_service, allow_manual=allow_manual)
 
 
-def _capture_point(path, point_id, *, controller, replace):
+def _capture_point(path, point_id, *, controller, replace, arm_service, allow_manual):
     path, session = load_session(path)
     if point_id not in POINTS:
         raise CalibrationError("未知采点ID")
@@ -179,7 +187,8 @@ def _capture_point(path, point_id, *, controller, replace):
         raise CalibrationError("该点已记录；重采需 --replace，旧原始记录仍保留")
     base = _base_url(controller)
     try:
-        sample = _controller_get(base, "/api/calibration/stationary-sample")
+        sample = (stationary_sample(arm_service, allow_manual=allow_manual) if arm_service is not None else
+                  _controller_get(base, "/api/calibration/stationary-sample"))
     except error.HTTPError as exc:
         if exc.code == 404:
             raise CalibrationError("当前服务未加载新采样接口；需从新worktree重启实际8765控制服务") from exc
@@ -189,19 +198,23 @@ def _capture_point(path, point_id, *, controller, replace):
         except (ValueError, AttributeError):
             detail = raw
         raise CalibrationError(f"静止采样HTTP {exc.code}: {detail[:400]}") from exc
-    measured = validate_sample(sample)
+    measured = validate_sample(sample, allow_manual=allow_manual)
+    warnings = []
     others = [r for k, r in session["records"].items() if k != point_id]
     if others:
         baseline = others[0]["tool_pose_rad"]
         if any(abs(math.degrees(math.remainder(measured["tool_pose_rad"][key]-baseline[key], 2*math.pi))) > 5
-               for key in baseline):
-            raise CalibrationError("五点需保持同一夹爪俯仰、旋转和开合姿态（相差不超过5°）；其他点仍保留")
+               for key in ("roll", "gripper")):
+            raise CalibrationError("末端旋转或夹爪开合与已有点相差超过5°，请核对是否仍使用同一个触点；其他点保留")
+        pitch_delta = abs(math.degrees(math.remainder(measured["tool_pose_rad"]["pitch"]-baseline["pitch"], 2*math.pi)))
+        if pitch_delta > 5:
+            warnings.append(f"俯仰与 {others[0]['id']} 相差 {pitch_delta:.1f}°；已保留真实XYZ，可尽量保持一致")
     grid = session["points"][point_id]
     record = {"id": point_id, "grid": grid, "role": "validate" if point_id == "V1" else "train",
               "board_mm": [v*session["reference"]["square_mm"] for v in grid],
               "pixel_xy": session["reference"]["corners_px"][grid[1]*9+grid[0]],
               "captured_at": datetime.now(timezone.utc).isoformat(),
-              "operator_confirmed_endpoint_on_board": True, **measured, "raw_feedback": sample}
+              "operator_confirmed_endpoint_on_board": True, **measured, "pose_warnings": warnings, "raw_feedback": sample}
     # Save every raw sample before updating the resumable session. Never erase
     # an earlier attempt, even when --replace is explicitly requested.
     archive = path.parent / (path.stem + "-samples") / (point_id + "-" + uuid.uuid4().hex + ".json")
@@ -209,6 +222,7 @@ def _capture_point(path, point_id, *, controller, replace):
     if point_id in session["records"]:
         session["history"].append(session["records"][point_id])
     session["records"][point_id] = record
+    session.pop("fit", None)
     _write_json_atomic(path, session)
     return session_status(path)
 
@@ -246,18 +260,33 @@ def fit_points(records):
             "train_errors_mm": dict(zip((r["id"] for r in train), errors.tolist())),
             "table_plane_robot": {"normal_up": normal.tolist(), "d_mm": -float(normal @ offset)},
             "planar_fit_validated": bool(passed), "motion_authorized": False,
-            "scope": "board_plane_at_recorded_tool_pose_only",
+            "scope": "board_plane_firmware_endpoint",
             "camera_to_robot_verified": False, "grasp_tcp_verified": False}
 
 
 def session_status(path):
     path, session = load_session(path)
     points = [{"id": key, "grid": grid, "captured": key in session["records"],
-               "robot_xyz_mm": session["records"].get(key, {}).get("robot_xyz_mm")}
+               "robot_xyz_mm": session["records"].get(key, {}).get("robot_xyz_mm"),
+               "pose_warnings": session["records"].get(key, {}).get("pose_warnings", [])}
               for key, grid in session["points"].items()]
     return {"setup_id": session["setup_id"], "session": str(path), "alignment_image": str(path.with_suffix(".png")),
             "points": points, "next_point": next((p["id"] for p in points if not p["captured"]), None),
-            "reference_trial_id": session["reference"]["source_trial_id"], "motion_authorized": False}
+            "reference_trial_id": session["reference"]["source_trial_id"], "fit": session.get("fit"),
+            "motion_authorized": False}
+
+
+def fit_session(path):
+    with _session_lock(path):
+        path, session = load_session(path)
+        result = {"kind": "bench_calibration_candidate_v1", "setup_id": session["setup_id"],
+                  "session_id": session["session_id"], "reference_sha256": session["reference_sha256"],
+                  "source_session": str(path), **fit_points(session["records"])}
+        output = path.parent/("candidate-"+uuid.uuid4().hex+".json")
+        _write_json_atomic(output, result)
+        session["fit"] = {**result, "output_file": str(output)}
+        _write_json_atomic(path, session)
+        return session_status(path)
 
 
 def main(argv=None):

@@ -98,6 +98,20 @@ class StationaryAcquisition(unittest.TestCase):
             with self.assertRaises(CalibrationError):
                 bench.validate_sample(value)
 
+    def test_supported_manual_sampling_is_explicit_and_records_released_torque(self):
+        raw = sample(**{key: 0 for key in bench.TORQUE_KEYS})
+        with self.assertRaises(CalibrationError):
+            bench.validate_sample(raw)
+        result = bench.validate_sample(raw, allow_manual=True)
+        self.assertFalse(result["torque_locked"])
+        self.assertTrue(result["operator_support_required"])
+
+    def test_torque_transition_during_manual_sample_is_rejected(self):
+        raw = sample(**{key: 0 for key in bench.TORQUE_KEYS})
+        raw["samples"][-1]["robot_status"].update({key: 1 for key in bench.TORQUE_KEYS})
+        with self.assertRaises(CalibrationError):
+            bench.validate_sample(raw, allow_manual=True)
+
 
 class SessionAcquisition(unittest.TestCase):
     def setUp(self):
@@ -135,13 +149,19 @@ class SessionAcquisition(unittest.TestCase):
         self.assertEqual(len(session["history"]), 1)
         self.assertEqual(len(list(self.path.parent.glob("session-samples/*.json"))), 2)
 
-    def test_tool_attitude_change_rejected_without_destroying_prior_point(self):
+    def test_pitch_change_is_recorded_with_warning_but_roll_change_is_rejected(self):
         with patch.object(bench, "_controller_get", return_value=sample()):
             bench.capture_point(self.path, "P1", aligned=True)
         before = self.path.read_bytes()
         with patch.object(bench, "_controller_get", return_value=sample(tit=.6)):
+            bench.capture_point(self.path, "P2", aligned=True)
+        _, result = bench.load_session(self.path)
+        self.assertTrue(result["records"]["P2"]["pose_warnings"])
+        self.assertEqual(result["records"]["P1"]["robot_xyz_mm"], [300., 50., -90.])
+        before = self.path.read_bytes()
+        with patch.object(bench, "_controller_get", return_value=sample(r=.6)):
             with self.assertRaises(CalibrationError):
-                bench.capture_point(self.path, "P2", aligned=True)
+                bench.capture_point(self.path, "P3", aligned=True)
         self.assertEqual(before, self.path.read_bytes())
 
     def test_changed_reference_rejected_before_network(self):

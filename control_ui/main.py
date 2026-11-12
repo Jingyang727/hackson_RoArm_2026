@@ -6,7 +6,7 @@ import threading
 import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, JSONResponse
+from fastapi.responses import HTMLResponse, Response, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from .service import ArmService
@@ -22,6 +22,8 @@ from evoarm.serial_arm import ArmCommunicationError
 app = FastAPI(title="EvoArm 中文控制台", docs_url=None, redoc_url=None)
 rsi_runner = TrialRunner(store=TrialStore())  # P0: strictly simulated, no serial commands
 service = ArmService()
+from .bench_ui import install as install_bench_ui
+install_bench_ui(app, lambda: service)
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
 
@@ -136,32 +138,14 @@ def invoke(fn, *args):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.get("/assets/nav_status.js")
-def shared_navigation_status_script():
-    return Response(
-        content=Path(__file__).with_name("nav_status.js").read_text(encoding="utf-8"),
-        media_type="application/javascript",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
-
-
-@app.get("/assets/theme.css")
-def shared_theme():
-    return Response(
-        content=Path(__file__).with_name("theme.css").read_text(encoding="utf-8"),
-        media_type="text/css",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
-
-
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+    return RedirectResponse("/calibration", status_code=307)
 
 
 @app.get("/camera", response_class=HTMLResponse)
 def camera_page():
-    return Path(__file__).with_name("camera.html").read_text(encoding="utf-8")
+    return RedirectResponse("/calibration#camera", status_code=307)
 
 
 def _saved_visual_reference():
@@ -289,7 +273,7 @@ def calibration_page():
     # Calibration UI changes rapidly during hardware bring-up. Never serve
     # a stale cached page with old onclick bindings or torque confirmations.
     return HTMLResponse(
-        content=Path(__file__).with_name("calibration.html").read_text(encoding="utf-8"),
+        content=Path(__file__).with_name("manual_calibration.html").read_text(encoding="utf-8"),
         headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
     )
 
@@ -341,10 +325,7 @@ def teach_torque(req: TeachTorque):
 
 @app.get("/teach", response_class=HTMLResponse)
 def fast_teaching_page():
-    return HTMLResponse(
-        content=Path(__file__).with_name("fast_teach.html").read_text(encoding="utf-8"),
-        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
-    )
+    return RedirectResponse("/calibration", status_code=307)
 
 
 @app.get("/api/teach/poses")
@@ -369,10 +350,25 @@ def teach_move(req: TeachTarget):
 
 @app.get("/pick", response_class=HTMLResponse)
 def pick_page():
-    return HTMLResponse(
-        content=Path(__file__).with_name("pick.html").read_text(encoding="utf-8"),
-        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
-    )
+    return RedirectResponse("/experiments", status_code=307)
+
+
+@app.get("/experiments", response_class=HTMLResponse)
+def experiments_page():
+    return HTMLResponse(Path(__file__).with_name("experiments.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/assets/workspace.css")
+def workspace_styles():
+    return Response(Path(__file__).with_name("workspace.css").read_text(encoding="utf-8"),
+                    media_type="text/css", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/assets/workspace.js")
+def workspace_script():
+    return Response(Path(__file__).with_name("workspace.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/pick/workspace")

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EvoArm · 手动标定</title>
+    <link rel="stylesheet" href="/assets/workspace.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/calibration"
+        ><span class="brand-mark">e</span>EvoArm<span class="brand-sub"
+          >/ 机械臂工作区</span
+        ></a
+      >
+      <nav aria-label="主导航">
+        <a href="/calibration" aria-current="page">手动标定</a
+        ><a href="/experiments">试验记录</a>
+      </nav>
+      <span id="connection" class="status-chip">正在读取状态</span>
+    </header>
+    <main>
+      <div class="page-heading">
+        <div>
+          <div class="eyebrow">设备准备 / 五点标定</div>
+          <h1>用手对准，逐点记录。</h1>
+          <p>
+            四个角点建立坐标关系，第五个点独立检验。已有记录会保留，回来可以接着做。
+          </p>
+        </div>
+        <span id="setupBadge" class="setup-badge">当前布置</span>
+      </div>
+      <div id="error" class="alert" role="alert" hidden></div>
+      <section id="prepare" class="card preparation" hidden>
+        <h2>先生成五点参考图</h2>
+        <p>选择相机、棋盘和底座固定后拍摄的完整空棋盘录像。</p>
+        <div class="preparation-fields">
+          <label
+            >空棋盘录像<select id="source">
+              <option value="">正在查找录像…</option>
+            </select></label
+          ><label
+            >实测单格边长 mm<input
+              id="square"
+              type="number"
+              value="24"
+              min="0.1"
+              max="200"
+              step="0.1" /></label
+          ><button id="initialize" class="primary">生成参考图</button>
+        </div>
+      </section>
+      <div class="workspace-grid">
+        <section class="card camera-card" id="camera">
+          <div class="card-heading">
+            <div>
+              <span class="section-number">01</span>
+              <h2>找到当前角点</h2>
+            </div>
+            <button id="snapshot" class="subtle">获取当前快照</button>
+          </div>
+          <div class="image-toolbar">
+            <div class="segmented">
+              <button id="referenceTab" aria-pressed="true">五点参考图</button
+              ><button id="currentTab" aria-pressed="false" disabled>
+                当前快照
+              </button>
+            </div>
+            <span id="imageCaption">固定机位 · 非实时画面</span>
+          </div>
+          <div class="camera-view">
+            <img id="frame" alt="棋盘上的五个标定点" hidden />
+            <div id="emptyImage">
+              <span class="empty-cross">＋</span><strong>等待五点参考图</strong>
+              <p>使用已有空棋盘录像，无需重新拍摄。</p>
+            </div>
+          </div>
+          <div class="target-strip">
+            <span id="targetName" class="target-name">P1</span>
+            <div>
+              <strong id="targetGrid">第 1 个采点</strong>
+              <p>用官方末端参考点轻触角点，不向下施压。</p>
+            </div>
+            <span class="image-note">请同时看实物核对触点</span>
+          </div>
+          <div class="point-list" id="points" aria-label="五点进度"></div>
+          <p class="camera-footnote">
+            参考图只在相机、棋盘和底座未移动时有效。当前快照来自独立 Gemini
+            相机服务。
+          </p>
+        </section>
+        <aside>
+          <section class="card alignment-card">
+            <div class="card-heading">
+              <div>
+                <span class="section-number">02</span>
+                <h2>手动对准</h2>
+              </div>
+              <span id="torqueBadge" class="mini-badge">状态未确认</span>
+            </div>
+            <ol class="flow">
+              <li>
+                <span>1</span>
+                <div>
+                  <strong>检查回位路径，支撑后释放</strong>
+                  <p>沿用现有接口，释放全部六关节；释放前可能先回位。</p>
+                </div>
+              </li>
+              <li>
+                <span>2</span>
+                <div>
+                  <strong>手动轻触角点，直接记录</strong>
+                  <p>持续支撑，旋转与开合尽量固定；俯仰尽量一致。</p>
+                </div>
+              </li>
+              <li>
+                <span>3</span>
+                <div>
+                  <strong>五点完成后，再恢复扭矩</strong>
+                  <p>不用每点上锁。恢复扭矩可能移动，先支撑并检查运动范围。</p>
+                </div>
+              </li>
+            </ol>
+            <div id="capabilityNote" class="inline-note">
+              正在读取现有控制器的实际扭矩状态。
+            </div>
+            <label class="check-row"
+              ><input type="checkbox" id="supported" /><span
+                >我已支撑机械臂，并检查可能的回位和恢复扭矩路径</span
+              ></label
+            >
+            <div class="torque-actions">
+              <button id="release" class="secondary" disabled>
+                释放全部关节</button
+              ><button id="lock" class="primary" disabled>恢复全部扭矩</button>
+            </div>
+            <div
+              id="actionMessage"
+              class="action-message"
+              role="status"
+              aria-live="polite"
+            >
+              先读取实际状态，再开始对准。
+            </div>
+            <div class="feedback-row">
+              <span>当前末端</span><strong id="xyz">—</strong
+              ><button id="refresh" class="text-button">读取状态</button>
+            </div>
+            <div id="attitude" class="attitude">俯仰 — · 旋转 — · 夹爪 —</div>
+            <div id="toolConsistency" class="attitude" role="status">
+              首点记录后，将核对旋转和开合角。
+            </div>
+          </section>
+          <section class="card capture-card">
+            <div class="card-heading">
+              <div>
+                <span class="section-number">03</span>
+                <h2>记录这个点</h2>
+              </div>
+              <span id="progress">0 / 5</span>
+            </div>
+            <label class="check-row"
+              ><input type="checkbox" id="aligned" /><span
+                >我已持续支撑，末端参考点轻触所选角点且静止</span
+              ></label
+            ><button id="capture" class="primary capture-button" disabled>
+              记录 P1
+            </button>
+            <p id="captureHint" class="small-note">
+              每次读取三组静止反馈。成功后自动保存。
+            </p>
+          </section>
+          <section id="resultCard" class="card result-card" hidden>
+            <div class="card-heading">
+              <h2 id="resultTitle">标定结果</h2>
+              <span id="resultBadge" class="mini-badge"></span>
+            </div>
+            <div class="metrics">
+              <div><span>拟合 RMS</span><strong id="rms">—</strong></div>
+              <div>
+                <span>第五点误差</span><strong id="validation">—</strong>
+              </div>
+            </div>
+            <p id="resultNote"></p>
+          </section>
+        </aside>
+      </div>
+      <details class="device-settings">
+        <summary>连接与布置详情</summary>
+        <div class="settings-grid">
+          <div>
+            <label
+              >串口<select id="port">
+                <option value="">自动选择已识别的机械臂</option>
+              </select></label
+            ><button id="connect" class="secondary">连接机械臂</button>
+            <p>连接可能触发固件初始化，连接时请留意机械臂。</p>
+          </div>
+          <div>
+            <strong>本次标定的边界</strong>
+            <p>
+              只建立棋盘平面到机械臂末端参考点的对应关系。抓球触点、空间深度和完整路径另行检验。
+            </p>
+            <p id="sourceInfo"></p>
+          </div>
+        </div>
+      </details>
+    </main>
+    <footer>先把空间关系测清楚，再开始抓放试验。</footer>
+    <script src="/assets/workspace.js"></script>
+  </body>
+</html>

@@ -1,98 +1,73 @@
-# bench-layout-v2：新标定与首轮实物试验交接
+# bench-layout-v2：本机网页手动五点标定
 
-本流程使用已完成的空棋盘试次 `80b87a1602554583a4ec0386922f2465`，实测单格24.0mm。
-不使用旧XY标定或Home/Hover/Grasp/Place。OpenCode只运行已有程序、操作设备和回传结果，不开发代码。
+设备：RoArm-M3-S、Gemini双目相机；棋盘9×6内部角点，单格已实测24.0mm。
+当前布置已录制完整空棋盘，不需要为新版界面重新拍摄。旧XY标定和任务示教点不进入新流程。
 
-## 1. 让实际控制服务加载新代码
+## 改动范围
 
-在本机原仓库fetch `origin/feature/rsi-grok-pick-place-10s`，更新或创建独立worktree；保留原分支、未提交改动和所有本机数据。
-仅更新worktree不会更新已经运行的服务。记录当前8765端口进程的PID、启动目录和实际commit，再停止该控制服务。
-相机服务保持独立运行；不要启动两个串口所有者。现场人员看住机械臂并清空扫掠区后，使用原有普通用户Python环境，从新worktree启动：
+只整理Mac上 `127.0.0.1:8765` 的项目网页，新增其只读采点接入。
+**不修改官方板载网页、不修改或烧录固件、不改变串口驱动或原有扭矩控制实现。**
+网页继续使用已有 `/api/teach/torque` 释放/恢复全部六关节；没有“只释放前四关节”或“原地锁定”的能力承诺。
+
+已查阅的[官方20260701源码](https://www.waveshare.net/w/upload/4/48/RoArm-M3_example_20260701.zip)中，T210释放会先执行 `Move_to_location()`，再释放所有舵机；恢复扭矩也可能移动。设备当前固件是否完全相同尚未核实，因此页面在按钮旁明确提示回位和恢复移动的可能，操作前检查完整运动范围并支撑机械臂。
+
+## 更新并查看网页
+
+OpenCode只负责运行已有程序与操作设备，不开发代码。fetch `origin/feature/rsi-grok-pick-place-10s` 到独立worktree，保留原分支、未提交改动和全部本地数据。
+代码更新不会改变已运行的服务；先确认机械臂静止且扭矩锁定，再停止旧8765控制服务，从新worktree使用原普通用户环境启动：
 
 ```bash
-EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_TEACH=0 EVOARM_ALLOWED_JOINTS=1,2,3,4,5,6 \
+EVOARM_ENABLE_TEACH=1 EVOARM_ENABLE_MOTION=0 EVOARM_SETUP_ID=bench-layout-v2 \
 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
 ```
 
-随后通过现有控制台连接实际可见的串口（上次为 `/dev/cu.usbserial-130`）。打开串口可能触发固件初始化，因此连接时需要现场人员在场。
-不执行官方复位、自动故障恢复或扭矩释放。出现fault、pending或端口丢失则回传真实状态，不反复重连。
+独立sudo相机服务保持原有职责。不得同时启动两个串口所有者。
+打开 http://127.0.0.1:8765/calibration 。页面不会自动连接串口或切换扭矩，打开串口仍可能触发固件初始化，需要现场留意机械臂。
+先让用户查看新界面，不代替用户点击释放、恢复或采点。
+旧 `/`、`/teach`、`/camera` 跳转到手动标定；`/pick` 跳转到试验记录。逐关节步进、复位和Home/Hover/Grasp/Place示教控件已经移除。
+
+## 参考图与已有记录
+
+若已存在 `~/.evoarm/rsi/calibrations/bench-layout-v2/session.json`，页面直接恢复，不清空采点。
+若没有，在准备区域选择本布置的完整空棋盘录像，填24.0mm，点击“生成参考图”。只从录像核对完整角点和稳定性，不调用机械臂运动。
+
+也可通过已有CLI生成一次：
 
 ```bash
-python -m evoarm_rsi.task_agent doctor --output /tmp/evoarm-handoff-calibration.json
-```
-
-只在fresh feedback通过、fault和pending均为空后继续。新接口是 `GET /api/calibration/stationary-sample`；它持有控制器串口锁，连续读三次反馈，不开启串口、不解锁、不发送运动、不修改旧标定。
-
-## 2. 从既有录像生成五点图
-
-在新worktree、普通用户环境运行：
-
-```bash
-python -m evoarm_rsi.bench_calibration init \
-  "$HOME/.evoarm/rsi/experiments/80b87a1602554583a4ec0386922f2465" \
+python -m evoarm_rsi.bench_calibration init /本次完整空棋盘录像目录 \
   --setup-id bench-layout-v2 --square-mm 24 \
   --output "$HOME/.evoarm/rsi/calibrations/bench-layout-v2/session.json"
 ```
 
-输出同目录的 `session.png`、`session-reference.json` 和 `session.json`。已有session时直接使用status续采，不再次init。
-图中9×6角点的列/行从0开始；P1=(1,1)、P2=(7,1)、P3=(7,4)、P4=(1,4)，V1=(4,2)。这些是待现场验证可达的采点位置，不是运动目标指令。
-相机、棋盘和底座必须保持录制空棋盘时的布置；若已移动，使用新的setup版本重新采空棋盘。
+新参考、采点图、逐点记录和候选拟合都保存在独立目录，不覆盖 `robot_xy_calibration.json` 或旧示教文件。
+点位按内部角点、列/行从0开始：P1=(1,1)、P2=(7,1)、P3=(7,4)、P4=(1,4)、V1=(4,2)。它们是现场人工对准的测量点，不是自动运动指令。
 
-## 3. 逐点人工对准，程序只采反馈
+## 释放一次，持续支撑采完五点
 
-先显示 `session.png`，请现场人员用现有手动控制把**官方图中标黄的末端参考点**对准P1，并轻触棋盘表面、不施压。
-不以夹爪中心、球心或其他指尖替代；不能仅在上方悬停，否则本次棋盘表面Z对应关系不成立。
-参照[官方坐标说明及末端示意图](https://docs.waveshare.net/RoArm-M3/Advanced-Tutorials/)：X向前、Y向机械臂自身左侧、Z向上，毫米单位；原点位于肩部高度而非桌面，故桌面Z可能为负。
-程序记录的是T1051编码器正运动学反馈；`tit`是末端Pitch，`t`是腕部关节角，不混用。固定末端参考点与实际夹球中心的偏移仍需另行验证。
-五点需保持相同Pitch/Roll和夹爪开合姿态。现场操作者需要决定每次手动移动的方向和避让路径；不能从旧标定计算自主目标。
-若任一点不可达或要发生干涉，保留已有点并回报；不要强行下探，也不要自行更换参考点。
+1. 核对P1和实物。按页面说明检查回位路径、支撑机械臂，确认后点击“释放全部关节”。等待真实反馈核实，不重复发送未确认的扭矩指令。
+2. 全部六关节都会松开，末端旋转和夹爪也不例外。持续托住肩肘，用手调整底座、肩、肘、腕；旋转和开合尽量保持相同。
+3. 将**官方示意图标黄的末端参考点**轻触P1角点，不施压，不替换成球心、两指中点或其他指尖。不能仅悬停，否则棋盘表面Z对应关系不成立。
+4. 保持支撑且静止，勾选触点核对，点击“记录P1”。程序只读三组编码器反馈；**采点不会恢复扭矩、复位或发送运动**。
+5. 页面保存并选择P2。继续保持释放状态，人工对准P2后直接记录，依次完成P3、P4、V1；不必每点上锁。
+6. 页面显示独立验证结果后，再支撑机械臂、检查恢复扭矩时的运动范围，确认后点击“恢复全部扭矩”。恢复可能使机械臂离开最后触点，已经保存的五点不受影响。
 
-现场确认P1已对准且机械臂静止后：
+每个成功点独立落盘；刷新页面会恢复进度。重采某点会归档旧尝试。
+手动采点只接受六关节均释放或均锁定的稳定反馈；混合、缺失或采样期间切换的扭矩状态会拒绝记录。
 
-```bash
-python -m evoarm_rsi.bench_calibration capture \
-  --session "$HOME/.evoarm/rsi/calibrations/bench-layout-v2/session.json" \
-  --point P1 --aligned
-```
+## 俯仰、旋转与开合
 
-`--aligned`只表示现场已核实该物理对准，不会触发移动。依次对准并将 `--point` 换成P2、P3、P4、V1再采样；**不能保持原姿态连续运行五条采点命令**。
-每点记录棋盘坐标、原始像素、三次T1051 XYZ/关节角/扭矩/Pitch/Roll/G、时间戳与独立原始采样文件。
-XYZ或关节仍在变化时不记录该点。重新采已记录点需显式加 `--replace`，先前记录仍归档。
+俯仰尽量一致即可；差异超过5°会保留真实XYZ并提示，不直接丢弃采点。
+旋转或开合相对已有点超过5°时，页面提示、后端拒绝新增该点，并保留其他记录。请调整回同一触点后继续。
+记录会注明 `torque_locked=false`、`operator_support_required=true`，明确区分人工支撑时的测量与上电后的状态；手动支撑标定不等于已经验证重力挠度或抓取精度。
 
-断点续采：
+[官方坐标说明](https://docs.waveshare.net/RoArm-M3/Advanced-Tutorials/)：X向前、Y向机械臂自身左侧、Z向上，毫米单位；原点处于肩部高度而非桌面，所以桌面Z可能为负。T1051的 `tit` 是末端Pitch，`t` 是腕部关节角。
 
-```bash
-python -m evoarm_rsi.bench_calibration status \
-  --session "$HOME/.evoarm/rsi/calibrations/bench-layout-v2/session.json"
-```
+参考图与当前快照均明确标记为非实时。快照通过现有Gemini服务获取。相机、棋盘、底座移动后需采用新的setup版本重新标定。
 
-## 4. 拟合与独立验证
+## 验证与后续试验
 
-```bash
-python -m evoarm_rsi.bench_calibration fit \
-  --session "$HOME/.evoarm/rsi/calibrations/bench-layout-v2/session.json" \
-  --output "$HOME/.evoarm/rsi/calibrations/bench-layout-v2/candidate.json"
-```
+P1～P4建立毫米尺度的棋盘平面到固件末端坐标映射，V1不参与拟合。工程门槛沿用RMS≤6mm、训练最大≤9mm、V1≤10mm，不自动放宽。
+V1采完后自动拟合并保存独立 `candidate-*.json`；通过仅表示棋盘平面对应关系有效，不代表抓球TCP、完整RGB-D外参或整臂路径已经验收。
 
-P1–P4用带毫米尺度的刚体变换拟合棋盘平面到固件末端坐标，V1不参与拟合。
-记录训练RMS/最大误差、V1误差和棋盘面在机器人系中的平面方程。
-暂用已有工程门槛6/9/10mm验收，失败时检查实际对准和物理布置，不自动放宽。
-即使通过也只标记 `planar_fit_validated`；不自动覆盖 `robot_xy_calibration.json`，不冒充已验证RGB-D空间外参、抓球TCP或整臂避障。
-
-## 5. 首轮抓放和调整需要的真实数据
-
-回传新诊断、`session.json`、`candidate.json`、`session.png`，以及实际运行服务的commit。
-接着把黄色球和可移动黑漏斗放入棋盘附近已验证的工作区，保持相机/棋盘/底座固定，通过既有相机服务录10秒当前场景：
-
-```bash
-python -m evoarm_rsi.camera_service record --seconds 10
-python -m evoarm_rsi.task_agent inspect /实际返回的录像目录 \
-  --setup-id bench-layout-v2 --output /tmp/evoarm-current-scene.json
-```
-
-Grok配置使用公司现有环境；缺配置只报告变量名，不回传凭据。
-回传场景录像/RGB-D/内参及inspect结果后，开发侧结合五点数据校验坐标与深度，补齐本次工具/球体/漏斗口几何并生成首条试验路径。
-真实执行适配器尚未接通，不能把当前plan输出或inspect框直接转成串口动作。
-
-首次实物试验先验证一条完整抓放。以真实事件时间和10秒录像判定抓起、入漏斗与耗时，保存反馈轨迹；Grok结合本布置历史给出一个有界参数调整，再验证下一次。
-先比较同一球/漏斗位置的重复试次，再换位置检查是否仍有效。当前实现保留调整建议，不自动晋升策略或再次驱动电机；这一步要在新几何和执行链路验证后接通。
+完成后回传实际服务commit、doctor报告、`session.json`、`session.png` 和候选结果。接着再录10秒球与黑漏斗的当前场景，由公司Grok分析。
+真实抓放执行与策略自动晋升仍待几何及路径验收；试验记录页只展示已存在的实测评估，不生成虚构试次或自动驱动机械臂。

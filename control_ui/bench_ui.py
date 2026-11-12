@@ -1,0 +1,157 @@
+"""Focused manual calibration UI API; no taught task locations or joint jogs."""
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import re
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from evoarm_rsi import bench_calibration as bench
+from evoarm_rsi.task_memory import valid_id, summary
+
+
+def setup_id():
+    return valid_id(os.environ.get("EVOARM_SETUP_ID", "bench-layout-v2"))
+
+
+def experiment_root():
+    return Path.home()/".evoarm/rsi/experiments"
+
+
+def session_path():
+    return Path.home()/".evoarm/rsi/calibrations"/setup_id()/"session.json"
+
+
+class NewSession(BaseModel):
+    trial_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    square_mm: float = Field(gt=0, le=200)
+
+
+class CaptureRequest(BaseModel):
+    point_id: Literal["P1", "P2", "P3", "P4", "V1"]
+    aligned_and_supported: bool
+    replace: bool = False
+
+
+def _call(function, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def state(service):
+    path = session_path()
+    result = {"setup_id": setup_id(), "session_exists": path.is_file(), "health": service.health(),
+              "current_image_available": path.is_file() and path.with_name("current.png").is_file()}
+    if path.is_file():
+        _, session = bench.load_session(path)
+        if session["setup_id"] != setup_id():
+            raise ValueError("标定会话与当前布置不匹配")
+        result.update(bench.session_status(path))
+        result["square_mm"] = session["reference"]["square_mm"]
+        result["image_size"] = session["reference"]["image_size"]
+        result["reference_tool_pose_rad"] = next((session["records"][key]["tool_pose_rad"]
+                                                  for key in bench.POINTS if key in session["records"]), None)
+    return result
+
+
+def install(app, service_provider):
+    router = APIRouter(prefix="/api/bench")
+
+    @router.get("/status")
+    def status():
+        return _call(state, service_provider())
+
+    @router.get("/sources")
+    def sources():
+        rows = []
+        root = experiment_root()
+        for folder in sorted(root.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not re.fullmatch(r"[a-f0-9]{32}", folder.name):
+                continue
+            try:
+                value = json.loads((folder/"manifest.json").read_text())
+                if (value.get("simulated") is not False or value.get("status") != "recorded"
+                        or not (folder/"gemini_color_intrinsics.json").is_file()):
+                    continue
+                rows.append({"trial_id": folder.name})
+            except (OSError, ValueError):
+                continue
+            if len(rows) == 12:
+                break
+        return {"sources": rows}
+
+    @router.post("/start")
+    def start(req: NewSession):
+        if not re.fullmatch(r"[a-f0-9]{32}", req.trial_id):
+            raise HTTPException(status_code=422, detail="录像ID无效")
+        return _call(bench.start_session, experiment_root()/req.trial_id, setup_id=setup_id(),
+                     square_mm=req.square_mm, output=session_path())
+
+    @router.get("/robot")
+    def robot():
+        service = service_provider()
+        raw = _call(service.status)
+        return {"xyz_mm": [raw.get(k) for k in "xyz"],
+                "pitch_rad": raw.get("tit"), "roll_rad": raw.get("r"), "gripper_rad": raw.get("g"),
+                "health": service.health()}
+
+    @router.post("/capture")
+    def capture(req: CaptureRequest):
+        if req.aligned_and_supported is not True:
+            raise HTTPException(status_code=409, detail="请持续支撑机械臂，确认触点对准角点且静止，再采点")
+        service = service_provider()
+        # Lock acquisition order is session -> serial, matching the CLI.
+        result = _call(bench.capture_point, session_path(), req.point_id, aligned=True,
+                       replace=req.replace, arm_service=service, allow_manual=True)
+        if result["next_point"] is None:
+            result = _call(bench.fit_session, session_path())
+        return result
+
+    @router.get("/frame")
+    def frame(mode: Literal["reference", "current"] = "reference"):
+        path = session_path().with_name("current.png") if mode == "current" else session_path().with_suffix(".png")
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="尚未生成此画面")
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @router.post("/snapshot")
+    def snapshot():
+        from evoarm_rsi.camera_service import client_request
+        from evoarm_rsi.task_scene import load_rgbd
+        path, session = _call(bench.load_session, session_path())
+        # Uses the existing privileged camera service as ordinary user; no
+        # SDK, sudo, USB reopening or robot command in this process.
+        capture = _call(client_request, Path.home(), "POST", "/record", {"seconds": 1})
+        trial_id = capture.get("trial_id")
+        if not isinstance(trial_id, str) or not re.fullmatch(r"[a-f0-9]{32}", trial_id):
+            raise HTTPException(status_code=409, detail="相机服务未返回有效录像ID")
+        folder = experiment_root()/trial_id
+        rgbd = _call(load_rgbd, folder)
+        if list(rgbd["bgr"].shape[1::-1]) != session["reference"]["image_size"]:
+            raise HTTPException(status_code=409, detail="相机分辨率已变化；需要重新标定")
+        import cv2
+        if not cv2.imwrite(str(path.with_name("current.png")), rgbd["bgr"]):
+            raise HTTPException(status_code=409, detail="当前画面保存失败")
+        return {"captured_at": datetime.now(timezone.utc).isoformat(), "trial_id": trial_id,
+                "motion_commands_sent": False}
+
+    app.include_router(router)
+
+    @app.get("/api/task/trials")
+    def task_trials():
+        rows = []
+        for file in (Path.home()/".evoarm/rsi/task_memory").glob("*.json"):
+            try:
+                value = summary(json.loads(file.read_text()))
+                if value["setup_id"] == setup_id():
+                    rows.append(value)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return {"setup_id": setup_id(), "trials": sorted(rows, key=lambda r: r["created_at_unix"], reverse=True)[:50],
+                "execution_available": False}
