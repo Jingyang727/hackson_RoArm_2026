@@ -102,6 +102,10 @@ def plan_from_world(world, geometry, *, now_ns=None):
         raise ValueError("scene-derived task exceeds validated height range")
     opening = _number(geometry.get("gripper_open_rad"), "gripper open")
     closing = _number(geometry.get("gripper_close_rad"), "gripper close")
+    initial_grip = _number(world.get("current_gripper_rad"), "current gripper feedback")
+    if not 1.08 <= initial_grip <= math.pi+.02:
+        raise ValueError("initial gripper feedback outside hardware range")
+    initial_grip = min(initial_grip, 3.14)
     if not 1.08 <= opening < closing <= 3.14:
         raise ValueError("invalid verified gripper geometry")
     attitude = [_number(geometry.get(k), k) for k in ("pitch_rad", "roll_rad")]
@@ -116,7 +120,8 @@ def plan_from_world(world, geometry, *, now_ns=None):
 
     # Heights are derived from this scene and verified clearances. No
     # previously taught parking or transfer position enters the plan.
-    move("raise_current", [*current[:2], transit_z], opening)
+    move("raise_current", [*current[:2], transit_z], initial_grip)
+    hand("open_before_approach", opening)
     move("approach_ball", [*center[:2], transit_z], opening)
     move("descend_ball", center, opening)
     hand("close", closing)

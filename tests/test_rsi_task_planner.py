@@ -9,6 +9,7 @@ class DynamicPlannerTests(unittest.TestCase):
         self.world = {"setup_id": "layout-v2", "calibration_id": "cal-v2",
             "host_monotonic_ns": 1_000_000_000, "gripper_empty": True,
             "current_tcp_robot_mm": [200, 0, 160],
+            "current_gripper_rad": 3.,
             "ball": {"stable": True, "center_robot_mm": [250, 0, 15], "radius_mm": 15},
             "funnel": {"stable": True, "mouth_center_robot_mm": [300, 80, 80],
                        "mouth_radius_mm": 50, "measurement": "calibrated_mouth_center"}}
@@ -23,6 +24,15 @@ class DynamicPlannerTests(unittest.TestCase):
 
     def plan(self):
         return plan_from_world(self.world, self.geometry, now_ns=1_500_000_000)
+
+    def test_lift_preserves_the_measured_grip_before_opening_at_clearance(self):
+        plan = self.plan()
+        self.assertEqual(plan["skills"][0]["gripper_rad"], 3.)
+        self.assertEqual(plan["skills"][1]["stage"], "open_before_approach")
+        self.assertEqual(plan["skills"][1]["gripper_rad"], 1.5)
+        del self.world["current_gripper_rad"]
+        with self.assertRaisesRegex(ValueError,"current gripper"):
+            self.plan()
 
     def test_ball_and_funnel_targets_follow_current_scene_not_taught_poses(self):
         first = self.plan()

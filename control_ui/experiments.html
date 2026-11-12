@@ -39,14 +39,14 @@
         <div id="emptyTrials" class="empty-trials">
           <span class="empty-cross">↗</span>
           <h2>还没有抓放试次</h2>
-          <p>先完成五点标定，再检验抓取几何和执行路径。</p>
-          <a class="button primary" href="/calibration">继续手动标定</a>
+          <p>标定通过后，由本机控制 Agent 启动实物试验。完成的评估会列在这里。</p>
+          <a class="button primary" href="/calibration">查看标定结果</a>
         </div>
         <div id="trials"></div>
       </section>
     </main>
     <footer>
-      真实执行链路尚待几何与路径验收，当前页面只展示已保存的评估记录。
+      以实际录像与机械臂反馈判断结果；准备动作不计为抓取成功。
     </footer>
     <script>
       (async () => {

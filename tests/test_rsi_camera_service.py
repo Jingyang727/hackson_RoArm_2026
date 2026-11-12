@@ -31,12 +31,17 @@ class CameraDaemonTests(unittest.TestCase):
                     self.assertEqual((frame["width"],frame["height"]),(160,96))
                     self.assertTrue(frame["jpeg"].startswith(b"\xff\xd8"))
                     with ThreadPoolExecutor(max_workers=1) as pool:
-                        future=pool.submit(client_request,root,"POST","/record",{"seconds":.35})
+                        future=pool.submit(client_request,root,"POST","/record",{"seconds":.35,"request_id":"b"*32})
                         wait_for(lambda:client_request(root,"GET","/health")["recording"])
+                        self.assertEqual(client_request(root,"GET","/health")["recording_request_id"],"b"*32)
                         concurrent_frame=preview_frame(root,frame["sequence"])
                         self.assertGreater(concurrent_frame["sequence"],frame["sequence"])
                         result=future.result(timeout=3)
                     self.assertGreater(result["capture"]["frames"],2)
+                    self.assertEqual(result["request_id"],"b"*32)
+                    self.assertIsNone(client_request(root,"GET","/health")["recording_request_id"])
+                    with self.assertRaisesRegex(RuntimeError,"HTTP 400"):
+                        client_request(root,"POST","/record",{"seconds":.1,"request_id":"../invalid"})
                     self.assertGreater(preview_frame(root,frame["sequence"])["sequence"],frame["sequence"])
                     for path in ("/preview?after=-1","/preview?after=1&after=2","/preview?motor=1"):
                         with self.assertRaisesRegex(RuntimeError,"HTTP 400"):
