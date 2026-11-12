@@ -49,7 +49,7 @@ def export_keyframes(folder,events):
     return str(output)
 
 
-def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
+def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None,progress=None):
     if len(plan_id)!=32 or any(c not in "0123456789abcdef" for c in plan_id):raise ValueError("invalid plan ID")
     base=_base_url(controller);home=Path(home) if home is not None else Path.home()
     root=home/".evoarm/rsi/grasp_runs"/plan_id
@@ -71,9 +71,12 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
                 "grasp_attempted":False,"grasp_command_attempted":False,"placement_attempted":False,
                 "motion_completed":False,"visual_grasp_success":None,"robot_moved":False}
         def event(stage):report["events"].append({"stage":stage,"host_monotonic_ns":time.monotonic_ns()})
+        def publish(phase,**values):
+            if progress is not None:progress({"phase":phase,**values})
         _write(receipt,report)
         last_dispatch=0.
         with ThreadPoolExecutor(max_workers=1) as pool:
+            publish("recording_warmup")
             video=pool.submit(client_request,home,"POST","/record",{"seconds":10,"request_id":request_id})
             try:
                 until=time.monotonic()+14
@@ -97,6 +100,7 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
                     if report["robot_moved"] is False:report["robot_moved"]=None
                     _write(receipt,report)
                     ack=_controller_post(base,"/api/bench/grasp/step",{"plan_id":plan_id,"step_index":index})
+                    publish(prepared["plan"]["steps"][index]["stage"],step_index=index)
                     report["steps"].append({"index":index,"stage":stage,"ack":ack,"sent_ns":time.monotonic_ns()})
                     if ack.get("sent"):last_dispatch=time.monotonic()
                     elif report["robot_moved"] is None:report["robot_moved"]=False
@@ -104,6 +108,7 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
                     held=False
                     while True:
                         status=_controller_get(base,"/api/status");h=_controller_get(base,"/api/health")
+                        publish(prepared["plan"]["steps"][index]["stage"],step_index=index,health=h)
                         report["feedback"].append({"host_monotonic_ns":time.monotonic_ns(),"status":status,"health":h})
                         if h.get("fault"):raise RuntimeError("controller fault: "+str(h["fault"]))
                         pending=h.get("pending")
@@ -127,6 +132,7 @@ def execute(plan_id,*,controller="http://127.0.0.1:8765",home=None):
             except Exception as exc:
                 report["motion_error"]=f"{type(exc).__name__}: {str(exc)[:600]}";event("fault")
             finally:
+                publish("saving_recording")
                 try:report["controller_end"]=_controller_post(base,"/api/bench/grasp/end",{"plan_id":plan_id})
                 except Exception as exc:report["end_error"]=type(exc).__name__
                 try:_controller_post(base,"/api/disarm",{})

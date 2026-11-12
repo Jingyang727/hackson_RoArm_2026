@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 from control_ui.safety import JOINTS, current_degrees
-from control_ui.vision import find_yellow_ball
+from control_ui.vision import find_yellow_ball, yellow_ball_mask
 from .bench_calibration import fit_points
 from .roarm_geometry import forward, inverse, height_above_plane
 from .task_scene import load_rgbd
@@ -26,6 +26,12 @@ FIXED_FINGER_MARGIN_MM = 2.
 GRASP_EXTRA_HEIGHT_MM = 3.
 LIFT_MM = 50.
 SPEED = .12  # unchanged conservative Cartesian speed used by existing execution
+
+
+class BallSizeMismatch(ValueError):
+    def __init__(self,message,evidence):
+        super().__init__(message)
+        self.evidence=evidence
 
 
 def camera_geometry(session, intrinsics):
@@ -117,8 +123,29 @@ def observe_ball(folder, session):
         raise ValueError("ball moved during scene capture")
     ball=detections[-1];center,camera=pixel_at_height(ball["center_px"],BALL_RADIUS_MM,geometry)
     expected_radius=float(intr["fx"]*BALL_RADIUS_MM/camera[2])
-    if abs(ball["radius_px"]/expected_radius-1)>.22:
-        raise ValueError("yellow object's apparent size does not match the measured 34mm ball")
+    # An enclosing circle is disproportionately enlarged by a small yellow
+    # reflection/spur. Use the visible contour area for this size check;
+    # retain the old enclosing radius for ROI/stability consumers.
+    size_radius=ball["area_radius_px"]
+    relative=size_radius/expected_radius-1
+    size={"source_trial_id":latest["trial_id"],"frame_index":latest["frame_index"],
+          "measured_ball_diameter_mm":34.,"observed_area_diameter_px":round(2*size_radius,2),
+          "observed_enclosing_diameter_px":round(2*ball["enclosing_radius_px"],2),
+          "expected_diameter_px":round(2*expected_radius,2),"relative_error_percent":round(relative*100,2),
+          "inferred_diameter_mm":round(34*(1+relative),2),"allowed_relative_error_percent":22.,
+          "predicted_center_camera_z_mm":round(float(camera[2]),2),"pixel_center":ball["center_px"],
+          "method":"equal-area contour radius; enclosing circle retained as a diagnostic", "passed":abs(relative)<=.22}
+    (folder/"ball-size-diagnostic.json").write_text(json.dumps(size,ensure_ascii=False,indent=2,allow_nan=False))
+    mask=yellow_ball_mask(latest["bgr"]);cv2.imwrite(str(folder/"ball-size-mask.png"),mask)
+    overlay=latest["bgr"].copy();pixel=tuple(np.round(ball["center_px"]).astype(int))
+    cv2.circle(overlay,pixel,round(expected_radius),(255,180,20),2)
+    cv2.circle(overlay,pixel,round(size_radius),(20,180,255),2)
+    cv2.putText(overlay,f"area D={2*size_radius:.1f}px / expected D={2*expected_radius:.1f}px / error={relative*100:+.1f}%",
+                (15,overlay.shape[0]-20),cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,230),2)
+    cv2.imwrite(str(folder/"ball-size-overlay.jpg"),overlay)
+    if abs(relative)>.22:
+        raise BallSizeMismatch(f"尺寸核对未通过：黄色轮廓等效直径 {2*size_radius:.1f}px，预期 {2*expected_radius:.1f}px，"
+                               f"偏差 {relative*100:+.1f}%（允许±22%）。请先查看识别图和轮廓。",size)
     local=geometry["board_rotation"].T@(center-geometry["board_translation"])
     square=session["reference"]["square_mm"]
     if not BALL_RADIUS_MM<=local[0]<=8*square-BALL_RADIUS_MM or not BALL_RADIUS_MM<=local[1]<=5*square-BALL_RADIUS_MM:
@@ -130,6 +157,7 @@ def observe_ball(folder, session):
     return {"pixel_center":ball["center_px"],"radius_px":ball["radius_px"],"center_robot_mm":center.tolist(),
             "frame_index":latest["frame_index"],"host_monotonic_ns":latest["host_monotonic_ns"],
             "source_trial_id":latest["trial_id"],"board_check":board,
+            "size_evidence":size,
             "reprojection_rms_px":geometry["reprojection_rms_px"]},geometry,latest["bgr"]
 
 

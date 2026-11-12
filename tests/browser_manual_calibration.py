@@ -76,6 +76,7 @@ def check(url, output):
                 model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
         elif path=='/task/trials':data={"setup_id":"bench-layout-v2","trials":model.get('trials',[])}
+        elif path=='/bench/grasp/ui-state':data={"setup_id":"bench-layout-v2","health":health(),"plan":None,"job":{"status":"idle"}}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=200,content_type='application/json',body=json.dumps(data))
     with sync_playwright() as playwright:
@@ -121,6 +122,9 @@ def check(url, output):
         page.locator('#liveToggle').click()
         page.get_by_text('实时 · 五点位置叠加',exact=True).wait_for()
         for key in ('P1','P2','P3','P4','V1'):
+            # The confirmation resets before refreshed state finishes;
+            # wait for the rendered next point, not that early reset.
+            page.locator(f'#pointOverlay g.selected[data-point="{key}"]').wait_for()
             assert page.locator('#pointOverlay g.selected').get_attribute('data-point')==key
             assert page.locator('#capture').is_disabled()
             page.locator('#aligned').check();page.get_by_role('button',name='记录 '+key,exact=True).click()

@@ -137,9 +137,14 @@ class BallAPITest(unittest.TestCase):
                   patch("control_ui.ball_trial.preview_frame",return_value={"jpeg":self.jpeg}),
                   patch.dict(os.environ,{"EVOARM_ENABLE_MOTION":"1","EVOARM_SETUP_ID":"bench-layout-v2"})):
             p.start();self.addCleanup(p.stop)
+        self.prepared_keys=[]
+        self.addCleanup(self.end_prepared_plans)
+    def end_prepared_plans(self):
+        for key in self.prepared_keys:self.request("end",{"plan_id":key})
     def request(self,path,body):return asyncio.run(api_request("/api/bench/grasp/"+path,body))
     def prepare(self):
-        response,data=self.request("prepare",{});self.assertEqual(response["status"],200,data);return data
+        response,data=self.request("prepare",{});self.assertEqual(response["status"],200,data)
+        self.prepared_keys.append(data["plan_id"]);return data
     def begin(self,key):
         self.recording=True;self.camera_start=time.monotonic_ns()
         response,data=self.request("begin",{"plan_id":key,"camera_request_id":self.nonce})
@@ -194,7 +199,7 @@ class BallAPITest(unittest.TestCase):
 
 
 class BallEndToEnd(unittest.TestCase):
-    def test_grasp_runner_with_real_asgi_camera_http_and_contact_hold(self):
+    def test_ui_button_runs_real_coordinator_camera_and_contact_hold(self):
         with tempfile.TemporaryDirectory() as temp:
             home=Path(temp);layout(home);arm=SimulatedArm(contact=True)
             service=ArmService();service.arm=arm;service.armed_until=time.monotonic()+60
@@ -225,7 +230,19 @@ class BallEndToEnd(unittest.TestCase):
                       patch("evoarm_rsi.grasp_once._controller_post",side_effect=post)):
                     prepared=post(None,"/api/bench/grasp/prepare",{})
                     self.assertEqual(arm.commands,[])
-                    report=execute(prepared["plan_id"],home=home)
+                    from control_ui.ball_trial import UI_DECLARATION
+                    response,accepted=asyncio.run(api_request("/api/bench/grasp/run",{
+                        "plan_id":prepared["plan_id"],"declaration":UI_DECLARATION}))
+                    self.assertEqual(response["status"],202,accepted)
+                    until=time.monotonic()+20;phases=[]
+                    while True:
+                        state=get(None,"/api/bench/grasp/ui-state");phases.append(state["job"]["phase"])
+                        if state["job"]["status"]!="running":break
+                        if time.monotonic()>until:self.fail("UI coordinator did not finish")
+                        time.sleep(.1)
+                    self.assertEqual(state["job"]["status"],"completed",state)
+                    self.assertIn("saving_recording",phases)
+                    report=json.loads((home/".evoarm/rsi/grasp_runs"/prepared["plan_id"]/"attempt.json").read_text())
                 self.assertTrue(report["motion_completed"],report)
                 self.assertTrue(report["grasp_attempted"],report)
                 self.assertTrue(report["recording_covers_motion"],report)

@@ -21,7 +21,7 @@ python -m evoarm_rsi.task_agent plan --world /path/to/fresh-world.json \
 
 规划输出是高层技能序列，`taught_positions_used=false`、`motion_authorized=false`、`execution_eligible=false`。后续执行适配器还必须检查整臂逆运动学/扫掠空间、TCP到固件末端参考点的转换及实测耗时，不能直接把高层技能当T104串口指令。
 
-上述通用规划器仍保持只读。首轮实物尝试使用 `grasp_once prepare/execute` 的专用受限链路，按当前图像、已知球径、可见棋盘/深度一致性及默认工具机构检查路径；其实验性夹取偏移不伪装为全局已验证TCP。
+上述通用规划器仍保持只读。首轮实物尝试可在 `/experiments` 点击观察、核对预览并执行，或使用 `grasp_once prepare/execute` 的同一专用受限链路，按当前图像、已知球径、可见棋盘/深度一致性及默认工具机构检查路径；其实验性夹取偏移不伪装为全局已验证TCP。
 
 世界状态还需真实 `current_gripper_rad`。初始抬升保持该夹爪角度，达到净空后再执行张爪；不在桌面触点同时张爪和抬升。
 

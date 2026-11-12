@@ -9,12 +9,13 @@ import uuid
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
 from .safety import GRIPPER_SPEED_STEPS_S, GRIPPER_ACCEL_100_STEPS_S2
-from evoarm_rsi.ball_trial import observe_ball, build_plan, preview, check_segment, SPEED
+from evoarm_rsi.ball_trial import observe_ball, build_plan, preview, check_segment, SPEED, BallSizeMismatch
 from evoarm_rsi.bench_calibration import load_session, _digest
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
@@ -94,9 +95,17 @@ class Step(PlanID):
     step_index:int=Field(ge=0,le=4)
 
 
+UI_DECLARATION="已核对黄球和路径，现场有人看护且双手离开运动范围"
+
+
+class UIRun(PlanID):
+    declaration:str
+
+
 def install(app,service_provider):
     router=APIRouter(prefix="/api/bench/grasp")
-    plans={};prepare_lock=threading.Lock()
+    plans={};prepare_lock=threading.Lock();run_lock=threading.RLock()
+    ui={"status":"idle","phase":"idle","last_plan_id":None,"last_error":None,"stop_requested":False}
     def folder(key):return Path.home()/".evoarm/rsi/grasp_plans"/key
     def calibration():
         _,session=load_session(bench_ui.session_path())
@@ -135,9 +144,11 @@ def install(app,service_provider):
                 last.get("grasp_step")!=index or last.get("status")!="feedback_confirmed"):
             raise ValueError("previous actual action has not been feedback-confirmed")
     def dispatch(service,state,index,command,pending):
+        if state.get("stop_requested"):raise ValueError("user stopped subsequent actions")
         # Persist consumed step BEFORE a potentially uncertain serial write.
         state["next_step"]=index+1;state["dispatches"].append({"step":index,"command":command,"at_ns":time.monotonic_ns()})
         persist(state["id"],state)
+        if state.get("stop_requested"):raise ValueError("user stopped subsequent actions before transmission")
         service._send_motion(command)
         service.last_motion_at=time.monotonic()
         service.pending={"kind":"ball_trial","since":time.monotonic(),**pending}
@@ -150,6 +161,12 @@ def install(app,service_provider):
     def prepare(req:Empty):
         if not prepare_lock.acquire(blocking=False):raise HTTPException(status_code=409,detail="a live preparation is already running")
         try:
+            with run_lock:
+                if ui["status"]=="running":raise ValueError("a grasp trial is running")
+                old=plans.get(ui.get("last_plan_id"))
+                if old and old["status"]=="prepared":old["status"]="superseded"
+                ui.update(last_plan_id=None,last_error=None,status="idle",phase="idle",result=None,error=None,
+                          stop_requested=False,plan_id=None)
             service=service_provider()
             for key in list(plans):
                 if time.monotonic()-plans[key]["created"]>180:plans.pop(key)
@@ -175,9 +192,20 @@ def install(app,service_provider):
             state={"id":key,"created":time.monotonic(),"status":"prepared","next_step":0,"plan":plan,
                    "fingerprint":fingerprint,"dispatches":[],"hold_attempted":False}
             plans[key]=state;persist(key,state)
+            with run_lock:ui.update(last_plan_id=key,last_error=None)
             return {"plan_id":key,"plan":plan,"preview_file":str(root/"preview.jpg"),
+                    "preview_url":f"/api/bench/grasp/plans/{key}/preview",
                     "plan_file":str(root/"state.json"),"next_action":"review image then execute this plan_id; prepare alone never moves"}
-        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:reject(exc)
+        except BallSizeMismatch as exc:
+            trial=exc.evidence["source_trial_id"]
+            detail={"code":"ball_size_mismatch","message":str(exc),"size":exc.evidence,
+                    "image_url":f"/api/bench/grasp/diagnostics/{trial}/image",
+                    "mask_url":f"/api/bench/grasp/diagnostics/{trial}/mask"}
+            with run_lock:ui["last_error"]=detail
+            raise HTTPException(status_code=409,detail=detail) from exc
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
+            with run_lock:ui["last_error"]={"message":str(exc)}
+            reject(exc)
         finally:prepare_lock.release()
 
     @router.post("/begin")
@@ -186,7 +214,7 @@ def install(app,service_provider):
         try:
             with service.lock:
                 state=load(req.plan_id)
-                if state["status"]!="prepared":raise ValueError("plan already begun or consumed")
+                if state["status"]!="prepared" or state.get("stop_requested"):raise ValueError("plan already begun, stopped or consumed")
                 actual=service._preflight(1)
                 if service.allowed_joints!=set(range(1,7)):raise ValueError("all six joints must be authorized")
                 _,fingerprint=calibration()
@@ -208,7 +236,7 @@ def install(app,service_provider):
         try:
             with service.lock:
                 state=load(req.plan_id)
-                if state["status"]!="active" or state["next_step"]!=req.step_index:
+                if state["status"]!="active" or state.get("stop_requested") or state["next_step"]!=req.step_index:
                     raise ValueError("step is not the next unconsumed action; never replay")
                 stage=state["plan"]["steps"][req.step_index]
                 actual=service._preflight(6 if stage["kind"]=="gripper" else 1)
@@ -256,7 +284,7 @@ def install(app,service_provider):
         try:
             with service.lock:
                 state=load(req.plan_id)
-                if state["status"]!="active" or state["next_step"]!=4 or state["hold_attempted"]:
+                if state["status"]!="active" or state.get("stop_requested") or state["next_step"]!=4 or state["hold_attempted"]:
                     raise ValueError("no unconsumed grasp contact candidate")
                 actual=service.status();health=service.health();pending=service.pending or {}
                 if (not health["armed"] or health["fault"] or pending.get("kind")!="ball_trial" or
@@ -268,6 +296,7 @@ def install(app,service_provider):
                 if not pending["grip_start"]+math.radians(2)<=target<pending["grip_target"]:
                     raise ValueError("contact hold target is outside the measured closing interval")
                 state["hold_attempted"]=True;persist(req.plan_id,state)
+                if state.get("stop_requested"):raise ValueError("user stopped subsequent actions")
                 service._send_motion({"T":106,"cmd":target,"spd":GRIPPER_SPEED_STEPS_S,"acc":GRIPPER_ACCEL_100_STEPS_S2})
                 service.last_motion_at=time.monotonic()
                 service.pending={"kind":"ball_trial","stage_kind":"hold","since":time.monotonic(),
@@ -300,5 +329,102 @@ def install(app,service_provider):
                 return {"plan_id":plan_id,"setup_id":state["plan"]["setup_id"],"status":state["status"],
                         "next_step":state["next_step"],"plan":state["plan"],"dispatches":state["dispatches"]}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:reject(exc)
+
+    def image_file(identifier,path,media_type):
+        if len(identifier)!=32 or any(c not in "0123456789abcdef" for c in identifier) or not path.is_file() or path.is_symlink():
+            raise HTTPException(status_code=404,detail="image is unavailable")
+        return FileResponse(path,media_type=media_type,headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
+    @router.get("/plans/{plan_id}/preview")
+    def plan_image(plan_id:str):return image_file(plan_id,folder(plan_id)/"preview.jpg","image/jpeg")
+
+    @router.get("/diagnostics/{trial_id}/{kind}")
+    def diagnostic_image(trial_id:str,kind:str):
+        if kind not in ("image","mask"):raise HTTPException(status_code=404,detail="unknown image")
+        name="ball-size-overlay.jpg" if kind=="image" else "ball-size-mask.png"
+        return image_file(trial_id,bench_ui.experiment_root()/trial_id/name,"image/jpeg" if kind=="image" else "image/png")
+
+    @router.get("/evidence/{trial_id}/keyframes")
+    def keyframes(trial_id:str):return image_file(trial_id,bench_ui.experiment_root()/trial_id/"grasp-keyframes.jpg","image/jpeg")
+
+    @router.get("/ui-state")
+    def ui_state():
+        with run_lock:
+            job={k:ui.get(k) for k in ("status","phase","plan_id","last_error","stop_requested","result","error")}
+            cached_health=ui.get("health")
+            latest=plans.get(ui.get("last_plan_id"));plan=None
+            if latest:
+                age=time.monotonic()-latest["created"]
+                plan={"plan_id":latest["id"],"status":latest["status"],"seconds_left":max(0,180-age),
+                      "image_size":latest["plan"]["image_size"],
+                      "preview_url":f"/api/bench/grasp/plans/{latest['id']}/preview",
+                      "size":latest["plan"]["ball"].get("size_evidence"),"expired":age>=180}
+        health=cached_health if job["status"]=="running" and cached_health else service_provider().health()
+        return {"job":job,"plan":plan,"health":health,"setup_id":bench_ui.setup_id()}
+
+    @router.post("/run",status_code=202)
+    def run_from_ui(req:UIRun,request:Request):
+        service=service_provider()
+        try:
+            with run_lock:
+                if ui["status"]=="running" or prepare_lock.locked():raise ValueError("a preparation or execution is already running")
+                if req.declaration!=UI_DECLARATION:raise ValueError("review the image and confirm onsite clearance first")
+                state=load(req.plan_id)
+                if state["status"]!="prepared" or state.get("stop_requested"):raise ValueError("prepare a new unconsumed plan")
+                if (Path.home()/".evoarm/rsi/grasp_runs"/req.plan_id/"attempt.json").exists():raise ValueError("this execution has a receipt; do not replay it")
+                if any(s["status"]=="active" for s in plans.values()):raise ValueError("another trial is active")
+                port=(request.scope.get("server") or (None,None))[1]
+                if type(port) is not int or not 1024<=port<=65535:raise ValueError("UI execution requires a local TCP controller")
+                with service.lock:
+                    service.status();_ready(service.health())
+                    cam=client_request(Path.home(),"GET","/health")
+                    if cam.get("recording"):raise ValueError("camera is recording another observation")
+                    service.unlock_once("已检查设备并清空运动区域")
+                    ui.update(status="running",phase="recording_warmup",plan_id=req.plan_id,stop_requested=False,
+                              result=None,error=None,health=service.health())
+                home=Path.home()
+            def publish(values):
+                with run_lock:
+                    if ui.get("plan_id")==req.plan_id:
+                        if not ui["stop_requested"]:ui["phase"]=values["phase"]
+                        if "health" in values:ui["health"]=values["health"]
+            def worker():
+                from evoarm_rsi.grasp_once import execute
+                outcome={}
+                try:
+                    result=execute(req.plan_id,controller=f"http://127.0.0.1:{port}",home=home,progress=publish)
+                    trial=result.get("capture_trial_id")
+                    summary={k:result.get(k) for k in ("motion_completed","grasp_attempted","motion_error","camera_error",
+                             "physical_elapsed_s","within_10s","recording_covers_motion","visual_grasp_success","capture_trial_id")}
+                    if result.get("keyframes_file") and trial and len(trial)==32 and all(c in "0123456789abcdef" for c in trial):
+                        summary["keyframes_url"]=f"/api/bench/grasp/evidence/{trial}/keyframes"
+                    ok=result["motion_completed"] and result.get("recording_covers_motion") and not result.get("camera_error") and not result.get("disarm_error")
+                    outcome=dict(status="completed" if ok else "failed",result=summary,
+                                 error=result.get("motion_error") or result.get("camera_error") or result.get("disarm_error"))
+                except Exception as exc:
+                    outcome=dict(status="failed",error=f"{type(exc).__name__}: {str(exc)[:500]}")
+                finally:
+                    service.disarm()
+                    with run_lock:
+                        if ui["stop_requested"]:outcome["status"]="stopped"
+                        ui.update(phase="finished",**outcome)
+            try:threading.Thread(target=worker,name="evoarm-ui-grasp",daemon=True).start()
+            except RuntimeError:
+                service.disarm()
+                with run_lock:ui.update(status="failed",phase="finished",error="执行线程未启动；未发送运动")
+                raise
+            return {"started":True,"plan_id":req.plan_id}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:reject(exc)
+
+    @router.post("/stop")
+    def stop_from_ui(req:PlanID):
+        with run_lock:
+            if ui["status"]!="running" or ui.get("plan_id")!=req.plan_id:
+                raise HTTPException(status_code=409,detail="no matching running UI trial")
+            state=plans.get(req.plan_id)
+            if state:state["stop_requested"]=True
+            ui.update(stop_requested=True,phase="stopping")
+        threading.Thread(target=service_provider().disarm,name="evoarm-stop-new-actions",daemon=True).start()
+        return {"stop_requested":True,"notice":"停止后续指令；已接受或已发出的动作不会立即停止"}
 
     app.include_router(router)

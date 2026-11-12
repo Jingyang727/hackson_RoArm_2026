@@ -759,6 +759,20 @@ footer {
     gap: 22px;
   }
 }
+.grasp-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(310px, 1fr); gap: 22px; margin-bottom: 22px; align-items: start; }
+.grasp-controls > button { width: 100%; margin-top: 12px; }
+.grasp-controls .check-row { margin-bottom: 8px; }
+.grasp-controls #run { margin-top: 0; }
+.grasp-view #graspEmpty { padding: 24px; text-align: center; color: var(--muted); }
+.size-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px 0 0; }
+.size-metrics span { display: block; font-size: 11px; color: var(--muted); }
+.size-metrics strong { display: block; color: var(--green); font: 600 19px ui-monospace, monospace; margin-top: 4px; }
+.size-metrics p { grid-column: 1 / -1; margin: 0; font-size: 11px; }
+.stop-button { color: #a34235; border-color: #d9a99d; }
+.run-result { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.run-result p { font-size: 12px; margin-bottom: 12px; }
+.run-result a { display: inline-block; font-size: 12px; }
+@media (max-width: 740px) { .grasp-grid { grid-template-columns: 1fr; gap: 16px; } }
 /* Keep the instructions readable while operating beside the arm. */
 .flow strong {
   font-size: 13px;

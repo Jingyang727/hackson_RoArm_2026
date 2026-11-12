@@ -102,12 +102,17 @@ def find_chessboard_near_reference(image, reference):
     return detected, homography
 
 
-def find_yellow_ball(image):
+def yellow_ball_mask(image):
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     # Broad enough for pastel foam balls in ambient white-room lighting.
     mask = cv2.inRange(hsv, (15, 40, 50), (45, 255, 255))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    return mask
+
+
+def find_yellow_ball(image):
+    mask = yellow_ball_mask(image)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     height, width = image.shape[:2]
     candidates = []
@@ -132,14 +137,16 @@ def find_yellow_ball(image):
         center_y = moments["m01"] / moments["m00"]
         _, radius = cv2.minEnclosingCircle(cnt)
         score = area * circularity
-        candidates.append((score, center_x, center_y, radius, x, y, w, h, circularity))
+        candidates.append((score, center_x, center_y, radius, x, y, w, h, circularity, area))
     if not candidates:
         return None
     candidates.sort(reverse=True)
-    _, center_x, center_y, radius, x, y, w, h, circularity = candidates[0]
+    _, center_x, center_y, radius, x, y, w, h, circularity, area = candidates[0]
     return {
         "center_px": [round(center_x, 1), round(center_y, 1)],
         "radius_px": round(radius, 1),
+        "area_radius_px": round(math.sqrt(area / math.pi), 2),
+        "enclosing_radius_px": round(radius, 2),
         "bbox_px": [int(x), int(y), int(w), int(h)],
         "circularity": round(circularity, 3),
         "near_edge": bool(min(x, y, width - (x + w), height - (y + h)) < 24),

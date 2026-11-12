@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>EvoArm · 试验记录</title>
+    <title>EvoArm · 抓取试验</title>
     <link rel="stylesheet" href="/assets/workspace.css" />
   </head>
   <body>
@@ -15,22 +15,55 @@
       >
       <nav aria-label="主导航">
         <a href="/calibration">手动标定</a
-        ><a href="/experiments" aria-current="page">试验记录</a>
+        ><a href="/experiments" aria-current="page">抓取试验</a>
       </nav>
-      <span class="status-chip">观察 · 评估 · 调整</span>
+      <span id="connection" class="status-chip">正在读取状态</span>
     </header>
     <main>
       <div class="page-heading">
         <div>
-          <div class="eyebrow">抓放任务 / 实测结果</div>
-          <h1>让每次尝试都有依据。</h1>
+          <div class="eyebrow">实物抓取 / 一次试验</div>
+          <h1>看清位置，再抓一次。</h1>
           <p>
-            记录是否抓起、是否入漏斗、是否在10秒内完成，以及下一次的调整建议。
+            观察当前黄球，核对路径后执行抓取与提升。录像和反馈自动保存。
           </p>
         </div>
         <span id="setupBadge" class="setup-badge"></span>
       </div>
       <div id="error" class="alert" role="alert" hidden></div>
+      <section class="grasp-grid">
+        <div class="card">
+          <div class="card-heading"><h2>黄球与抓取路径</h2><span id="viewBadge" class="mini-badge">尚未观察</span></div>
+          <div class="camera-view grasp-view">
+            <img id="graspFrame" alt="当前黄球与抓取路径预览" hidden />
+            <div id="graspEmpty"><strong>先观察当前场景</strong><p>保留已有五点标定，无需重新摆放机械臂。</p></div>
+            <div id="streamNotice" class="live-notice" hidden></div>
+          </div>
+          <p id="imageCaption" class="small-note">规划完成后，会在画面上标出黄球和指尖目标。</p>
+          <a id="maskLink" class="text-button" target="_blank" rel="noopener" hidden>查看黄色识别轮廓</a>
+        </div>
+        <div class="card grasp-controls">
+          <div class="card-heading"><h2>执行一次抓取</h2><span id="motionBadge" class="mini-badge">状态未确认</span></div>
+          <p id="readiness" class="inline-note">正在读取控制服务状态。</p>
+          <button id="connect" class="secondary" hidden>连接机械臂</button>
+          <button id="prepare" class="secondary" disabled>1 · 观察并规划</button>
+          <div id="sizeMetrics" class="size-metrics" hidden>
+            <div><span>识别等效直径</span><strong id="observedSize">—</strong></div>
+            <div><span>34mm球预期直径</span><strong id="expectedSize">—</strong></div>
+            <p id="sizeNote"></p>
+          </div>
+          <label class="check-row"><input id="confirmed" type="checkbox" disabled /><span>已核对图中黄球和路径，现场有人看护，双手已离开运动范围。</span></label>
+          <button id="run" class="primary" disabled>2 · 执行一次抓取</button>
+          <button id="stop" class="secondary stop-button" hidden>停止后续动作</button>
+          <div id="phase" class="action-message" role="status" aria-live="polite">尚未开始抓取。</div>
+          <p id="planExpiry" class="small-note"></p>
+          <p class="small-note">本轮抓取并提升约5cm，暂不投漏斗。停止只阻止后续指令，已接受的动作可能继续；紧急情况请切断运动电源。</p>
+          <div id="runResult" class="run-result" hidden>
+            <strong id="resultTitle"></strong><p id="resultText"></p>
+            <a id="keyframesLink" class="button subtle" target="_blank" rel="noopener" hidden>查看实测关键帧</a>
+          </div>
+        </div>
+      </section>
       <section class="card trials-card">
         <div class="card-heading">
           <h2>当前布置的试次</h2>
@@ -39,7 +72,7 @@
         <div id="emptyTrials" class="empty-trials">
           <span class="empty-cross">↗</span>
           <h2>还没有抓放试次</h2>
-          <p>由本机控制 Agent 观察并执行一次抓取后，这里会显示实测记录和待确认的视觉结果。</p>
+          <p>在上方执行一次抓取后，这里会显示实测记录和待确认的视觉结果。</p>
           <a class="button primary" href="/calibration">查看标定结果</a>
         </div>
         <div id="trials"></div>
@@ -48,43 +81,6 @@
     <footer>
       以实际录像与机械臂反馈判断结果；准备动作不计为抓取成功。
     </footer>
-    <script>
-      (async () => {
-        try {
-          const response = await fetch("/api/task/trials", {
-            cache: "no-store",
-          });
-          if (!response.ok) throw Error("暂时无法读取试验记录");
-          const data = await response.json();
-          document.getElementById("setupBadge").textContent = data.setup_id;
-          document.getElementById("count").textContent =
-            data.trials.length + " 次";
-          document.getElementById("emptyTrials").hidden =
-            data.trials.length > 0;
-          const label = (v) =>
-            v === true ? "已观察到" : v === false ? "未观察到" : "无法确认";
-          for (const trial of data.trials) {
-            const row = document.createElement("article");
-            row.className = "trial-row";
-            const title = document.createElement("strong");
-            title.textContent = (trial.phase === "grasp_lift" ? "抓取试次 " : "试次 ") + trial.trial_id.slice(0, 10);
-            const result = document.createElement("p");
-            result.textContent = `抓起：${label(trial.pickup_observed)}　${trial.phase === "grasp_lift" ? "投放：本轮未执行　抓取动作" : "入漏斗：" + label(trial.ball_entered_funnel) + "　完整动作"}10秒内：${trial.within_10s === true ? "是" : trial.within_10s === false ? "否" : "未知"}`;
-            row.append(title, result);
-            for (const evidence of trial.evidence) {
-              const note = document.createElement("p");
-              note.className = "small-note";
-              note.textContent = evidence;
-              row.append(note);
-            }
-            document.getElementById("trials").append(row);
-          }
-        } catch (e) {
-          const box = document.getElementById("error");
-          box.textContent = e.message;
-          box.hidden = false;
-        }
-      })();
-    </script>
+    <script src="/assets/grasp.js"></script>
   </body>
 </html>
