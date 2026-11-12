@@ -4,10 +4,11 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from evoarm_rsi import bench_calibration as bench
@@ -55,6 +56,9 @@ def state(service):
         result.update(bench.session_status(path))
         result["square_mm"] = session["reference"]["square_mm"]
         result["image_size"] = session["reference"]["image_size"]
+        result["overlay_points"] = [{"id": key, "grid": grid,
+                                     "pixel_xy": session["reference"]["corners_px"][grid[1]*9+grid[0]]}
+                                    for key, grid in session["points"].items()]
         result["reference_tool_pose_rad"] = next((session["records"][key]["tool_pose_rad"]
                                                   for key in bench.POINTS if key in session["records"]), None)
     return result
@@ -119,6 +123,34 @@ def install(app, service_provider):
         if not path.is_file():
             raise HTTPException(status_code=404, detail="尚未生成此画面")
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @router.post("/live/start")
+    def live_start():
+        from evoarm_rsi.camera_service import client_request
+        _call(bench.load_session, session_path())
+        try:
+            return client_request(Path.home(), "POST", "/preview/start", {})
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="实时预览未启动。请确认独立相机服务已从新版代码启动；不需要连接或操作机械臂。") from exc
+
+    @router.get("/live-frame")
+    def live_frame(after: int = Query(0, ge=0, le=2**53)):
+        from evoarm_rsi.camera_service import preview_frame
+        _, session = _call(bench.load_session, session_path())
+        try:
+            frame = preview_frame(Path.home(), after)
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail="相机没有返回新画面，实时预览已暂停。请检查相机服务和USB连接。") from exc
+        if [frame["width"], frame["height"]] != session["reference"]["image_size"]:
+            raise HTTPException(status_code=409, detail="实时画面分辨率与标定参考不同，不能叠加旧标记；请核对相机配置。")
+        local_age = (time.monotonic_ns()-frame["stamp_ns"])/1e6
+        age = max(frame["age_ms"], local_age)
+        if local_age < 0 or not 0 <= age <= 1500:
+            raise HTTPException(status_code=503, detail="相机画面已过期，不能作为实时对准依据。")
+        return Response(frame["jpeg"], media_type="image/jpeg", headers={
+            "Cache-Control": "no-store", "X-Frame-Sequence": str(frame["sequence"]),
+            "X-Frame-Age-Ms": str(round(age, 2)), "X-Frame-Width": str(frame["width"]),
+            "X-Frame-Height": str(frame["height"]), "X-Content-Type-Options": "nosniff"})
 
     @router.post("/snapshot")
     def snapshot():

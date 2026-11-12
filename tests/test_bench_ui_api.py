@@ -3,6 +3,7 @@ import asyncio
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +40,42 @@ class BenchUIApi(unittest.TestCase):
         self.assertEqual(start["status"], 200)
         self.assertEqual(body["next_point"], "P1")
         self.assertEqual(self.service.arm.commands, [])
+        self.assertEqual(len(body["overlay_points"]), 5)
+        self.assertEqual(body["overlay_points"][0]["pixel_xy"], [20.,20.])
+
+    def test_live_camera_start_never_touches_the_arm(self):
+        with (patch.object(self.service, "status", side_effect=AssertionError("serial touched")),
+              patch("evoarm_rsi.camera_service.client_request", return_value={"started":True}) as camera):
+            start, body = self.request("/api/bench/live/start")
+        self.assertEqual(start["status"],200)
+        self.assertTrue(body["started"])
+        self.assertEqual(camera.call_args.args[1:],("POST","/preview/start",{}))
+        self.assertEqual(self.service.arm.commands,[])
+
+    def test_wrong_resolution_or_stale_live_frame_rejects_the_overlay(self):
+        base={"width":1280,"height":720,"sequence":7,"age_ms":0.,
+              "stamp_ns":time.monotonic_ns(),"jpeg":b"fake"}
+        for changes,code in (({"width":640},409),({"stamp_ns":time.monotonic_ns()-3_000_000_000},503)):
+            with patch("evoarm_rsi.camera_service.preview_frame",return_value={**base,**changes}):
+                start, body=self.request("/api/bench/live-frame",method="GET")
+            self.assertEqual(start["status"],code,body)
+        self.assertEqual(self.service.arm.commands,[])
+
+    def test_live_jpeg_is_relayed_with_freshness_headers_and_frozen_pixels(self):
+        frame={"width":1280,"height":720,"sequence":12,"age_ms":0.,
+               "stamp_ns":time.monotonic_ns(),"jpeg":b"\xff\xd8synthetic-preview\xff\xd9"}
+        with (patch.object(self.service,"status",side_effect=AssertionError("serial touched")),
+              patch("evoarm_rsi.camera_service.preview_frame",return_value=frame) as camera):
+            start,body=asyncio.run(api_request("/api/bench/live-frame",{},method="GET",
+                                               query_string=b"after=11",decode_json=False))
+        self.assertEqual(start["status"],200,body)
+        self.assertEqual(body,frame["jpeg"])
+        headers=dict(start["headers"])
+        self.assertEqual(headers[b"content-type"],b"image/jpeg")
+        self.assertEqual(headers[b"x-frame-sequence"],b"12")
+        self.assertEqual(headers[b"cache-control"],b"no-store")
+        self.assertEqual(camera.call_args.args[1],11)
+        self.assertEqual(self.service.arm.commands,[])
 
     def test_support_and_alignment_declaration_required_before_recording(self):
         before = self.path.read_bytes()

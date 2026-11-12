@@ -23,6 +23,10 @@ class Element {
   setAttribute(k, v) {
     this.attributes[k] = v;
   }
+  toggleAttribute(k, enabled) {
+    if (enabled) this.attributes[k] = "";
+    else delete this.attributes[k];
+  }
 }
 const flush = () => new Promise((r) => setImmediate(r));
 async function page({
@@ -71,9 +75,14 @@ async function page({
     document: {
       getElementById: (id) => elements.get(id),
       createElement: () => new Element(),
+      createElementNS: () => new Element(),
+      addEventListener: () => {},
       hidden: false,
     },
     setInterval: () => 1,
+    window: { addEventListener: () => {} },
+    clearTimeout,
+    performance,
     console,
     fetch: async (url, options = {}) => {
       const method = options.method || "GET",

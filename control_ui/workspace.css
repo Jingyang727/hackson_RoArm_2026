@@ -280,6 +280,7 @@ aside {
   color: #95a19e;
 }
 .camera-view {
+  position: relative;
   background: #eff2f1;
   border: 1px solid #e3e9e6;
   border-radius: 10px;
@@ -293,6 +294,29 @@ aside {
   height: 100%;
   object-fit: contain;
   display: block;
+  position: absolute;
+  inset: 0;
+}
+.camera-actions { flex-wrap: wrap; justify-content: flex-end; }
+.camera-actions button { font-size: 11px; padding: 7px 10px; min-height: 34px; }
+#pointOverlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.overlay-point { color: #d98624; }
+.overlay-point.captured { color: #168766; }
+.overlay-point.selected { color: #e34a35; }
+.overlay-point circle, .overlay-point path {
+  fill: none; stroke: currentColor; stroke-width: 2.5;
+  filter: drop-shadow(0 0 1px white);
+}
+.overlay-point path { display: none; }
+.overlay-point.selected path { display: block; }
+.overlay-point.selected circle { stroke-width: 4; }
+.overlay-point text {
+  fill: currentColor; stroke: white; stroke-width: 4px; paint-order: stroke;
+  font: bold 22px ui-monospace, monospace;
+}
+.live-notice {
+  position: absolute; inset: auto 8px 8px; padding: 8px 10px; border-radius: 6px;
+  background: rgba(25,43,55,.86); color: white; font-size: 12px;
 }
 #emptyImage {
   text-align: center;

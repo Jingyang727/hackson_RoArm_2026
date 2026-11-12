@@ -30,6 +30,8 @@ jobs:
               for index, script in enumerate(scripts):
                   pathlib.Path(f"/tmp/{source.stem}-{index}.js").write_text(script)
           PY
-          for f in /tmp/*.js; do node --check "$f"; done
+          for f in control_ui/*.js /tmp/*.js; do
+            if [ -f "$f" ]; then node --check "$f"; fi
+          done
       - name: Browser torque button smoke tests (mock serial API)
-        run: node --test tests/calibration_ui_click.test.cjs tests/dashboard_ui_click.test.cjs tests/pick_ui_torque_click.test.cjs tests/camera_ui_click.test.cjs tests/teach_ui_error.test.cjs
+        run: node --test tests/workspace_ui.test.cjs

@@ -9,6 +9,124 @@ let state = null,
   imageReady = false;
 const pointButtons = new Map();
 let toolMismatch = false;
+const live = { active: false, starting: false, generation: 0, sequence: 0,
+  controller: null, timer: null, url: null, presented: 0, age: 0, fresh: false,
+  message: "正在等待实时画面…" };
+function liveFresh() {
+  return live.active && live.presented > 0 &&
+    performance.now() - live.presented + live.age <= 1500;
+}
+function stopLive(message = "实时预览已暂停，请重新开启。") {
+  live.active = live.starting = live.fresh = false;
+  live.generation++;
+  live.controller?.abort();
+  clearTimeout(live.timer);
+  live.message = message;
+  resetAlignment();
+  render();
+}
+async function startLive() {
+  if (live.active || live.starting || !state?.session_exists) return;
+  imageMode = "live";
+  live.starting = true;
+  live.presented = live.sequence = 0;
+  live.message = "正在启动相机，等待新画面…";
+  const generation = ++live.generation;
+  resetAlignment();
+  render();
+  try {
+    await api("/api/bench/live/start", "POST", {});
+    if (generation !== live.generation) return;
+    live.active = true;
+    live.starting = false;
+    await nextLiveFrame(generation);
+  } catch (error) {
+    if (generation !== live.generation) return;
+    stopLive("预览已暂停：" + error.message);
+    showError(error);
+  }
+}
+async function nextLiveFrame(generation) {
+  if (!live.active || generation !== live.generation) return;
+  live.controller = new AbortController();
+  let nextUrl;
+  try {
+    const response = await fetch("/api/bench/live-frame?after=" + live.sequence,
+      { cache: "no-store", signal: live.controller.signal });
+    if (!response.ok) {
+      const raw = await response.text();
+      let detail;
+      try { detail = JSON.parse(raw).detail; } catch (_) { /* bounded HTTP error */ }
+      throw Error(detail || `相机服务 HTTP ${response.status}`);
+    }
+    const sequence = Number(response.headers.get("X-Frame-Sequence")),
+      age = Number(response.headers.get("X-Frame-Age-Ms")),
+      width = Number(response.headers.get("X-Frame-Width")),
+      height = Number(response.headers.get("X-Frame-Height"));
+    if (!Number.isSafeInteger(sequence) || sequence <= live.sequence ||
+        !Number.isFinite(age) || age < 0 || age > 1500 ||
+        width !== state.image_size?.[0] || height !== state.image_size?.[1] ||
+        response.headers.get("Content-Type")?.split(";")[0] !== "image/jpeg")
+      throw Error("实时帧信息不匹配，请检查相机服务与本次标定。");
+    const received = performance.now();
+    nextUrl = URL.createObjectURL(await response.blob());
+    const decoded = new Image();
+    decoded.src = nextUrl;
+    await decoded.decode();
+    if (!live.active || generation !== live.generation) {
+      URL.revokeObjectURL(nextUrl); return;
+    }
+    if (decoded.naturalWidth !== width || decoded.naturalHeight !== height)
+      throw Error("实时画面尺寸与标定参考不一致。");
+    const oldUrl = live.url;
+    $("frame").src = nextUrl;
+    live.url = nextUrl;
+    nextUrl = null;
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    $("frame").hidden = false;
+    $("emptyImage").hidden = true;
+    live.sequence = sequence;
+    live.presented = received;
+    live.age = age;
+    live.fresh = liveFresh();
+    render();
+    live.timer = setTimeout(() => nextLiveFrame(generation), 80);
+  } catch (error) {
+    if (nextUrl) URL.revokeObjectURL(nextUrl);
+    if (generation !== live.generation) return;
+    stopLive("预览已暂停：" + error.message);
+  }
+}
+function renderOverlay() {
+  const overlay = $("pointOverlay"), size = state?.image_size;
+  // Reference PNG already contains its five labels. Raw images use the same
+  // frozen pixel coordinates: no redetection while the arm occludes the board.
+  overlay.hidden = !size || imageMode === "reference" ||
+    (imageMode === "live" && !liveFresh()) || $("frame").hidden;
+  // SVG does not reflect the HTML `hidden` property in every browser.
+  overlay.toggleAttribute("hidden", overlay.hidden);
+  if (overlay.hidden) return;
+  overlay.setAttribute("viewBox", `0 0 ${size[0]} ${size[1]}`);
+  const nodes = [];
+  const svg = (name, attrs, text) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    if (text) node.textContent = text;
+    return node;
+  };
+  for (const point of state.overlay_points || []) {
+    const [x, y] = point.pixel_xy;
+    const captured = state.points.find(p => p.id === point.id)?.captured;
+    const group = svg("g", { "data-point": point.id,
+      "class": "overlay-point" + (point.id === selected ? " selected" : "") +
+        (captured ? " captured" : "") });
+    group.append(svg("circle", { cx: x, cy: y, r: 10 }),
+      svg("path", { d: `M${x-18},${y}h10 M${x+8},${y}h10 M${x},${y-18}v10 M${x},${y+8}v10` }),
+      svg("text", { x: x + 16, y: y - 15 }, point.id + (captured ? " ✓" : "")));
+    nodes.push(group);
+  }
+  overlay.replaceChildren(...nodes);
+}
 function torqueState(health) {
   const flags = health.torque_status;
   const valid =
@@ -71,6 +189,8 @@ function resetAlignment() {
   $("aligned").checked = false;
 }
 function switchImage(mode) {
+  if (mode === "live") { startLive(); return; }
+  stopLive();
   imageMode = mode;
   imageVersion++;
   $("frame").src = "/api/bench/frame?mode=" + mode + "&v=" + imageVersion;
@@ -126,6 +246,11 @@ function render() {
     !$("supported").checked;
   $("refresh").disabled = busy || !health.connected;
   $("snapshot").disabled = busy || !exists;
+  $("liveToggle").disabled = !exists || live.starting;
+  $("liveToggle").textContent = live.starting ? "相机启动中…" :
+    live.active ? "暂停实时画面" : "开启实时画面";
+  $("liveTab").disabled = !exists || live.starting;
+  $("liveTab").setAttribute("aria-pressed", String(imageMode === "live"));
   $("currentTab").disabled = busy || !state?.current_image_available;
   $("referenceTab").disabled = busy || !exists;
   $("referenceTab").setAttribute(
@@ -134,9 +259,12 @@ function render() {
   );
   $("currentTab").setAttribute("aria-pressed", String(imageMode === "current"));
   $("imageCaption").textContent =
-    imageMode === "reference"
+    imageMode === "live" ? (liveFresh() ? "实时 · 五点位置叠加" : "实时预览已暂停 / 等待新帧") : imageMode === "reference"
       ? "固定机位 · 非实时参考图"
       : "最近一次快照 · 非实时画面";
+  $("liveNotice").hidden = imageMode !== "live" || liveFresh();
+  $("liveNotice").textContent = live.starting ? live.message :
+    live.active ? "等待新画面，当前图像已过期…" : live.message;
   $("connect").disabled = busy || health.connected;
   $("initialize").disabled = busy || !$("source").value;
   const points =
@@ -180,6 +308,7 @@ function render() {
     mode === "unknown" ||
     !manual.valid ||
     toolMismatch ||
+    (imageMode === "live" && !liveFresh()) ||
     Boolean(health.fault) ||
     Boolean(health.pending) ||
     !$("aligned").checked;
@@ -204,12 +333,13 @@ function render() {
   $("sourceInfo").textContent = state?.reference_trial_id
     ? "参考录像：" + state.reference_trial_id
     : "";
+  renderOverlay();
 }
 async function update() {
   state = await api("/api/bench/status");
   if (state.next_point && !pointButtons.size) selected = state.next_point;
   render();
-  if (state.session_exists && !imageReady) {
+  if (state.session_exists && !imageReady && imageMode !== "live") {
     imageReady = true;
     switchImage("reference");
   }
@@ -266,6 +396,8 @@ $("supported").onchange = render;
 $("aligned").onchange = render;
 $("referenceTab").onclick = () => switchImage("reference");
 $("currentTab").onclick = () => switchImage("current");
+$("liveTab").onclick = () => startLive();
+$("liveToggle").onclick = () => live.active ? stopLive() : startLive();
 $("refresh").onclick = () => action(robot);
 $("connect").onclick = () =>
   action(async () => {
@@ -332,6 +464,10 @@ $("lock").onclick = () =>
   });
 $("capture").onclick = () =>
   action(async () => {
+    if (imageMode === "live" && !liveFresh()) {
+      resetAlignment();
+      throw Error("实时画面已暂停，请等待新画面后重新核对触点。");
+    }
     const point = state.points.find((p) => p.id === selected),
       captured = selected;
     const result = await api("/api/bench/capture", "POST", {
@@ -360,10 +496,28 @@ $("snapshot").onclick = () =>
       " · 非实时画面";
   });
 $("frame").onerror = () => {
+  if (imageMode === "live") { stopLive("预览已暂停：画面加载失败。"); return; }
   imageReady = false;
   $("frame").hidden = true;
   $("emptyImage").hidden = false;
 };
+$("frame").onload = () => renderOverlay();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && imageMode === "live") stopLive("页面已隐藏，实时预览已暂停。");
+});
+window.addEventListener("pagehide", () => {
+  stopLive();
+  if (live.url) URL.revokeObjectURL(live.url);
+});
+setInterval(() => {
+  if (imageMode !== "live") return;
+  const fresh = liveFresh();
+  if (fresh !== live.fresh) {
+    live.fresh = fresh;
+    if (!fresh) resetAlignment();
+    render();
+  }
+}, 250);
 (async () => {
   try {
     await update();

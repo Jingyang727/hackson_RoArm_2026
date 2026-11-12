@@ -6,7 +6,11 @@ Never connects to real serial or camera: every /api request is intercepted.
 """
 import argparse
 import json
+from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
+
+import cv2
+import numpy as np
 
 from playwright.sync_api import sync_playwright
 
@@ -15,7 +19,8 @@ def check(url, output):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     points=[{"id":key,"grid":grid,"captured":False,"pose_warnings":[]} for key,grid in
             {"P1":[1,1],"P2":[7,1],"P3":[7,4],"P4":[1,4],"V1":[4,2]}.items()]
-    model={"mode":"locked","known":True,"error":False}
+    model={"mode":"locked","known":True,"error":False,"sequence":0,"hold":False}
+    held=[]
     calls=[]
     def health():
         return {"connected":True,"teach_enabled":True,"pending":None,"fault":None,
@@ -25,16 +30,37 @@ def check(url, output):
         return {"setup_id":"bench-layout-v2","session_exists":True,"points":points,"health":health(),
                 "next_point":next((p["id"] for p in points if not p["captured"]),None),
                 "current_image_available":False,"reference_trial_id":"simulated-browser-fixture",
+                "image_size":[900,500],"overlay_points":[{"id":p["id"],"grid":p["grid"],
+                    "pixel_xy":[315+p["grid"][0]*35,125+p["grid"][1]*35]} for p in points],
                 "fit":model.get('fit')}
     squares=''.join(f'<rect x="{280+c*35}" y="{90+r*35}" width="35" height="35" fill="{("#24302b" if (r+c)%2 else "#fafbf8")}"/>' for r in range(7) for c in range(10))
     labels=''.join(f'<circle cx="{315+p["grid"][0]*35}" cy="{125+p["grid"][1]*35}" r="8" stroke="#c84b35" stroke-width="2" fill="none"/><text x="{326+p["grid"][0]*35}" y="{117+p["grid"][1]*35}" fill="#a94432" font-size="14">{p["id"]}</text>' for p in points)
     svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500"><rect width="900" height="500" fill="#e9ece5"/><rect x="250" y="60" width="410" height="310" fill="white"/>{squares}{labels}<text x="24" y="475" fill="#89928a" font-size="13">界面预览 · 模拟棋盘与反馈</text></svg>'
+    raw=np.full((500,900,3),235,np.uint8)
+    for r in range(7):
+        for c in range(10):
+            cv2.rectangle(raw,(280+c*35,90+r*35),(314+c*35,124+r*35),
+                          (43,49,45) if (r+c)%2 else (250,250,250),-1)
+    # Deliberate synthetic occlusion: markers must survive a hidden corner.
+    cv2.rectangle(raw,(324,15),(350,190),(70,70,70),-1)
+    cv2.putText(raw,"SIMULATED CAMERA / NO HARDWARE",(24,475),cv2.FONT_HERSHEY_SIMPLEX,.6,(100,110,100),1)
+    ok,jpeg=cv2.imencode('.jpg',raw);assert ok
+    def live_response(handler):
+        after=int(parse_qs(urlsplit(handler.request.url).query).get('after',['0'])[0])
+        model['sequence']=max(model['sequence']+1,after+1)
+        handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes(),headers={
+            'X-Frame-Sequence':str(model['sequence']),'X-Frame-Age-Ms':'0',
+            'X-Frame-Width':'900','X-Frame-Height':'500'})
     def route(handler):
         request=handler.request;path=request.url.split('/api',1)[-1].split('?',1)[0]
         calls.append((request.method,path,request.post_data_json if request.method=='POST' else None))
         if path=='/bench/frame':
             return handler.fulfill(status=200,content_type='image/svg+xml',body=svg)
+        if path=='/bench/live-frame':
+            if model['hold']:held.append(handler);return
+            return live_response(handler)
         if path=='/bench/status':data=state()
+        elif path=='/bench/live/start':data={'started':True,'robot_control':False}
         elif path=='/bench/sources':data={"sources":[]}
         elif path=='/ports':data=[]
         elif path=='/bench/robot':data={"health":health(),"xyz_mm":[300.,20.,-90.],"pitch_rad":.06,"roll_rad":0.,"gripper_rad":3.}
@@ -63,10 +89,43 @@ def check(url, output):
         assert not any(c[0]=='POST' for c in calls)
         page.locator('#supported').check();page.get_by_role('button',name='释放全部关节',exact=True).click()
         page.get_by_text('六关节已释放',exact=True).wait_for()
+        page.locator('#liveToggle').click()
+        page.get_by_text('实时 · 五点位置叠加',exact=True).wait_for()
+        assert page.locator('#pointOverlay g').count()==5
+        assert page.locator('#pointOverlay').is_visible()
+        assert page.locator('#pointOverlay g.selected').get_attribute('data-point')=='P1'
+        page.screenshot(path=str(output/'calibration-live-desktop.png'),full_page=True)
+        page.set_viewport_size({'width':390,'height':844})
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        # Image and SVG share object-fit/preserveAspectRatio even with letterboxing.
+        assert page.evaluate("""() => {
+          const image=document.getElementById('frame').getBoundingClientRect();
+          const overlay=document.getElementById('pointOverlay').getBoundingClientRect();
+          return Math.abs(image.x-overlay.x)<1 && Math.abs(image.width-overlay.width)<1;
+        }""")
+        page.screenshot(path=str(output/'calibration-live-mobile.png'),full_page=True)
+        page.set_viewport_size({'width':1440,'height':1080})
+        model['hold']=True
+        page.locator('#aligned').check()
+        page.wait_for_function("document.getElementById('pointOverlay').hidden && document.getElementById('capture').disabled")
+        assert not page.locator('#aligned').is_checked()
+        page.locator('#supported').check()
+        assert page.locator('#lock').is_enabled()  # camera cannot block torque restore
+        page.locator('#liveToggle').click()  # abort stalled request; freeze is labelled
+        assert page.locator('#liveNotice').is_visible()
+        model['hold']=False
+        for handler in held:
+            try:handler.abort()
+            except Exception:pass
+        held.clear()
+        page.locator('#liveToggle').click()
+        page.get_by_text('实时 · 五点位置叠加',exact=True).wait_for()
         for key in ('P1','P2','P3','P4','V1'):
+            assert page.locator('#pointOverlay g.selected').get_attribute('data-point')==key
             assert page.locator('#capture').is_disabled()
             page.locator('#aligned').check();page.get_by_role('button',name='记录 '+key,exact=True).click()
             page.wait_for_function("!document.getElementById('aligned').checked")
+        assert page.locator('#pointOverlay g.captured').count()==5
         assert len([c for c in calls if c[1]=='/teach/torque'])==1
         page.get_by_text('五点标定通过',exact=True).wait_for()
         assert page.locator('#progress').inner_text()=='5 / 5'
@@ -100,7 +159,9 @@ def check(url, output):
     result={"browser":"Chromium","real_hardware_access":False,"api_calls":len(calls),
             "physical_actions_simulated":len([c for c in calls if c[0]=='POST']),
             "checks":["one release, five supported captures, one final relock","retained progress on reload", "unknown torque block",
-                      "HTTP500 no JSON syntax error","390px responsive layout","retired-page redirects","no page errors"]}
+                      "HTTP500 no JSON syntax error","live five-point overlay with selected/captured states",
+                      "stale preview blocks alignment but allows torque restore","390px live overlay letterboxing",
+                      "390px responsive layout","retired-page redirects","no page errors"]}
     (output/'report.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))
 

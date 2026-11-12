@@ -57,10 +57,14 @@
               <span class="section-number">01</span>
               <h2>找到当前角点</h2>
             </div>
-            <button id="snapshot" class="subtle">获取当前快照</button>
+            <div class="camera-actions">
+              <button id="liveToggle" class="primary">开启实时画面</button>
+              <button id="snapshot" class="subtle">保留快照</button>
+            </div>
           </div>
           <div class="image-toolbar">
             <div class="segmented">
+              <button id="liveTab" aria-pressed="false">实时画面 + 五点</button>
               <button id="referenceTab" aria-pressed="true">五点参考图</button
               ><button id="currentTab" aria-pressed="false" disabled>
                 当前快照
@@ -70,6 +74,11 @@
           </div>
           <div class="camera-view">
             <img id="frame" alt="棋盘上的五个标定点" hidden />
+            <svg id="pointOverlay" xmlns="http://www.w3.org/2000/svg"
+              preserveAspectRatio="xMidYMid meet" aria-label="本次标定的五点位置" hidden></svg>
+            <div id="liveNotice" class="live-notice" role="status" hidden>
+              正在等待实时画面…
+            </div>
             <div id="emptyImage">
               <span class="empty-cross">＋</span><strong>等待五点参考图</strong>
               <p>使用已有空棋盘录像，无需重新拍摄。</p>
@@ -85,8 +94,7 @@
           </div>
           <div class="point-list" id="points" aria-label="五点进度"></div>
           <p class="camera-footnote">
-            参考图只在相机、棋盘和底座未移动时有效。当前快照来自独立 Gemini
-            相机服务。
+            实时画面上的五点来自本次固定机位的标定参考，机械臂遮挡时仍保留标记；移动相机、棋盘或底座后需要重新标定。相机由独立 Gemini 服务统一采集。
           </p>
         </section>
         <aside>

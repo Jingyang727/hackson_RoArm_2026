@@ -11,7 +11,7 @@ from control_ui.service import ArmService
 from evoarm.serial_arm import RoArmSerial, ArmCommunicationError
 
 
-async def api_request(path, value, *, method="POST"):
+async def api_request(path, value, *, method="POST", query_string=b"", decode_json=True):
     body = json.dumps(value).encode()
     messages = []
     received = False
@@ -28,11 +28,11 @@ async def api_request(path, value, *, method="POST"):
 
     await main.app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
         "method": method, "scheme": "http", "path": path, "root_path": "",
-        "query_string": b"", "headers": [(b"content-type", b"application/json")],
+        "query_string": query_string, "headers": [(b"content-type", b"application/json")],
         "server": ("localhost", 8765), "client": ("127.0.0.1", 10000)}, receive, send)
     start = next(m for m in messages if m["type"] == "http.response.start")
     payload = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
-    return start, json.loads(payload)
+    return start, json.loads(payload) if decode_json else payload
 
 
 class TransportErrors(unittest.TestCase):

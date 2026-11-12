@@ -15,6 +15,8 @@ ownership of generated trial artifacts after recording.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import http.client
 import json
 import os
@@ -26,9 +28,11 @@ import stat
 import threading
 import time
 from http.server import BaseHTTPRequestHandler
+from urllib.parse import urlsplit, parse_qs
 
 from .core import TrialStore
 from .observe import record_observation
+from .camera_hub import CameraHub
 
 
 def owner_context():
@@ -47,15 +51,22 @@ def socket_path(home):
 class CameraServer(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
     allow_reuse_address=False
     daemon_threads=True
-    def __init__(self,path,uid,gid,home):
+    def __init__(self,path,uid,gid,home,*,hub=None):
         self.uid,self.gid,self.home=uid,gid,Path(home)
         self.recording=False
         self.phase="idle"
         self.started_monotonic_ns=None
         self.capture_lock=threading.Lock()
+        self.hub=hub if hub is not None else CameraHub()
         super().__init__(str(path),CameraHandler)
         os.chown(path,uid,gid)
         os.chmod(path,0o600)
+
+    def server_close(self):
+        try:
+            self.hub.close()
+        finally:
+            super().server_close()
 
 
 class CameraHandler(BaseHTTPRequestHandler):
@@ -73,6 +84,37 @@ class CameraHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        parsed=urlsplit(self.path)
+        if parsed.path=="/preview":
+            try:
+                args=parse_qs(parsed.query,strict_parsing=True)
+                if set(args)-{"after"} or len(args.get("after",["0"]))!=1:
+                    raise ValueError("only one frame sequence is accepted")
+                after=int(args.get("after",["0"])[0])
+                if not 0<=after<=2**53:
+                    raise ValueError("invalid frame sequence")
+            except ValueError:
+                self._respond(400,{"error":"invalid preview query"})
+                return
+            try:
+                frame=self.server.hub.preview(after)
+            except (OSError,RuntimeError,TimeoutError,ValueError):
+                self._respond(503,{"error":"no fresh camera preview; check the camera service and USB"})
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type","image/jpeg")
+                self.send_header("Content-Length",str(len(frame["jpeg"])))
+                self.send_header("Cache-Control","no-store")
+                for key,value in (("Sequence",frame["sequence"]),("Width",frame["width"]),
+                                  ("Height",frame["height"]),("Stamp-Ns",frame["stamp_ns"]),
+                                  ("Age-Ms",round(frame["age_ms"],2))):
+                    self.send_header("X-Camera-"+key,str(value))
+                self.end_headers()
+                self.wfile.write(frame["jpeg"])
+            except OSError:
+                pass
+            return
         if self.path!="/health":
             self._respond(404,{"error":"not found"})
             return
@@ -80,9 +122,24 @@ class CameraHandler(BaseHTTPRequestHandler):
                            "privileged_capture":True,
                            "recording":self.server.recording,
                            "phase":self.server.phase,
+                           "live_preview":True,"preview":self.server.hub.health(),
                            "recording_started_monotonic_ns":self.server.started_monotonic_ns})
 
     def do_POST(self):
+        if self.path=="/preview/start":
+            try:
+                size=int(self.headers.get("Content-Length","0"))
+                if not 0<=size<=16:
+                    raise ValueError("preview start accepts no settings")
+                if json.loads(self.rfile.read(size).decode("utf-8") or "{}")!={}:
+                    raise ValueError("preview start accepts no settings")
+                self.server.hub.start_preview()
+                self._respond(200,{"started":True,"robot_control":False})
+            except (ValueError,UnicodeError):
+                self._respond(400,{"error":"preview start accepts only an empty object"})
+            except (OSError,RuntimeError):
+                self._respond(503,{"error":"camera owner is not ready; check camera service health"})
+            return
         if self.path!="/record":
             self._respond(404,{"error":"not found"})
             return
@@ -116,7 +173,7 @@ class CameraHandler(BaseHTTPRequestHandler):
             try:
                 result=record_observation(
                     camera="gemini",seconds=seconds,store=store,
-                    on_recording_start=on_recording_start
+                    on_recording_start=on_recording_start,source=self.server.hub.reader()
                 )
             finally:
                 # Make newly created files owner-accessible even on camera
@@ -170,8 +227,61 @@ def client_request(home,method,path,data=None):
         conn.close()
 
 
+def preview_frame(home,after=0):
+    """Ordinary-user JPEG client; timestamp/sequence checks stay authoritative."""
+    if type(after) is not int or not 0<=after<=2**53:
+        raise ValueError("invalid camera frame sequence")
+    conn=UnixHTTPConnection(socket_path(home),timeout=13)
+    try:
+        conn.request("GET","/preview?after="+str(after))
+        response=conn.getresponse()
+        raw=response.read(2_000_001)
+        if response.status!=200:
+            raise RuntimeError(f"camera preview HTTP {response.status}; update/restart the camera service if the endpoint is missing")
+        if len(raw)>2_000_000 or response.getheader("Content-Type")!="image/jpeg":
+            raise ValueError("invalid camera preview response")
+        values={key:response.getheader("X-Camera-"+key) for key in ("Sequence","Width","Height","Stamp-Ns","Age-Ms")}
+        frame={"jpeg":raw,"sequence":int(values["Sequence"]),"width":int(values["Width"]),
+               "height":int(values["Height"]),"stamp_ns":int(values["Stamp-Ns"]),"age_ms":float(values["Age-Ms"])}
+        if frame["sequence"]<=after or min(frame["width"],frame["height"],frame["stamp_ns"])<=0 or not 0<=frame["age_ms"]<=1500:
+            raise ValueError("stale or invalid camera preview metadata")
+        return frame
+    finally:
+        conn.close()
+
+
+@contextmanager
+def daemon_lock(home,uid,gid):
+    """A second service cannot unlink a live socket and open another SDK."""
+    path=Path(home)/".evoarm"/"rsi_camera.lock"
+    path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    parent=path.parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid not in (uid,os.geteuid()):
+        raise RuntimeError("unexpected camera service directory")
+    os.chown(path.parent,uid,gid)
+    fd=os.open(path,os.O_RDWR|os.O_CREAT|getattr(os,"O_NOFOLLOW",0),0o600)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid not in (uid,os.geteuid()):
+            raise RuntimeError("unexpected camera service lock file")
+        try:
+            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("camera service is already running; do not start a second SDK owner") from exc
+        os.fchown(fd,uid,gid)
+        os.fchmod(fd,0o600)
+        yield
+    finally:
+        os.close(fd)
+
+
 def serve():
     uid,gid,home=owner_context()
+    with daemon_lock(home,uid,gid):
+        _serve_locked(uid,gid,home)
+
+
+def _serve_locked(uid,gid,home):
     path=socket_path(home)
     path.parent.mkdir(parents=True,exist_ok=True)
     if path.exists() or path.is_symlink():
