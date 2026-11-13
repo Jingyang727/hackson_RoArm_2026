@@ -24,8 +24,8 @@ def check(url, output):
     for _ in range(8):writer.write(cv2.resize(image,(160,90)))
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
-    model={'api_version':2,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},
-           'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'bottlerocket/grok-4.7-build'},'plan':None}
+    model={'api_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},
+           'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
                    'depth_evidence':{'depth_used':True,'valid_samples':350,'fit_residual_mm':1.2}},
@@ -53,13 +53,16 @@ def check(url, output):
             data={'started':True,'session_id':'d'*32}
         elif path=='/bench/rsi/learning/stop':
             model['learning']['phase']='stopping';data={'stop_requested':True}
+        elif path=='/bench/rsi/learning/reset':
+            assert body=={'declaration':LEARNING_DECLARATION}
+            model['learning'].update(status='running',phase='recovering');data={'started':True,'session_id':'d'*32}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=202 if path.endswith('/start') else 200,content_type='application/json',body=json.dumps(data))
     with sync_playwright() as p:
         browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':1440,'height':1100});page.route('**/api/**',route)
         page.on('pageerror',lambda error:errors.append(str(error)))
-        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='公司Grok已配置').wait_for()
+        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='公司Grok API已配置').wait_for()
         page.locator('#workspaceFrame').wait_for(state='visible')
         assert not any(call[0]=='POST' for call in calls)
         assert page.locator('#saveReview').count()==0;assert page.locator('#start').is_disabled()
@@ -83,7 +86,7 @@ def check(url, output):
                 'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移6mm。'],'after_version':2}
         model['plan']['review']=review;model['plan']['backup_url']=f'/api/bench/rsi/plans/{key}/archive'
         model['learning'].update(phase='recovering',review=review,changes=review['changes'])
-        page.locator('#phase').filter(has_text='恢复官方姿态').wait_for()
+        page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         page.locator('#grokVerdict').filter(has_text='夹爪偏左').wait_for()
         assert page.locator('#start').is_disabled()
         # No user review or second execution request: backend starts round two.
@@ -112,13 +115,18 @@ def check(url, output):
         assert not any(call[1].endswith('/review') for call in calls)
         model['learning'].update(status='stopped',phase='stopped');model['grok'].update(configured=False,reason='公司Grok未配置')
         page.locator('#grokStatus').filter(has_text='未配置').wait_for();page.locator('#confirmed').check()
-        assert page.locator('#start').is_disabled();assert not errors,errors
+        assert page.locator('#start').is_disabled();assert page.locator('#reset').is_enabled()
+        page.locator('#reset').click();page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
+        model['learning'].update(status='completed',phase='reset_completed')
+        page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
+        assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
+        assert not errors,errors
         browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','checks':[
         'single learning start with explicit scope; no double click replay','live workspace without motion on load',
         'no mandatory human result form','Grok analysis progress survives reload','automatic recovery and round two without browser action',
         'successful Grok verdict and persistent policy shown','native H.264 playback','backup and raw download links',
-        'depth diagnostics folded with distance legend','stop cancels further learning','missing Grok blocks unattended execution',
+        'depth diagnostics folded with distance legend','stop cancels further learning','missing Grok blocks unattended execution but not official reset',
         '390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 

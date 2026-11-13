@@ -42,6 +42,7 @@ def verdict(outcome='placed', direction='none', magnitude='medium', ball_state=N
 class AutoAPI(unittest.TestCase):
     def setUp(self):
         self.fixture = loop_fixtures.RSIApi(); self.fixture.setUp(); self.addCleanup(self.fixture.doCleanups)
+        self.fixture.arm=FactoryArm();self.fixture.service.arm=self.fixture.arm
         app = FastAPI(); install(app, lambda: self.fixture.service)
         for item in (patch.object(main, 'app', app),
                      patch('evoarm_rsi.grok_review.configuration', return_value={'configured': True, 'model': 'company/grok-test'}),
@@ -93,6 +94,61 @@ class AutoAPI(unittest.TestCase):
             self.start()
         _, state = self.request('state', method='GET')
         self.assertEqual(state['learning']['status'], 'failed'); self.assertEqual(self.policies, [])
+        self.assertEqual(self.fixture.arm.commands[-1],{'T':100})
+        self.assertIn('已恢复官方初始姿态',state['learning']['error'])
+
+    def test_low_far_pose_planning_failure_resets_then_replans_from_official_home(self):
+        self.fixture.arm.raw=inverse([425.,0.,-70.],math.radians(64.2),0.,3.14)
+        with patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},verdict()]):
+            response,data=self.start()
+        self.assertEqual(response['status'],202,data)
+        _,state=self.request('state',method='GET')
+        self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
+        self.assertEqual(self.fixture.arm.commands,[{'T':100}])
+        self.assertEqual(len(self.policies),1)
+        event=state['learning']['recovery_events'][0]
+        self.assertEqual(event['phase'],'planning');self.assertIn('383.2',event['cause'])
+
+    def test_new_planning_failure_is_not_suppressed_by_previous_recovery(self):
+        from fastapi import HTTPException
+        from control_ui import rsi_trial
+        original=rsi_trial.observe_scene;observations=0
+        def observe(*args):
+            nonlocal observations
+            observations+=1
+            if observations>=2:raise ValueError('synthetic unreachable next plan')
+            return original(*args)
+        with (patch('control_ui.rsi_trial.observe_scene',side_effect=observe),
+              patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},verdict('grasp_missed')]),
+              patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'}) as resets):
+            self.start()
+        _,state=self.request('state',method='GET')
+        self.assertEqual(state['learning']['status'],'failed')
+        self.assertEqual(resets.call_count,3) # failed trial, NEW planning failure, failed replan
+        self.assertEqual(len(state['learning']['recovery_events']),2)
+        self.assertIn('已恢复官方初始姿态',state['learning']['error'])
+        self.assertNotIn('HTTPException',state['learning']['error'])
+        self.assertTrue(state['learning']['session_backup_file'])
+
+    def test_reset_button_does_not_require_grok_configuration_or_an_ik_plan(self):
+        self.fixture.arm.raw=inverse([425.,0.,-70.],math.radians(64.2),0.,3.14)
+        with patch('evoarm_rsi.grok_review.configuration',return_value={'configured':False,'reason':'missing API'}):
+            response,data=self.request('learning/reset',{'declaration':LEARNING_DECLARATION})
+        self.assertEqual(response['status'],202,data)
+        self.assertEqual(self.fixture.arm.commands,[{'T':100}])
+        _,state=self.request('state',method='GET');self.assertEqual(state['learning']['phase'],'reset_completed')
+
+    def test_uncertain_official_reset_is_not_reissued_for_the_same_planning_failure(self):
+        self.fixture.arm.raw=inverse([425.,0.,-70.],math.radians(64.2),0.,3.14)
+        def uncertain(command):
+            self.fixture.arm.commands.append(command)
+            raise OSError('reset may have arrived')
+        with patch.object(self.fixture.arm,'send',side_effect=uncertain):self.start()
+        _,state=self.request('state',method='GET')
+        self.assertEqual(self.fixture.arm.commands,[{'T':100}]);self.assertEqual(self.policies,[])
+        self.assertEqual(state['learning']['status'],'failed')
+        event=state['learning']['recovery_events'][0]
+        self.assertTrue(event['t100_attempted']);self.assertFalse(event['t100_sent'])
 
     def test_unknown_review_recovers_once_and_does_not_train_or_repeat_blindly(self):
         with (patch('evoarm_rsi.grok_review.review', side_effect=[{'ready': True, 'note': ''}, verdict('unknown')]),
@@ -243,7 +299,15 @@ class FactoryArm(InstantArm):
 
 
 class AutomaticRecovery(unittest.TestCase):
-    def test_failed_empty_grasp_retreats_then_sends_one_official_reset(self):
+    def test_old_transport_fault_can_reset_after_fresh_feedback_proves_connection_and_stillness(self):
+        with tempfile.TemporaryDirectory() as temp:
+            service=ArmService();service.arm=FactoryArm();service.automation_owner='owner'
+            service.fault={'code':'feedback_timeout','message':'old timeout'}
+            with patch.dict('os.environ',{'EVOARM_ENABLE_MOTION':'1'}):
+                report=recover(service,None,{}, {},Path(temp),threading.Event(),lambda *a,**kw:None,automation_id='owner')
+            self.assertEqual(service.arm.commands,[{'T':100}]);self.assertIsNone(service.fault)
+            self.assertEqual(report['previous_fault']['code'],'feedback_timeout')
+    def test_failed_empty_grasp_sends_one_official_reset_without_cartesian_retreat(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp); saved = layout(home); folder, _, _ = scene(home, saved)
             observed, _, _, _ = observe_scene(folder, saved); service = ArmService(); arm = FactoryArm(); service.arm = arm
@@ -254,7 +318,7 @@ class AutomaticRecovery(unittest.TestCase):
                 result = recover(service, plan, {'grasp_attempted': False}, verdict('grasp_missed'), root,
                                  threading.Event(), lambda *a, **kw: None, automation_id='owner')
             self.assertEqual(result['status'], 'completed')
-            self.assertEqual(arm.commands[0]['T'], 104); self.assertEqual(arm.commands[-1]['T'], 100)
+            self.assertEqual(arm.commands,[{'T':100}])
             self.assertEqual(sum(command['T'] == 100 for command in arm.commands), 1)
             self.assertFalse(any(command['T'] == 210 for command in arm.commands))
             self.assertEqual(service.armed_until, 0)
@@ -266,12 +330,14 @@ class AutomaticRecovery(unittest.TestCase):
                 service.fault = {'code': 'feedback_timeout', 'message': 'serial unavailable'}
                 stop = threading.Event()
                 if stopped: stop.set()
-                with patch.dict('os.environ', {'EVOARM_ENABLE_MOTION': '1'}), self.assertRaises(RuntimeError):
+                with (patch.dict('os.environ', {'EVOARM_ENABLE_MOTION': '1'}),
+                      patch.object(service.arm,'status',side_effect=OSError('no fresh feedback')),
+                      self.assertRaises((OSError,RuntimeError))):
                     recover(service, {'table_plane': {'normal_up': [0, 0, 1], 'd_mm': 115}}, {}, {}, Path(temp), stop,
                             lambda *a, **kw: None, automation_id='owner')
                 self.assertEqual(service.arm.commands, [])
 
-    def test_potentially_held_ball_is_released_over_funnel_before_reset(self):
+    def test_potentially_held_ball_is_released_before_direct_reset_without_funnel_path(self):
         with tempfile.TemporaryDirectory() as temp:
             home=Path(temp);saved=layout(home);folder,_,_=scene(home,saved)
             observed,_,_,_=observe_scene(folder,saved);service=ArmService();arm=FactoryArm();service.arm=arm
@@ -282,42 +348,41 @@ class AutomaticRecovery(unittest.TestCase):
                 result=recover(service,plan,{'grasp_attempted':True,'placement_attempted':False},
                                verdict('execution_failed',ball_state='gripper'),home/('c'*32),threading.Event(),
                                lambda *a,**kw:None,automation_id='owner',validate_funnel=lambda:plan['release_tip_xyz_mm'])
-            self.assertTrue(result['possible_ball_released_to_funnel'])
+            self.assertTrue(result['possible_ball_released_on_bench'])
             release_index=next(i for i,c in enumerate(arm.commands) if c['T']==106)
             reset_index=next(i for i,c in enumerate(arm.commands) if c['T']==100)
             self.assertLess(release_index,reset_index)
-            np.testing.assert_allclose([arm.commands[release_index-1][k] for k in 'xyz'],plan['release_tip_xyz_mm'])
+            self.assertEqual([command['T'] for command in arm.commands],[106,100])
 
 
 class GrokAdapter(unittest.TestCase):
     def test_wrapped_final_json_is_accepted_but_two_answers_are_rejected(self):
         value=verdict()
-        def event(text):return json.dumps({'type':'text','part':{'text':text}})
+        def event(text):return text
         self.assertEqual(grok_review._final_json(event('Analysis complete.\n'+json.dumps(value))),value)
         with self.assertRaises(ValueError):
             grok_review._final_json(event(json.dumps(value)+'\n'+json.dumps(value)))
         with self.assertRaises(ValueError):
             grok_review._final_json(event(json.dumps({'result':value,'motor_command':{'T':100}})))
 
-    def test_stop_before_review_does_not_launch_model_process(self):
+    def test_stop_before_review_does_not_call_model_api(self):
         stopped=threading.Event();stopped.set()
-        with patch('evoarm_rsi.grok_review.subprocess.Popen') as process,self.assertRaises(RuntimeError):
+        with patch('evoarm_rsi.grok_review.complete_content') as process,self.assertRaises(RuntimeError):
             grok_review.review({},Path('/unused'),stopped,preflight=True)
         process.assert_not_called()
     def test_reasoning_and_extra_motor_fields_are_not_accepted(self):
         payload = verdict()
-        events = [{'type': 'reasoning', 'part': {'text': 'private reasoning'}},
-                  {'type': 'text', 'part': {'text': json.dumps(payload)}}]
-        self.assertEqual(grok_review._final_json('\n'.join(map(json.dumps, events))), payload)
+        self.assertEqual(grok_review._final_json(json.dumps(payload)), payload)
         with self.assertRaises(ValueError): grok_review.validate_verdict({**payload, 'motor_command': {'T': 100}})
         self.assertEqual(grok_review.validate_verdict({**payload, 'confidence': .1})['confidence'], .1)
 
-    def test_local_cli_is_tool_denied_and_uses_only_configured_grok(self):
+    def test_review_calls_direct_api_with_images_and_never_starts_cli(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp); command = root / 'opencode'
-            command.write_text('#!/usr/bin/env python3\nimport json,os,sys\np=json.loads(os.environ["OPENCODE_CONFIG_CONTENT"])\nassert p["permission"]["*"]=="deny"\nassert "company/grok-test" in sys.argv\nprint(json.dumps({"type":"text","part":{"text":json.dumps({"ready":True,"note":"synthetic scene"})}}))\n')
-            command.chmod(0o755)
+            root = Path(temp)
             cv2.imwrite(str(root / 'preview.jpg'), np.full((90, 160, 3), 200, np.uint8))
-            with patch.dict('os.environ', {'EVOARM_OPENCODE_BIN': str(command), 'EVOARM_OPENCODE_MODEL': 'company/grok-test'}):
+            with (patch('evoarm_rsi.grok_review.configuration',return_value={'configured':True,'model':'grok-4.7-build','backend':'company_api'}),
+                  patch('evoarm_rsi.grok_review.complete_content',return_value=json.dumps({'ready':True,'note':'synthetic scene'})) as api,
+                  patch('subprocess.Popen',side_effect=AssertionError('CLI must not run'))):
                 result = grok_review.review({}, root, threading.Event(), preflight=True)
             self.assertTrue(result['ready']); self.assertTrue((root / 'grok-scene-review.json').is_file())
+            parts=api.call_args.args[1];self.assertTrue(any(p['type']=='image_url' for p in parts))

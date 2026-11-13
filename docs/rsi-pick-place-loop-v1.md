@@ -1,6 +1,6 @@
 # RSI第一版：完整抓放、录像、定性复核、下一轮参数
 
-**以下为旧版单次尝试流程。当前分支已升级自动学习，请使用[RSI自动闭环v2](rsi-auto-learning-v2.md)。网页不再要求人工填写结果，API版本为2，默认复用本机`bottlerocket/grok-4.7-build`。旧单次接口保留兼容。**
+**以下为旧版单次尝试流程。当前请使用[RSI直接API与独立复位v3](rsi-direct-api-v3.md)。网页不再要求人工填写结果，状态接口版本为3；直接调用公司Grok API，不启动OpenCode代理。旧单次接口保留兼容。**
 
 分支：`feature/rsi-pick-place-loop-v1`，从main的`checkpoint-xyz-control-v1`起步。原有坐标页、标定、官方复位和单串口所有者继续使用；“抓取试验”页成为完整抓放入口。旧`grasp_once`CLI仍保留旧的抓取提升语义，本版请使用新页面或`/api/bench/rsi`。
 

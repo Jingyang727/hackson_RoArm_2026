@@ -1,6 +1,6 @@
 # 旧版抓取提升流程
 
-本文保留旧版仅抓取、提升的CLI/API语义。当前`feature/rsi-pick-place-loop-v1`的“抓取试验”页已升级为自动抓放与学习，请按[RSI自动闭环操作说明](rsi-auto-learning-v2.md)执行；不要用下述旧CLI替代新版UI。
+本文保留旧版仅抓取、提升的CLI/API语义。当前`feature/rsi-pick-place-loop-v1`的“抓取试验”页已升级为自动抓放与学习，请按[RSI直接API与独立复位说明](rsi-direct-api-v3.md)执行；不要用下述旧CLI替代新版UI。
 
 `bench_start` 只是起步判断。`already_clear` 表示无需额外抬升，**接下来必须继续本页的 prepare → 看预览 → execute**，不能把起步检查当作抓取后结束。
 本页会真正发送机械臂动作，执行一次抓取与约50mm提升，录制10秒RGB-D。此轮不包含漏斗投放；是否抓起由录像确认，不由编码器角度宣布。

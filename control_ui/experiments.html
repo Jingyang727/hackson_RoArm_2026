@@ -42,9 +42,11 @@
       <button id="connect" class="secondary" hidden>连接机械臂</button>
       <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
       <button id="start" class="primary" disabled>开始自动抓放</button>
+      <button id="reset" class="secondary" disabled>恢复官方初始姿态</button>
       <button id="stop" class="secondary" hidden>停止自动任务</button>
       <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
       <p id="nextChange" class="quiet"></p>
+      <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
       <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
       <p class="limits-note">抓放目标为10秒，分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>

@@ -3,11 +3,10 @@ const $=id=>document.getElementById(id),prefix='/api/bench/rsi';
 const declaration='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试';
 const outcomes={placed:'已抓起并进入漏斗',grasp_missed:'没夹住',pushed_away:'球被推走',slipped:'球滑落',placement_missed:'投放偏了',bounced_out:'球弹出了漏斗',execution_failed:'动作未完成',unknown:'画面不足以判断'};
 const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',scene_check:'Grok正在确认当前球与漏斗…',
-  analyzing:'Grok正在分析本轮10秒录像…',learning:'根据Grok判断更新策略…',recovering:'正在抬离桌面、恢复官方姿态…',checking_recovery:'Grok正在确认恢复后的球和漏斗…',
+  analyzing:'Grok正在分析本轮10秒录像…',learning:'根据Grok判断更新策略…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
   completed:'本轮成功，策略已保存。',exhausted:'本次尝试次数已用完，策略和证据已保存。',stopping:'正在停止；不会继续恢复或重试。',stopped:'自动任务已停止。',
   recording_warmup:'启动本轮录像…',raise_current:'抬离桌面…',open:'张爪…',align:'调整接近姿态…',approach_ball:'移动到球上方，同时张爪…',
   descend:'下降接近黄球…',close:'合抓…',lift:'提升…',transit_arc:'经过过渡点…',transport:'移动到漏斗上方…',release:'释放小球…',saving_recording:'保存本轮录像与反馈…'};
-const softFaults=new Set(['rsi_position_unverified','rsi_action_unverified','rsi_gripper_unverified','coordinate_timeout','cartesian_stalled']);
 let state=null,busy=false,polling=false,revision=0,historyKey=null;
 const stream={active:false,sequence:0,generation:0,controller:null,timer:null,url:null};
 const number=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(1):'—';
@@ -22,19 +21,21 @@ function showError(error){$('error').textContent=error.message||String(error);$(
 function render(){
   const h=state?.health||{},a=state?.learning||{status:'idle'},j=state?.job||{},p=state?.plan,r=j.result;
   const running=a.status==='running'||j.status==='running',locked=Array.isArray(h.torque_status)&&h.torque_status.length===6&&h.torque_status.every(v=>v===1||v===true);
-  const fatal=Boolean(h.fault&&!softFaults.has(h.fault.code));
   $('setupBadge').textContent=state?.setup_id||'当前布置';$('connection').textContent=h.connected?'机械臂已连接':'机械臂未连接';
-  $('connection').className='status-chip '+(h.connected&&!fatal?'connected':'');
+  $('connection').className='status-chip '+(h.connected?'connected':'');
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
-  $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':fatal?h.fault.message:!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先检查静止反馈，再自动恢复。':'沿用已有标定。启动后自动观察、尝试、分析与调整。';
-  const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok已配置 · 分析由本机OpenCode执行':grok.reason||'正在检查公司Grok配置。';
-  $('start').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||fatal||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
+  $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
+  const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':grok.reason||'正在检查公司Grok API配置。';
+  $('start').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
+  $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
   $('confirmed').disabled=running||busy;$('maxAttempts').disabled=running||busy;
   $('stop').hidden=!running;$('stop').disabled=a.phase==='stopping'||j.phase==='stopping';
   $('attemptBadge').textContent=a.attempt?`第 ${a.attempt} / ${a.max_attempts} 轮`:'尚未开始';
   const phase=a.status==='running'?(a.phase==='executing'?j.phase:a.phase):j.status==='running'?j.phase:a.phase;
-  $('phase').textContent=a.status==='failed'?'自动任务暂停：'+(a.error||'请查看本轮记录'):phases[phase]||phases[j.phase]||'尚未开始。';
+  $('phase').textContent=a.status==='failed'?(a.error?.startsWith('已恢复官方初始姿态')?a.error:'任务已停止：'+(a.error||'请查看本轮记录')):phases[phase]||phases[j.phase]||'尚未开始。';
   $('nextChange').textContent=(a.changes||[]).join('\n');
+  $('sessionBackupLink').hidden=!a.session_backup_file;
+  if(a.session_backup_file)$('sessionBackupLink').href=`${prefix}/sessions/${a.session_id}/archive`;
   const review=p?.review||a.review;$('grokVerdict').hidden=!review;
   if(review)$('grokVerdict').textContent=`${review.source==='human'?'既有人工记录':'Grok判断'}：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`;
   $('recordings').hidden=!p;
@@ -50,7 +51,8 @@ function render(){
   }
   $('trialVideo').hidden=!r?.capture_trial_id;$('rawVideoLink').hidden=!r?.capture_trial_id;$('keyframesLink').hidden=!r?.keyframes_file;
   if(r){
-    $('resultText').textContent=`闭爪${r.grasp_attempted?'已发送':'未发送'}；投放${r.placement_attempted?'已发送':'未发送'}；动作耗时 ${number(r.physical_elapsed_s)} 秒。${r.motion_error?'\n动作记录：'+r.motion_error:''}`;
+    const timing=Number.isFinite(r.physical_elapsed_s)?`动作耗时 ${number(r.physical_elapsed_s)} 秒`:'动作未完整结束，时序已保留';
+    $('resultText').textContent=`闭爪${r.grasp_attempted?'已发送':'未发送'}；投放${r.placement_attempted?'已发送':'未发送'}；${timing}。${r.motion_error?'\n动作记录：'+r.motion_error:''}`;
     if(r.capture_trial_id&&$('trialVideo').dataset.planId!==j.plan_id){$('trialVideo').src=`${prefix}/plans/${j.plan_id}/video`;$('trialVideo').dataset.planId=j.plan_id;}
     $('rawVideoLink').href=`${prefix}/plans/${j.plan_id}/raw-video`;$('keyframesLink').href=`${prefix}/plans/${j.plan_id}/keyframes`;
   }else $('resultText').textContent='当前观察图与定位诊断；尚未执行本轮抓放。';
@@ -68,6 +70,7 @@ async function action(fn){if(busy)return;busy=true;revision++;$('error').hidden=
 $('connect').onclick=()=>action(()=>api('/api/auto-connect','POST',{}));
 $('confirmed').onchange=render;
 $('start').onclick=()=>{if($('start').disabled)return;return action(async()=>{await api(prefix+'/learning/start','POST',{declaration,max_attempts:Number($('maxAttempts').value)});$('confirmed').checked=false;});};
+$('reset').onclick=()=>{if($('reset').disabled)return;return action(async()=>{await api(prefix+'/learning/reset','POST',{declaration});$('confirmed').checked=false;});};
 $('stop').onclick=async()=>{if($('stop').disabled)return;$('stop').disabled=true;try{if(state.learning?.status==='running')await api(prefix+'/learning/stop','POST',{});else await api(prefix+'/stop','POST',{plan_id:state.job.plan_id});await refresh();}catch(error){showError(error);}};
 $('trialVideo').onerror=()=>showError(Error('回放暂不可用，可下载原录像或查看关键帧；请检查回放编码器依赖。'));
 function stopStream(){stream.active=false;stream.generation++;stream.controller?.abort();clearTimeout(stream.timer);}
@@ -93,7 +96,8 @@ async function loadHistory(){
   try{const data=await api(prefix+'/history');$('trials').replaceChildren();$('count').textContent=data.trials.length+' 次';$('emptyTrials').hidden=Boolean(data.trials.length);
     for(const trial of data.trials){const row=document.createElement('article'),title=document.createElement('strong'),summary=document.createElement('p');row.className='trial-row';
       title.textContent=`试次 ${trial.id.slice(0,10)} · 参数 v${trial.policy_version}`;
-      summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'Grok：')+(outcomes[trial.review.outcome]||trial.review.outcome):'等待Grok分析'}；动作 ${number(trial.result?.physical_elapsed_s)} 秒`;
+      const timing=Number.isFinite(trial.result?.physical_elapsed_s)?`动作 ${number(trial.result.physical_elapsed_s)} 秒`:'动作未完整结束';
+      summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'Grok：')+(outcomes[trial.review.outcome]||trial.review.outcome):'未分析'}；${timing}`;
       row.append(title,summary);if(trial.backup_url){const link=document.createElement('a');link.href=trial.backup_url;link.textContent='下载本轮备份';link.setAttribute('download','');row.append(link);}$('trials').append(row);}
   }catch(error){showError(error);}
 }

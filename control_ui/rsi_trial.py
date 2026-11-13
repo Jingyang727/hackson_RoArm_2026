@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 import subprocess
+import shutil
 
 import cv2
 import numpy as np
@@ -27,7 +28,7 @@ from evoarm_rsi.task_agent import _write
 from evoarm_rsi.task_scene import load_rgbd
 from evoarm_rsi import grok_review
 from evoarm_rsi.rsi_journal import append_event, archive_trial
-from evoarm_rsi.rsi_learning import LearningLoop, LEARNING_DECLARATION
+from evoarm_rsi.rsi_learning import LearningLoop, LEARNING_DECLARATION,error_info
 from evoarm_rsi.rsi_recovery import recover as recover_trial
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
@@ -63,6 +64,10 @@ class Review(PlanID):
 class Learn(Empty):
     declaration:str
     max_attempts:int=Field(default=5,ge=1,le=20,strict=True)
+
+
+class Reset(Empty):
+    declaration:str
 
 
 def install(app,service_provider):
@@ -141,7 +146,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':2,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':3,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
     @router.post('/prepare')
@@ -371,18 +376,8 @@ def install(app,service_provider):
         return FileResponse(path,media_type=media,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
 
     def recover_automatic(current,verdict,stop_event,automation_id):
-        if fingerprint(session())!=current['calibration_fingerprint']:
-            raise ValueError('标定已变化，停止使用旧坐标执行自动恢复')
-        def fresh_release():
-            packet=preview_frame(Path.home());image=cv2.imdecode(np.frombuffer(packet['jpeg'],np.uint8),cv2.IMREAD_COLOR)
-            if image is None:raise ValueError('恢复时无法读取当前漏斗画面')
-            funnel=detect_funnel(image,current['geometry'])
-            if funnel['ambiguous']:raise ValueError('恢复时漏斗有多个候选，停止自动投放')
-            old=np.asarray(current['plan']['scene']['funnel']['mouth_center_robot_mm'])
-            delta=np.asarray(funnel['mouth_center_robot_mm'])-old
-            return (np.asarray(current['plan']['release_tip_xyz_mm'])+delta).tolist()
         report=recover_trial(service_provider(),current['plan'],current.get('result',{}),verdict,root(current['id']),
-                             stop_event,learner.publish,automation_id=automation_id,validate_funnel=fresh_release)
+                             stop_event,learner.publish,automation_id=automation_id)
         if not stop_event.is_set():
             try:
                 capture=client_request(Path.home(),'POST','/record',{'seconds':2})
@@ -395,21 +390,44 @@ def install(app,service_provider):
                 report['camera_error']=str(exc)
         return report
 
-    def verify_recovery(current,stop_event):
-        key=current['recovery'].get('verification_trial_id')
-        if not key:raise ValueError('恢复后观察缺失，不能自动判断最终投放')
-        frame=load_rgbd(bench_ui.experiment_root()/key)
-        file=root(current['id'])/'recovery-final.jpg'
-        evidence=context(current['id']);evidence['review_phase']='recovery';evidence['recovery']=current['recovery']
-        start=current['result']['events'][0]['host_monotonic_ns']
-        evidence['additional_frames']=[{'path':str(file),'elapsed_s':(frame['host_monotonic_ns']-start)/1e9,
-                                        'label':'current_view_after_automatic_recovery'}]
-        return grok_review.review(evidence,root(current['id']),stop_event)
+    def reset_failure(key,current,exc,phase,stop_event,automation_id):
+        folder=Path.home()/'.evoarm/rsi/learning_sessions'/automation_id/'recoveries'/key
+        info=error_info(exc)
+        _write(folder/'cause.json',{'phase':phase,'error_type':type(exc).__name__,**info,
+                                   'related_plan_id':current['id'] if current else None,'code_revision':code_revision})
+        # Preserve the rejected planning observation, without manufacturing a
+        # successful plan or counting it as another physical grasp.
+        image_url=info.get('image_url')
+        if isinstance(image_url,str):
+            parts=image_url.split('/')
+            draft=parts[-2] if len(parts)>2 else ''
+            if len(draft)==32 and all(c in '0123456789abcdef' for c in draft):
+                for name in ('preview.jpg','prepare-error.json'):
+                    file=root(draft)/name
+                    if file.is_file() and not file.is_symlink():shutil.copy2(file,folder/name)
+                diagnostic=folder/'prepare-error.json'
+                if diagnostic.is_file():
+                    observation=json.loads(diagnostic.read_text()).get('observation_trial_id','')
+                    if len(observation)==32 and all(c in '0123456789abcdef' for c in observation):
+                        target=folder/'observation';target.mkdir(exist_ok=True)
+                        for name in ('rgb.mp4','frames.jsonl','depth_samples.npz','gemini_color_intrinsics.json','manifest.json'):
+                            file=bench_ui.experiment_root()/observation/name
+                            if file.is_file() and not file.is_symlink():shutil.copy2(file,target/name)
+        result=current.get('result',{}) if current and current.get('recovery',{}).get('status')!='completed' else {}
+        try:
+            return recover_trial(service_provider(),None,result,{'ball_state':'unknown'},folder,stop_event,
+                                 learner.publish,automation_id=automation_id)
+        finally:
+            if current:
+                target=root(current['id'])/'exception-recoveries'/key
+                if folder.is_dir():shutil.copytree(folder,target,dirs_exist_ok=True)
+                report=folder/'recovery.json'
+                if report.is_file():current.setdefault('recovery_events',[]).append({'id':key,'phase':phase,'report':json.loads(report.read_text())})
 
     learner=LearningLoop(service_provider,prepare=lambda:prepare(Empty())['plan_id'],
         run=lambda key:run(Run(plan_id=key,declaration=DECLARATION)),get_trial=known,context=context,
         apply_review=lambda key,value:review(Review(plan_id=key,source='company_grok',**value)),
-        recover=recover_automatic,archive=archive,trial_stop=stop,verify_recovery=verify_recovery)
+        recover=recover_automatic,archive=archive,trial_stop=stop,reset_failure=reset_failure)
 
     @router.post('/learning/start',status_code=202)
     def start_learning(req:Learn):
@@ -418,5 +436,17 @@ def install(app,service_provider):
 
     @router.post('/learning/stop')
     def stop_learning(req:Empty):return learner.stop()
+
+    @router.post('/learning/reset',status_code=202)
+    def reset_official(req:Reset):
+        try:return learner.reset_to_official(req.declaration)
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.get('/sessions/{session_id}/archive')
+    def session_archive(session_id:str):
+        if len(session_id)!=32 or any(c not in '0123456789abcdef' for c in session_id):raise HTTPException(status_code=404)
+        path=Path.home()/'.evoarm/rsi/backups'/f'session-{session_id}.zip'
+        if not path.is_file() or path.is_symlink():raise HTTPException(status_code=404)
+        return FileResponse(path,media_type='application/zip',headers={'Cache-Control':'no-store'})
 
     app.include_router(router)

@@ -2,13 +2,13 @@
 
 当前目标：公司 Grok 观察黄色球与可移动黑漏斗，在已验证的桌面工作区内完成抓起、入漏斗，并以10秒为完整动作目标。
 
-本分支提供 **RSI自动抓放与学习**：RGB-D定位黄球与漏斗，录制10秒抓放，由本机OpenCode的公司Grok自动判断结果、更新参数，失败后恢复并重试，成功后保存策略。网页保留 **坐标验证**、**手动标定** 和 **抓取试验**；自动任务从抓取试验页启动，主界面不再要求人工复核每一轮。
+本分支提供 **RSI自动抓放与学习**：RGB-D定位黄球与漏斗，录制10秒抓放，直接调用公司Grok API判断结果、更新参数，失败后独立执行官方T100复位并重试，成功后保存策略。网页保留 **坐标验证**、**手动标定** 和 **抓取试验**；自动任务从抓取试验页启动，主界面不要求人工复核每一轮。
 
 [坐标验证预览](docs/images/coordinates-preview.png) · [手动标定预览](docs/images/manual-calibration-preview.png) · [抓取页面预览](docs/images/grasp-ui-preview.png)（均为模拟画面与反馈）
 
 [移动控制 checkpoint 与 RSI 接口约定](docs/rsi-control-checkpoint.md)：后续RSI复用当前已验收的XYZ/T104执行链、T1051反馈与人工T100复位入口。坐标图支持“左右镜像”，只影响显示和选点映射。
 
-[RSI自动闭环v2：本机更新、恢复、Grok分析与备份](docs/rsi-auto-learning-v2.md)。已按用户选择默认使用OpenCode 1.19.0的`bottlerocket/grok-4.7-build`；不新增模型网关。
+[RSI v3：直接公司Grok API与独立官方复位](docs/rsi-direct-api-v3.md)。默认`grok-4.7-build`，可只读复用已有公司provider配置和本机凭据，不启动OpenCode CLI。
 
 ## 当前状态
 
@@ -19,7 +19,7 @@
 - 实时对准：相机画面同时叠加五点位置，当前点高亮、已记录点打勾；标记不依赖每帧检测完整棋盘，支持遮挡。断流时暂停采点，恢复扭矩操作仍可用。
 - 手动方式：使用现有全部释放接口，持续支撑机械臂，连续记录五点；无需每个点重新上锁，五点结束再恢复扭矩。
 - 释放的是全部六关节，旋转与夹爪也会松开。页面显示相对首点的角度差，超出5°时要求核对并调整回同一触点。俯仰尽量一致，差异较大时保留采点并提示。
-- [RSI自动闭环](docs/rsi-auto-learning-v2.md)：点击“开始自动抓放”后自动观察、接近并张爪、下降、合抓、提升、运输、释放、录像分析、学习和失败恢复。Grok给出结果、方向、粗略幅度和建议调整类别；程序更新偏移、高度、速度或有界夹角预紧，再重新定位进入下一轮。默认最多5轮，成功即停止；通信或扭矩状态失效时停止自动恢复。每轮有校验ZIP备份与Langfuse待同步记录；没有把一次成功视为全工作区已验收。
+- [RSI自动闭环](docs/rsi-direct-api-v3.md)：点击“开始自动抓放”后自动观察、抓放、直接API分析和参数学习。规划或动作异常直接通过已有控制器复位到官方姿态，复位不依赖出错的IK、相机或标定。规划失败后从官方姿态重试一次；真正不可达时停止在官方姿态。默认最多5轮，成功即停止。每轮有ZIP备份与Langfuse待同步记录，失败规划和复位也有独立诊断包。
 - 固定布局：相机、机械臂底座与桌面默认保持不变，直到用户报告变化。保存的五点标定继续使用，棋盘可撤走，运行时不再要求或重新检查棋盘角点。
 - 标定后[从当前姿态起步](docs/bench-first-motion.md)：低位检查抬臂，高位跳过多余动作；官方范围内不再额外收腕。`already_clear` 后继续目标规划，无需回到标定触点或固定示教姿态。
 
@@ -37,7 +37,7 @@ EVOARM_ENABLE_TEACH=1 EVOARM_ENABLE_MOTION=0 EVOARM_SETUP_ID=bench-layout-v2 \
 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
 ```
 
-需要UI实际抓放时，将上述 `EVOARM_ENABLE_MOTION=0` 改为 `1` 后启动，打开 http://127.0.0.1:8765/experiments 。已经验收过的坐标控制和保存标定继续沿用，无需重新采点。开启实物模式本身不下发抓取；用户确认范围并启动后才进入自动任务。详见[浏览器操作说明](docs/rsi-auto-learning-v2.md)。
+需要UI实际抓放时，将上述 `EVOARM_ENABLE_MOTION=0` 改为 `1` 后启动，打开 http://127.0.0.1:8765/experiments 。已经验收过的坐标控制和保存标定继续沿用，无需重新采点。开启实物模式本身不下发抓取；用户确认范围并启动后才进入自动任务。详见[浏览器操作说明](docs/rsi-direct-api-v3.md)。
 
 打开 http://127.0.0.1:8765/calibration 。页面不会自动连接串口或切换扭矩；连接操作可能触发固件初始化，需要现场看住机械臂。
 
@@ -45,7 +45,7 @@ python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
 
 ## 现场流程
 
-- [RSI自动抓放、Grok复核、恢复与备份](docs/rsi-auto-learning-v2.md)
+- [RSI直接API、自动抓放、官方复位与备份](docs/rsi-direct-api-v3.md)
 - [bench-layout-v2 当前标定与首轮试验](docs/bench-layout-v2-runbook.md)
 - [Grok抓放规划、10秒计时与历史检索](docs/grok-pick-place-v1.md)
 - [旧控制台说明归档](docs/legacy-control-console-v0.4.md)

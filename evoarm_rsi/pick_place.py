@@ -152,9 +152,11 @@ def build_plan(session,status,scene,parameters):
     ball=np.asarray(scene['ball']['center_robot_mm']);mouth=np.asarray(scene['funnel']['mouth_center_robot_mm'])
     failures=[]
     for pitch_deg in (80.,75.,85.,70.,90.,65.,60.):
-        pitch=math.radians(pitch_deg);roll=status['r'];steps=[];current=dict(initial)
+        pitch=math.radians(pitch_deg);roll=status['r'];steps=[];current=dict(initial);stage_hint='目标计算'
         def move(stage,point,angle,speed,minimum=0):
-            nonlocal current
+            nonlocal current,stage_hint
+            stage_hint={'raise_current':'起步抬升','approach_ball':'接近黄球','descend':'下降抓取',
+                        'lift':'抓后提升','transport':'运送到漏斗'}.get(stage,stage)
             point=np.asarray(point).tolist()
             if math.dist([current[k] for k in 'xyz'],point)<.8 and abs(current['tit']-angle)<math.radians(.5):return
             step={'stage':stage,'kind':'cartesian','xyz_mm':point,'pitch_rad':angle,'roll_rad':roll,
@@ -212,7 +214,9 @@ def build_plan(session,status,scene,parameters):
                     'grasp_pitch_deg':pitch_deg,'target_duration_s':10,'board_required':False,
                     'camera_frame':'unmirrored_rgb','warnings':scene['warnings'],
                     'timing_verified':False,'pose_reference':'stock_firmware_fixed_fingertip'}
-        except ValueError as exc:failures.append(str(exc))
+        except ValueError as exc:
+            reason=f'{stage_hint}：{exc}'
+            if reason not in failures:failures.append(reason)
     raise ValueError('未找到完整抓放路径：'+'；'.join(failures[:3]))
 
 

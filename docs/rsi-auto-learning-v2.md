@@ -1,5 +1,7 @@
 # RSI自动闭环：本机OpenCode/Grok、恢复、学习与备份
 
+**旧版说明：当前版本已改为[RSI v3直接公司API与独立官方复位](rsi-direct-api-v3.md)。不再启动OpenCode代理，恢复不再依赖XYZ抬升或漏斗路径，状态接口版本为3。**
+
 分支仍为`feature/rsi-pick-place-loop-v1`，从main的`checkpoint-xyz-control-v1`发展。本次API版本为2，`/experiments`主界面改为自动学习；旧版单次prepare/run/review接口作为兼容接口保留。
 
 ## 现场更新

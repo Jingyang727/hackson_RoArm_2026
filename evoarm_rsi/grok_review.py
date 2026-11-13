@@ -1,15 +1,13 @@
-"""Read-only local OpenCode/Grok visual review, never a motor controller."""
+"""Direct company Grok API visual review, never a motor controller."""
 from __future__ import annotations
 
 import json
-import os
+import base64
 from pathlib import Path
-import shutil
-import subprocess
-import tempfile
 import time
 
 from .task_agent import _write
+from .company_api import configuration,complete_content
 
 OUTCOMES = {'placed', 'grasp_missed', 'pushed_away', 'slipped', 'placement_missed',
             'bounced_out', 'execution_failed', 'unknown'}
@@ -36,30 +34,6 @@ SCENE_SYSTEM = (
     'Do not issue commands or estimate millimeters. Return ONLY JSON {"ready":true or false,"note":"short reason"}. '
     'When ambiguous, obstructed, or a ball is already held, ready=false.'
 )
-
-
-def _executable():
-    explicit = os.getenv('EVOARM_OPENCODE_BIN')
-    if explicit:
-        return shutil.which(explicit)
-    found = shutil.which('opencode')
-    if found:
-        return found
-    for path in (Path.home()/'.opencode/bin/opencode',Path.home()/'.bun/bin/opencode',
-                 Path('/opt/homebrew/bin/opencode'),Path('/usr/local/bin/opencode')):
-        if path.is_file() and os.access(path,os.X_OK):return str(path)
-    return None
-
-
-def configuration():
-    command = _executable()
-    # Explicitly selected by the user; never auto-select another provider/model.
-    model = os.getenv('EVOARM_OPENCODE_MODEL', 'bottlerocket/grok-4.7-build').strip()
-    ready = bool(command and '/' in model and 'grok' in model.lower())
-    reason=None if ready else '未找到本机OpenCode，可设置 EVOARM_OPENCODE_BIN 为其绝对路径' if not command else '公司Grok模型标识 EVOARM_OPENCODE_MODEL 无效'
-    return {'backend': 'local_opencode', 'configured': ready, 'model': model or None,
-            'reason': reason,
-            'command_available': bool(command)}
 
 
 def validate_verdict(value):
@@ -95,21 +69,8 @@ def _scene_verdict(value):
 
 
 def _final_json(output, *, preflight=False):
-    parts = []
-    for line in output.splitlines():
-        try:
-            event = json.loads(line)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(event, dict):
-            continue
-        if event.get('type') == 'error':
-            raise RuntimeError('本地OpenCode/Grok调用失败，请查看本机模型配置')
-        if event.get('type') == 'text' and isinstance(event.get('part'), dict):
-            text = event['part'].get('text')
-            if isinstance(text, str):
-                parts.append(text)
-    text = ''.join(parts).strip()
+    if not isinstance(output,str):raise ValueError('Grok最终回复不是文本')
+    text=output.strip()
     if text.startswith('```json') and text.endswith('```'):
         text = text[7:-3].strip()
     try:
@@ -151,53 +112,19 @@ def review(context, root, stop, *, timeout_s=120, preflight=False):
     if not frames:
         raise RuntimeError('本轮缺少可用视频关键帧，不能自动宣称结果')
     system = SCENE_SYSTEM if preflight else SYSTEM
-    prompt = system + '\nEvidence context:\n' + json.dumps({**context, 'reviewed_frames': frames}, ensure_ascii=False)
     recovery=context.get('review_phase')=='recovery'
     _write(root / ('grok-scene-request.json' if preflight else 'grok-recovery-request.json' if recovery else 'grok-request.json'), {'backend': config['backend'], 'model': config['model'],
-                                      'context': context, 'reviewed_frames': frames})
-    env = dict(os.environ)
-    # Inline policy overrides tools for this one invocation, while leaving
-    # company provider/auth configuration in the user's OpenCode installation.
-    inline = json.loads(env.get('OPENCODE_CONFIG_CONTENT') or '{}')
-    inline['permission'] = {'*': 'deny'}
-    inline.setdefault('agent', {})['rsi-observer'] = {
-        'mode': 'primary', 'description': 'Read-only RSI video observer',
-        'prompt': system, 'permission': {'*': 'deny'}}
-    env['OPENCODE_CONFIG_CONTENT'] = json.dumps(inline)
-    # Place the positional prompt before file-array flags so yargs cannot
-    # mistake the prompt for another attachment in OpenCode 1.19.
-    command = [_executable(), 'run', prompt, '--format', 'json',
-               '--agent', 'rsi-observer', '--model', config['model']]
+                                      'system':system,'context': context, 'reviewed_frames': frames})
+    content=[{'type':'text','text':json.dumps({**context,'reviewed_frames':frames},ensure_ascii=False)}]
     for frame in frames:
         path = Path(frame['path'])
         if not path.is_file() or path.is_symlink():
             raise ValueError('复核关键帧不存在')
-        command.extend(['--file', str(path)])
-    # Do not save arbitrary CLI output or reasoning. Only schema-validated final
-    # JSON is persisted; temporary output is discarded when this block exits.
-    with tempfile.TemporaryFile(mode='w+b') as output, tempfile.TemporaryFile(mode='w+b') as errors:
-        process = subprocess.Popen(command, env=env, cwd=Path(__file__).resolve().parent.parent,
-                                   stdout=output, stderr=errors, stdin=subprocess.DEVNULL)
-        started = time.monotonic()
-        try:
-            while process.poll() is None:
-                if stop.is_set():
-                    raise RuntimeError('用户停止了自动分析')
-                if time.monotonic() - started > timeout_s:
-                    raise RuntimeError('Grok分析超时；本轮已保存，未盲目重试')
-                if output.tell() > 2_000_000:
-                    raise RuntimeError('Grok输出过大')
-                time.sleep(.1)
-            if process.returncode:
-                raise RuntimeError(f'本地OpenCode/Grok未成功完成复核（退出{process.returncode}）；未修改参数')
-            output.seek(0)
-            verdict = _final_json(output.read(2_000_001).decode('utf-8'), preflight=preflight)
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try: process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill(); process.wait(timeout=3)
+        image=base64.b64encode(path.read_bytes()).decode('ascii')
+        content.extend([{'type':'text','text':f"{frame['label']} / {frame['elapsed_s']:.2f}s"},
+                        {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+image}}])
+    final=complete_content(system,content,stop,timeout_s=timeout_s)
+    verdict=_final_json(final,preflight=preflight)
     _write(root / ('grok-scene-review.json' if preflight else 'grok-recovery-review.json' if recovery else 'grok-review.json'), {'model': config['model'], 'verdict': verdict,
                                      'reviewed_frames': frames, 'completed_at_unix': time.time()})
     return verdict

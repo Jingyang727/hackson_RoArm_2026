@@ -76,7 +76,8 @@ def archive_trial(root, *, calibration=None, home=None):
                         'ball_xyz_mm': state['plan']['scene']['ball']['center_robot_mm'],
                         'funnel_xyz_mm': state['plan']['scene']['funnel']['mouth_center_robot_mm'],
                         'calibration_fingerprint': state['calibration_fingerprint']},
-              'output': {'result': result, 'review': state.get('review'), 'recovery': state.get('recovery')},
+              'output': {'result': result, 'review': state.get('review'), 'recovery': state.get('recovery'),
+                         'recovery_events':state.get('recovery_events',[])},
               'backup': {'path': str(dest), 'sha256': hashlib.sha256(dest.read_bytes()).hexdigest()},
               'events_file': str(root / 'journal.jsonl')}
     _write(base / 'langfuse-outbox' / f'{root.name}.json', packet)
@@ -90,6 +91,29 @@ def pending_exports(home=None):
         packet = json.loads(file.read_text())
         if packet.get('export_status') == 'pending':
             yield packet
+
+
+def archive_session(session_id,home=None):
+    """Include planning/reset failures even when no grasp plan was created."""
+    if len(session_id)!=32 or any(c not in '0123456789abcdef' for c in session_id):
+        raise ValueError('自动任务ID无效')
+    base=(Path(home) if home is not None else Path.home())/'.evoarm/rsi'
+    source=base/'learning_sessions'/session_id
+    dest=base/'backups'/f'session-{session_id}.zip';dest.parent.mkdir(parents=True,exist_ok=True)
+    temp=dest.with_suffix('.tmp');inventory=[]
+    try:
+        with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_DEFLATED) as archive:
+            for file in sorted(source.rglob('*')):
+                if not file.is_file() or file.is_symlink() or file.suffix=='.tmp':continue
+                raw=file.read_bytes();name=file.relative_to(source).as_posix()
+                archive.writestr(name,raw)
+                inventory.append({'path':name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()})
+            archive.writestr('archive-manifest.json',json.dumps({'schema_version':1,'session_id':session_id,'files':inventory}))
+        with zipfile.ZipFile(temp) as archive:
+            if archive.testzip() is not None:raise OSError('自动任务备份校验失败')
+        temp.replace(dest)
+    finally:temp.unlink(missing_ok=True)
+    return str(dest)
 
 
 def backup_existing(home=None):
