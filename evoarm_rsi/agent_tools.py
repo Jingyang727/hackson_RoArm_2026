@@ -62,6 +62,7 @@ def invoke(args,controller):
     if command=='objects':return objects(controller.request('/state'))
     if command=='history':return controller.request('/history')
     if command=='prepare':return controller.request('/prepare',{})
+    if command=='observe':return controller.request('/observe',{})
     if command=='remember':return controller.request('/agent/memory',{'note':args.note,'plan_id':args.plan_id})
     if command=='review':
         payload=json.loads(args.json if args.json is not None else Path(args.file).read_text())
@@ -101,7 +102,7 @@ def invoke(args,controller):
 def parser():
     result=argparse.ArgumentParser(description=__doc__);result.add_argument('--url',default='http://127.0.0.1:8765')
     sub=result.add_subparsers(dest='command',required=True)
-    for name in ('state','objects','history','coordinate-evidence','prepare','stop'):sub.add_parser(name)
+    for name in ('state','objects','history','coordinate-evidence','observe','prepare','stop'):sub.add_parser(name)
     context=sub.add_parser('context');context.add_argument('plan_id',type=plan_id,nargs='?')
     memory=sub.add_parser('remember');memory.add_argument('--note',required=True);memory.add_argument('--plan-id',type=plan_id)
     review=sub.add_parser('review');source=review.add_mutually_exclusive_group(required=True)

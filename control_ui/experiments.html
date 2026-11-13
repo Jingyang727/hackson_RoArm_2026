@@ -41,6 +41,11 @@
       <p id="imageCaption" class="quiet"></p>
       <p id="targetCaption" class="quiet" hidden></p>
       <p id="streamNotice" class="quiet" hidden></p>
+      <details><summary>采集当前物体坐标（不运动）</summary>
+        <button id="observeObjects" class="secondary">重新定位黄球和漏斗</button>
+        <p id="observationFacts" class="facts">先采集当前画面，再验证位置；物体移动后需要重新采集。</p>
+        <img id="observationImage" class="depth-image" alt="本次定位快照，标出黄球与漏斗，不是实时画面" hidden/>
+      </details>
     </div>
     <div class="card learning-controls">
       <div class="card-heading"><h2>自动学习</h2><span id="attemptBadge" class="mini-badge">尚未开始</span></div>

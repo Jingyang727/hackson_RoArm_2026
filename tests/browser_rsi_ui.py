@@ -63,12 +63,19 @@ def check(url, output):
         if path=='/bench/rsi/learning/events':
             body='retry: 250\n'+f"id: {process['cursor']}\nevent: snapshot\ndata: {json.dumps(process)}\n\n"
             return handler.fulfill(status=200,content_type='text/event-stream',body=body)
+        if path.startswith('/bench/rsi/observations/'):
+            return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path.startswith('/bench/rsi/plans/'):
             if path.endswith('/video'):return handler.fulfill(status=200,content_type='video/mp4',body=playback)
             if path.endswith('/comparison'):return handler.fulfill(status=200,content_type='image/jpeg',body=pair_jpeg)
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path=='/bench/rsi/state':data=model
         elif path=='/bench/rsi/history':data={'trials':history}
+        elif path=='/bench/rsi/observe':
+            assert body=={}
+            data={'observation_id':'f'*32,'observed_at_unix':time.time(),'scene':scene,
+                  'image_url':'/api/bench/rsi/observations/'+('f'*32)+'/preview',
+                  'note':'本次快照；球或漏斗移动后重新采集，保持物体原位再验证。'}
         elif path=='/bench/rsi/learning/start':
             assert body=={'declaration':LEARNING_DECLARATION,'max_attempts':5}
             model['learning']={'status':'running','phase':'observing','session_id':'d'*32,'attempt':1,'max_attempts':5,'trials':[]}
@@ -91,6 +98,15 @@ def check(url, output):
         page.locator('#workspaceFrame').wait_for(state='visible')
         assert not any(call[0]=='POST' for call in calls)
         assert page.locator('#saveReview').count()==0;assert page.locator('#start').is_disabled()
+        page.get_by_text('采集当前物体坐标（不运动）',exact=True).click()
+        page.locator('#observeObjects').click();page.locator('#observationFacts').filter(has_text='330.0').wait_for()
+        assert page.locator('#observationImage').is_visible()
+        assert all(call[1]=='/bench/rsi/observe' for call in calls if call[0]=='POST')
+        scene['ball']['center_robot_mm'][0]=345.
+        page.locator('#observeObjects').click();page.locator('#observationFacts').filter(has_text='345.0').wait_for()
+        assert '330.0' not in page.locator('#observationFacts').inner_text()
+        scene['ball']['center_robot_mm'][0]=330.
+        page.get_by_text('采集当前物体坐标（不运动）',exact=True).click()
         page.locator('#confirmed').check();page.locator('#start').click();page.evaluate("document.getElementById('start').click()")
         page.locator('#phase').filter(has_text='观察黄球').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/start'])==1
@@ -209,6 +225,7 @@ def check(url, output):
         'stream reconnect and page reload preserve process without duplicate events or execution',
         'structured outcome, direction, suggestion and confidence shown','paired actual frames and commanded vs reported displacement',
         '390px layout','no page errors']}
+    report['checks'].append('fresh object coordinates and snapshot without a grasp plan or motion; recapture replaces prior coordinates')
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

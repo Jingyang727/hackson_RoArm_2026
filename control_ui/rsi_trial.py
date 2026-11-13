@@ -189,6 +189,45 @@ def install(app,service_provider):
         return StreamingResponse(stream_events(request,learner.events),media_type='text/event-stream',
                                  headers={'Cache-Control':'no-cache, no-store','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'})
 
+    @router.post('/observe')
+    def observe(req:Empty):
+        """Fresh object coordinates without a grasp plan, robot feedback or motion."""
+        try:learner.assert_interactive_allowed()
+        except ValueError as exc:fail(exc)
+        if not preparing.acquire(blocking=False):raise HTTPException(status_code=409,detail='正在观察，请等待')
+        try:
+            with lock:
+                if job.get('status') in ('running','preparing'):raise ValueError('请等本轮动作或观察完成')
+            saved=session();cam=client_request(Path.home(),'GET','/health')
+            if cam.get('recording') or cam.get('robot_control') is not False or cam.get('camera_service')!='ready':
+                raise ValueError('独立相机服务需空闲并处于ready状态')
+            capture=client_request(Path.home(),'POST','/record',{'seconds':2});key=capture['trial_id']
+            if len(key)!=32 or any(c not in '0123456789abcdef' for c in key):raise ValueError('相机返回无效录像ID')
+            scene,geometry,image,_=observe_scene(bench_ui.experiment_root()/key,saved)
+            folder=Path.home()/'.evoarm/rsi/pick_place_observations'/key;folder.mkdir(parents=True,exist_ok=True)
+            if not cv2.imwrite(str(folder/'observation.jpg'),image):raise ValueError('定位原图保存失败')
+            marked=image.copy()
+            for name,color in (('ball',(0,210,255)),('funnel',(100,230,100))):
+                pixel=tuple(np.round(scene[name]['pixel_center']).astype(int))
+                cv2.circle(marked,pixel,25,color,3);cv2.putText(marked,name.upper(),pixel,cv2.FONT_HERSHEY_SIMPLEX,.6,color,2)
+            if not cv2.imwrite(str(folder/'preview.jpg'),marked):raise ValueError('定位预览保存失败')
+            result={'observation_id':key,'observed_at_unix':time.time(),'scene':scene,
+                    'calibration_fingerprint':fingerprint(saved),'frame':'robot_firmware_mm','units':'mm',
+                    'robot_moved':False,'robot_sampled':False,'live_tracking':False,
+                    'image_url':f'/api/bench/rsi/observations/{key}/preview',
+                    'note':'本次采集快照，不是实时跟踪。球或漏斗移动后重新采集；手动验证时保持物体原位。球心不是表面或固件指尖目标。'}
+            _write(folder/'scene.json',result);_write(folder/'calibration-snapshot.json',saved)
+            return result
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+        finally:preparing.release()
+
+    @router.get('/observations/{observation_id}/preview')
+    def observation_image(observation_id:str):
+        if len(observation_id)!=32 or any(c not in '0123456789abcdef' for c in observation_id):raise HTTPException(status_code=404)
+        path=Path.home()/'.evoarm/rsi/pick_place_observations'/observation_id/'preview.jpg'
+        if not path.is_file() or path.is_symlink():raise HTTPException(status_code=404)
+        return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+
     @router.post('/prepare')
     def prepare(req:Empty):
         nonlocal latest

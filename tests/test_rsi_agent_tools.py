@@ -47,6 +47,25 @@ class AgentAPI(unittest.TestCase):
     prepare=loop_fixtures.RSIApi.prepare
     start_trial=loop_fixtures.RSIApi.start_trial
 
+    def test_fresh_observation_requires_no_robot_or_full_grasp_plan(self):
+        self.service.arm=None
+        with patch.object(self.service,'status',side_effect=AssertionError('no robot sampling')), \
+             patch('control_ui.rsi_trial.build_plan',side_effect=AssertionError('no grasp planning')):
+            response,data=self.request('observe')
+        self.assertEqual(response['status'],200,data)
+        self.assertFalse(data['robot_moved']);self.assertFalse(data['robot_sampled'])
+        self.assertTrue(data['scene']['ball']['depth_evidence']['depth_used'])
+        self.assertFalse(data['live_tracking']);self.assertGreater(data['observed_at_unix'],0)
+        self.assertEqual(self.execute_mock.call_count,0);self.assertEqual(self.arm.commands,[])
+        self.assertFalse((self.home/'.evoarm/rsi/pick_place_policies').exists())
+
+    def test_failed_fresh_observation_never_returns_prior_object_coordinates(self):
+        self.assertEqual(self.request('observe')[0]['status'],200)
+        with patch('control_ui.rsi_trial.observe_scene',side_effect=ValueError('no current funnel')):
+            response,error=self.request('observe')
+        self.assertEqual(response['status'],409);self.assertNotIn('scene',error)
+        self.assertEqual(self.execute_mock.call_count,0)
+
     def test_agent_context_and_memory_persist_without_robot_commands_or_api_config(self):
         response,context=self.request('agent/context',method='GET');self.assertEqual(response['status'],200)
         self.assertEqual(context['direction_contract']['observed_side_to_correction']['image_right'],'image_left')

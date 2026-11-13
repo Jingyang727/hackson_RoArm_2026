@@ -40,6 +40,7 @@ function render(){
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':grok.reason||'正在检查公司Grok API配置。';
   const compatible=state?.api_version===7;
+  $('observeObjects').disabled=busy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
@@ -92,6 +93,14 @@ async function refresh(){
 }
 async function action(fn){if(busy)return;busy=true;revision++;$('error').hidden=true;render();try{await fn();}catch(error){showError(error);}finally{busy=false;await refresh();render();}}
 $('connect').onclick=()=>action(()=>api('/api/auto-connect','POST',{}));
+$('observeObjects').onclick=()=>action(async()=>{
+  $('observationFacts').textContent='正在采集当前 RGB-D，只定位，不移动…';$('observationImage').hidden=true;
+  try{
+    const observation=await api(prefix+'/observe','POST',{}),scene=observation.scene;
+    $('observationFacts').textContent=`本次采集：${new Date(observation.observed_at_unix*1000).toLocaleString()}；ID ${observation.observation_id.slice(0,10)}\n球心 XYZ：${xyz(scene.ball.center_robot_mm)} mm\n漏斗口中心 XYZ：${xyz(scene.funnel.mouth_center_robot_mm)} mm\n定位来源：OpenCV + 标定；黄球${scene.ball.depth_evidence.depth_used?'使用 RGB-D 球面拟合':'回退桌面与34mm球径'}。\n${observation.note}`;
+    $('observationImage').src=observation.image_url;$('observationImage').hidden=false;
+  }catch(error){$('observationFacts').textContent='本次定位失败，当前没有可验证的新坐标；请查看错误信息。';throw error;}
+});
 $('confirmed').onchange=render;
 $('start').onclick=()=>{if($('start').disabled)return;return action(async()=>{await api(prefix+'/learning/start','POST',{declaration,max_attempts:Number($('maxAttempts').value)});$('confirmed').checked=false;});};
 $('reset').onclick=()=>{if($('reset').disabled)return;return action(async()=>{await api(prefix+'/learning/reset','POST',{declaration});$('confirmed').checked=false;});};
