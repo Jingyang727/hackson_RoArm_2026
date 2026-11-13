@@ -79,7 +79,7 @@ class DepthPoint(BaseModel):
     v:int=Field(ge=0,strict=True)
 
 
-def observe_pending(service,pending,status,now):
+def observe_pending(service,pending,status,now,*,disarm_on_finish=True):
     """Classify one move, preserving per-axis evidence; never actuate here."""
     report=pending['report'];plan=report['plan']
     values=[status.get(k) for k in ('x','y','z','tit','b','s','e','t','r','g')]
@@ -110,7 +110,8 @@ def observe_pending(service,pending,status,now):
         outcome='timeout_unverified'
     if outcome:
         report.update(status=outcome,finished_at_unix=time.time())
-        service.pending=None;service.armed_until=0
+        service.pending=None
+        if disarm_on_finish:service.armed_until=0
         service.last_command.update(status=outcome,**measured)
         if outcome=='timeout_unverified':
             service._latch_fault('coordinate_timeout','坐标验证超时；目标未确认，请核对实际状态',**measured)

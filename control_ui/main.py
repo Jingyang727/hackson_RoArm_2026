@@ -30,6 +30,8 @@ from .ball_trial import install as install_ball_trial
 install_ball_trial(app, lambda: service)
 from .coordinates import install as install_coordinates
 install_coordinates(app, lambda: service)
+from .rsi_trial import install as install_rsi_trial
+install_rsi_trial(app, lambda: service)
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
 
@@ -399,6 +401,12 @@ def workspace_script():
 def grasp_script():
     return Response(Path(__file__).with_name("grasp.js").read_text(encoding="utf-8"),
                     media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
+
+@app.get('/assets/rsi.js')
+def rsi_script():
+    return Response(Path(__file__).with_name('rsi.js').read_text(encoding='utf-8'),
+                    media_type='application/javascript',headers={'Cache-Control':'no-store'})
 
 
 @app.get("/api/pick/workspace")

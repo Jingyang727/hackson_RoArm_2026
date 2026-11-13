@@ -188,7 +188,7 @@ class ArmService:
                 # Firmware T=100 can block other commands during reset.
                 if pending and pending.get("kind") == "factory":
                     result = self.arm.status(timeout=20)
-                elif pending and (pending.get("kind") in ("cartesian", "coordinate_test") or
+                elif pending and (pending.get("kind") in ("cartesian", "coordinate_test", "rsi_trial") or
                                   pending.get("kind") == "ball_trial" and pending.get("stage_kind") == "cartesian"):
                     result = self.arm.status(timeout=30)
                 else:
@@ -218,6 +218,10 @@ class ArmService:
             now = time.monotonic()
             elapsed = now - pending["since"]
             pending["elapsed_s"] = round(elapsed, 1)
+            if pending.get('kind')=='rsi_trial':
+                from evoarm_rsi.rsi_execution import observe_pending
+                observe_pending(self,pending,result,now)
+                return result
             if pending.get("kind") == "coordinate_test":
                 from .coordinates import observe_pending
                 observe_pending(self, pending, result, now)
@@ -616,7 +620,7 @@ class ArmService:
                 "message":"已自动清除本次RSI锁存异常；未重新授权运动或补发目标",
             }
 
-    def _preflight(self, joint):
+    def _preflight(self, joint, *, minimum_gap_s=None):
         if self.teach_active:
             raise UnsafeMotion("当前为释放扭矩的示教模式，禁止下发运动指令")
         if self.arm is None or not self.motion_enabled:
@@ -628,7 +632,10 @@ class ArmService:
         if time.monotonic() >= self.armed_until:
             self.armed_until = 0
             raise UnsafeMotion("控制授权已过期，请再次确认")
-        if time.monotonic() - self.last_motion_at < MIN_GAP_SECONDS:
+        gap=MIN_GAP_SECONDS if minimum_gap_s is None else minimum_gap_s
+        if type(gap) not in (int,float) or not math.isfinite(gap) or gap<0:
+            raise UnsafeMotion('指令间隔参数无效')
+        if time.monotonic() - self.last_motion_at < gap:
             raise UnsafeMotion("动作间隔太短，请稍后重试")
         status = self.status()
         if self.fault:

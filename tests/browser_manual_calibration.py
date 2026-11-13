@@ -75,8 +75,8 @@ def check(url, output):
             if data['next_point'] is None:
                 model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
-        elif path=='/task/trials':data={"setup_id":"bench-layout-v2","trials":model.get('trials',[])}
-        elif path=='/bench/grasp/ui-state':data={"setup_id":"bench-layout-v2","health":health(),"plan":None,"job":{"status":"idle"}}
+        elif path=='/bench/rsi/history':data={"trials":model.get('trials',[])}
+        elif path=='/bench/rsi/state':data={"api_version":1,"setup_id":"bench-layout-v2","health":health(),"plan":None,"job":{"status":"idle","phase":"idle"}}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=200,content_type='application/json',body=json.dumps(data))
     with sync_playwright() as playwright:
@@ -129,7 +129,7 @@ def check(url, output):
             assert page.locator('#capture').is_disabled()
             page.locator('#aligned').check();page.get_by_role('button',name='记录 '+key,exact=True).click()
             page.wait_for_function("!document.getElementById('aligned').checked")
-        assert page.locator('#pointOverlay g.captured').count()==5
+        page.wait_for_function("document.querySelectorAll('#pointOverlay g.captured').length===5")
         assert len([c for c in calls if c[1]=='/teach/torque'])==1
         page.get_by_text('五点标定通过',exact=True).wait_for()
         assert page.locator('#progress').inner_text()=='5 / 5'
@@ -153,14 +153,13 @@ def check(url, output):
         page.locator('#frame').wait_for(state='visible')
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'calibration-mobile.png'),full_page=True)
-        page.goto(url+'/experiments');page.get_by_text('还没有抓放试次',exact=True).wait_for()
+        page.goto(url+'/experiments');page.get_by_text('还没有本分支的完整抓放试次。',exact=True).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'experiments-mobile.png'),full_page=True)
-        model['trials']=[{'trial_id':'a'*32,'phase':'grasp_lift','pickup_observed':None,
-                         'ball_entered_funnel':None,'within_10s':True,'evidence':['模拟执行完成，视觉结果待确认']}]
-        page.reload();page.get_by_text('抓取试次 aaaaaaaaaa',exact=True).wait_for()
-        page.get_by_text('抓起：无法确认',exact=False).wait_for()
-        assert '投放：本轮未执行' in page.locator('#trials').inner_text()
+        model['trials']=[{'id':'a'*32,'status':'completed','policy_version':1,'review':None,
+                         'result':{'motion_completed':True,'physical_elapsed_s':8.1}}]
+        page.reload();page.get_by_text('试次 aaaaaaaaaa · 参数 v1',exact=True).wait_for()
+        page.get_by_text('等待复核；动作 8.1 秒；状态 completed',exact=True).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         for source,target in (('/teach','/calibration'),('/pick','/experiments'),('/','/calibration')):
             page.goto(url+source);assert page.url.endswith(target)

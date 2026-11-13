@@ -19,7 +19,7 @@ from .real_probe import _base_url, _controller_get, _controller_post
 from .task_agent import _write
 
 
-def export_keyframes(folder,events):
+def export_keyframes(folder,events,*,stages=('close','lift','finish','fault')):
     import cv2
     import numpy as np
     folder=Path(folder)
@@ -27,7 +27,7 @@ def export_keyframes(folder,events):
     if not rows:return None
     stamps=np.array([r["host_monotonic_ns"] for r in rows],dtype=np.int64)
     wanted=[("before",int(stamps[0]))]
-    wanted.extend((e["stage"],e["host_monotonic_ns"]) for e in events if e["stage"] in ("close","lift","finish","fault"))
+    wanted.extend((e["stage"],e["host_monotonic_ns"]) for e in events if e["stage"] in stages)
     wanted.append(("last",int(stamps[-1])))
     cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];used=set()
     try:
