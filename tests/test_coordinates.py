@@ -185,7 +185,7 @@ class Coordinates(unittest.TestCase):
 
     def test_state_and_plans_publish_the_same_vendor_ranges(self):
         _,state=self.request('state',method='GET');plan=self.prepare()['plan']
-        self.assertEqual(state['coordinate_api_version'],4)
+        self.assertEqual(state['coordinate_api_version'],5)
         self.assertEqual(state['joint_limits'],plan['joint_limits'])
         self.assertEqual([(j['min_deg'],j['max_deg']) for j in state['joint_limits']['joints'][:5]],
                          [(-180,180),(-90,90),(0,180),(-90,90),(-180,180)])

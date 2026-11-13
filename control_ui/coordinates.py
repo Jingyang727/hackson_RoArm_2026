@@ -61,6 +61,12 @@ class Move(PlanID):
     declaration:str
 
 
+class FactoryReset(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:str=Field(pattern=r'^[a-f0-9]{32}$')
+    declaration:str
+
+
 class Verify(PlanID):
     result:str=Field(pattern=r'^(matches|offset|uncertain)$')
     note:str=Field(default='',max_length=1000)
@@ -147,7 +153,7 @@ def install(app, service_provider):
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
-                'coordinate_api_version':4,'joint_limits':joint_limits_info(),
+                'coordinate_api_version':5,'joint_limits':joint_limits_info(),
                 'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
@@ -173,6 +179,18 @@ def install(app, service_provider):
                 if old and old['status']=='prepared':old['status']='superseded';persist(old)
                 plans[key]=report;latest=key;persist(report)
                 return {'plan_id':key,'plan':plan,'expires_in_s':180}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.post('/factory-reset')
+    def factory_reset(req:FactoryReset):
+        service=service_provider()
+        try:
+            with service.lock,lock:
+                def invalidate():
+                    for report in plans.values():
+                        if report['status']=='prepared':
+                            report['status']='superseded';persist(report)
+                return service.confirmed_factory_reset(req.request_id,req.declaration,before_send=invalidate)
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
 
     @router.post('/move')

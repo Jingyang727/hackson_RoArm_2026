@@ -18,7 +18,7 @@ def check(url,output):
     plane={'normal_up':[0,0,1.],'d_mm':115.}
     h={'connected':True,'motion_enabled':True,'torque_status':[True]*6,'pending':None,'fault':None}
     model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None,
-           'coordinate_api_version':4,'joint_limits':joint_limits_info()}
+           'coordinate_api_version':5,'joint_limits':joint_limits_info()}
     calls=[];errors=[];key='a'*32
     image,_=scene();_,jpeg=cv2.imencode('.jpg',image)
     def route(handler):
@@ -45,6 +45,16 @@ def check(url,output):
             assert body['plan_id']==key
             assert body['declaration']=='已核对XYZ目标和路径，现场有人看护且双手离开运动范围'
             h['pending']={'kind':'coordinate_test'};model['result']['status']='moving';data={'sent':True,**model['result']}
+        elif path=='/home/preview':
+            data={'available':True,'kind':'factory','rows':[{'joint':i+1,'label':label,
+                'current_deg':math.degrees(raw[field]),'target_deg':target} for i,(label,field,target) in
+                enumerate(zip(['底座','肩','肘','俯仰','旋转','夹爪'],'bsetrg',[0,0,90,0,0,180]))]}
+        elif path=='/coordinates/factory-reset':
+            assert body['declaration']=='已确认机械臂静止、阻挡已解除、整臂回位空间已清空且双手离开运动范围'
+            assert len(body['request_id'])==32
+            h['fault']=None;h['pending']={'kind':'factory'}
+            h['last_command']={'command':{'T':100},'status':'factory_reset_sent_unverified'}
+            data={'status':'sent_not_verified','request_id':body['request_id']}
         elif path=='/coordinates/verify':
             model['result']['physical_accuracy']=body['result'];data=model['result']
         elif path=='/disarm':data={'locked':True}
@@ -141,6 +151,8 @@ def check(url,output):
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
         page.locator('#confirmed').check();page.locator('#move').click();page.evaluate("document.getElementById('move').click()")
         page.locator('#summary').filter(has_text='等待实际反馈').wait_for()
+        assert page.locator('#factoryResetOpen').is_disabled()
+        assert '不能叠加复位' in page.locator('#factoryResetReason').inner_text()
         assert len([c for c in calls if c[1]=='/coordinates/move'])==1
         assert page.locator('#x').is_disabled()
         count=len([c for c in calls if c[0]=='POST']);page.reload()
@@ -159,9 +171,36 @@ def check(url,output):
         page.locator('#depthPoint').filter(has_text='机械臂 XYZ').wait_for()
         assert '不是球心' in page.locator('#depthPoint').inner_text()
         assert len([c for c in calls if c[1]=='/coordinates/move'])==1
+        h['fault']={'code':'coordinate_timeout','message':'上次动作未确认，已检查实物静止'}
+        page.locator('#factoryResetOpen').wait_for(state='visible')
+        page.wait_for_function("!document.getElementById('factoryResetOpen').disabled")
+        post_count=len([c for c in calls if c[0]=='POST'])
+        page.locator('#factoryResetOpen').click();page.locator('#factoryResetDialog').wait_for(state='visible')
+        assert page.locator('#factoryResetExecute').is_disabled()
+        assert '90.0°' in page.locator('#factoryResetTargets').inner_text()
+        assert '先做只读稳定反馈复核' in page.locator('#factoryResetFaultNote').inner_text()
+        page.locator('#factoryResetCancel').click()
+        assert len([c for c in calls if c[0]=='POST'])==post_count
+        page.locator('#factoryResetOpen').click();page.locator('#factoryResetConfirmed').check()
+        page.wait_for_function("!document.getElementById('factoryResetExecute').disabled")
+        page.screenshot(path=str(output/'factory-reset-dialog.png'),full_page=True)
+        page.locator('#factoryResetExecute').click();page.evaluate("document.getElementById('factoryResetExecute').click()")
+        page.locator('#factoryResetStatus').filter(has_text='正在恢复官方初始姿态').wait_for()
+        assert len([c for c in calls if c[1]=='/coordinates/factory-reset'])==1
+        assert page.locator('#factoryResetOpen').is_disabled()
+        post_count=len([c for c in calls if c[0]=='POST']);page.reload()
+        page.locator('#factoryResetStatus').filter(has_text='正在恢复官方初始姿态').wait_for()
+        assert len([c for c in calls if c[0]=='POST'])==post_count
+        h['pending']=None;h['last_command']['status']='feedback_confirmed'
+        page.locator('#factoryResetStatus').filter(has_text='官方初始姿态反馈已确认').wait_for()
         page.set_viewport_size({'width':390,'height':844})
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'coordinates-mobile.png'),full_page=True)
+        page.locator('#factoryResetOpen').click();page.locator('#factoryResetDialog').wait_for(state='visible')
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.screenshot(path=str(output/'factory-reset-mobile.png'),full_page=True)
+        page.locator('#factoryResetCancel').click()
+        assert len([c for c in calls if c[1]=='/coordinates/factory-reset'])==1
         assert not errors,errors;browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','api_calls':len(calls),'checks':[
         '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible',
@@ -169,6 +208,8 @@ def check(url,output):
         'disabled button reasons visible','height below 25mm selectable','no motion on load, preview or depth clicks',
         'official ranges published; no display-grid clipping; pitch changes invalidate preview',
         'structured path errors show joint angle and progress and leave move disabled',
+        'official reset preview/cancel never moves; explicit confirmation sends once',
+        'pending motion blocks reset; reset progress survives reload without replay',
         'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
         '390px layout','no page errors']}

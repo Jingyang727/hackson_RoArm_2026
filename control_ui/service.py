@@ -41,6 +41,7 @@ TORQUE_VERIFY_ATTEMPTS = 3
 TORQUE_VERIFY_TIMEOUT_S = 3.5
 TORQUE_VERIFY_PAUSE_S = 0.35
 STABLE_POSITION_TOLERANCE_DEG = 0.6
+FACTORY_RESET_DECLARATION = '已确认机械臂静止、阻挡已解除、整臂回位空间已清空且双手离开运动范围'
 
 
 class ArmService:
@@ -513,6 +514,21 @@ class ArmService:
             self.armed_until = 0
             return {"locked": True, "notice": "已锁定新的运动指令。已发出的运动不会因此立即停止；紧急情况请切断机械臂运动电源"}
 
+    def _stationary_feedback(self):
+        """Read-only verification under the serial owner's lock."""
+        first_status = self.arm.status()
+        first = current_degrees(first_status)
+        time.sleep(RECOVERY_SAMPLE_GAP_S)
+        second_status = self.arm.status()
+        second = current_degrees(second_status)
+        for sample in (first_status, second_status):
+            if any(sample.get('torswitch' + key) != 1 for key in 'BSETRG'):
+                raise UnsafeMotion('六关节扭矩未全部锁定，不能继续运动')
+        deviation = max(abs(second[j] - first[j]) for j in JOINTS)
+        if deviation > STABLE_POSITION_TOLERANCE_DEG:
+            raise UnsafeMotion(f'机械臂仍存在反馈变化（最大{deviation:.2f}°），不能解锁')
+        return second_status
+
     def recover_fault(self, declaration):
         """Operator-confirmed stable feedback recovery; NEVER send movement here."""
         with self.lock:
@@ -526,19 +542,9 @@ class ArmService:
             if declaration != "已检查机械臂静止且运动区域安全":
                 raise UnsafeMotion("需要确认机械臂已静止且无障碍")
             try:
-                first_status = self.arm.status()
-                first = current_degrees(first_status)
-                time.sleep(RECOVERY_SAMPLE_GAP_S)
-                second_status = self.arm.status()
-                second = current_degrees(second_status)
-                for sample in (first_status, second_status):
-                    if any(sample.get("torswitch" + key) != 1 for key in "BSETRG"):
-                        raise UnsafeMotion("恢复失败：六关节扭矩未全部锁定，不能继续运动")
+                self._stationary_feedback()
             except Exception as exc:
                 raise UnsafeMotion(f"恢复失败：无法连续读取有效关节状态：{exc}") from exc
-            deviation = max(abs(second[j] - first[j]) for j in JOINTS)
-            if deviation > STABLE_POSITION_TOLERANCE_DEG:
-                raise UnsafeMotion(f"机械臂仍存在反馈变化（最大{deviation:.2f}°），不能解锁")
             previous_fault = self.fault
             self.fault = None
             self.pending = None
@@ -708,7 +714,53 @@ class ArmService:
             status = self._preflight(6)
             return self._send_move(plan_gripper_step(status, delta))
 
-    def factory_reset(self):
+    def confirmed_factory_reset(self, request_id, declaration, before_send=None):
+        """One confirmed reset; no extra torque command, retry or new owner."""
+        from evoarm_rsi.task_agent import _write
+        with self.lock:
+            self.armed_until = 0
+            if len(request_id) != 32 or any(c not in '0123456789abcdef' for c in request_id):
+                raise UnsafeMotion('复位请求编号无效')
+            if declaration != FACTORY_RESET_DECLARATION:
+                raise UnsafeMotion('请先确认机械臂静止、阻挡解除和整臂回位空间')
+            receipt = Path.home()/'.evoarm/rsi/factory_resets'/f'{request_id}.json'
+            if receipt.exists():
+                raise UnsafeMotion('本次复位请求已经使用；不会重复发送，请查看实际状态')
+            if not self.motion_enabled or not self.arm:
+                raise UnsafeMotion('机械臂未连接或运动模式未开启')
+            if self.allowed_joints != set(JOINTS):
+                raise UnsafeMotion('官方复位需要授权全部六个关节')
+            self.status()
+            if self.pending is not None:
+                raise UnsafeMotion('上一动作仍在执行或等待反馈，不能叠加复位；复位不是急停')
+            previous_fault = self.fault
+            if previous_fault:
+                self.recover_fault('已检查机械臂静止且运动区域安全')
+            else:
+                self._stationary_feedback()
+            report = {'request_id':request_id,'command':{'T':100},'target_degrees':FACTORY_DEGREES,
+                      'previous_fault':previous_fault,'created_at':time.time()}
+            def consume(feedback):
+                if before_send:before_send()
+                report.update(status='dispatching',initial_status=dict(feedback))
+                _write(receipt,report)  # Persist BEFORE the only potentially uncertain write.
+            try:
+                self.unlock_once('已检查设备并清空运动区域')
+                result = self.factory_reset(before_send=consume)
+                self.last_command['factory_reset_request_id'] = request_id
+                report.update(status='sent_not_verified',sent_at=time.time())
+                _write(receipt,report)
+                return {**result,'request_id':request_id,'report_file':str(receipt)}
+            except Exception as exc:
+                if receipt.exists():
+                    report.update(status='transmission_or_reporting_uncertain',error=str(exc))
+                    try:_write(receipt,report)
+                    except OSError:pass
+                raise
+            finally:
+                self.armed_until = 0
+
+    def factory_reset(self, before_send=None):
         """Explicit firmware T=100 reset, never a silent automatic command.
 
         This moves all joints, potentially along an unsafe trajectory. Requires the
@@ -739,6 +791,7 @@ class ArmService:
                    ("torswitchB", "torswitchS", "torswitchE",
                     "torswitchT", "torswitchR", "torswitchG")):
                 raise UnsafeMotion("一个或多个关节扭矩状态未确认，不能执行整臂复位")
+            if before_send:before_send(feedback)
             self._send_motion({"T": 100})
             self.last_motion_at = time.monotonic()
             self.pending = {"kind": "factory", "target": "official_init",

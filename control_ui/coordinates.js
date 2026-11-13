@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id);
 const declaration = '已核对XYZ目标和路径，现场有人看护且双手离开运动范围';
 let state=null,plan=null,busy=false,polling=false,revision=0,depth=null,verifiedID=null;
 let selectionMode='point',targetInitialized=false;
+let factoryResetRequestID=null;
+const factoryResetDeclaration='已确认机械臂静止、阻挡已解除、整臂回位空间已清空且双手离开运动范围';
 const view={yaw:.8,pitch:.6,zoom:1};
 const canvas=$('scene'),ctx=canvas.getContext('2d');
 const number = value => typeof value==='number' && Number.isFinite(value) ? value.toFixed(1) : '—';
@@ -62,7 +64,7 @@ function render(){
   for(const j of joints){const item=document.createElement('span');item.className=j.state;item.dataset.joint=j.joint;
     item.textContent=`J${j.joint} ${names[j.joint-1]} ${torqueLabels[j.state]}`;item.title=`${j.field}: ${JSON.stringify(j.raw)??'未报告'}`;$('torqueFeedback').append(item);}
   $('torqueRaw').textContent=JSON.stringify({source:source?.source||(r?'本次T1051':'无本次反馈'),
-    ui_diagnostics_version:4,backend_api_version:state?.coordinate_api_version??1,
+    ui_diagnostics_version:5,backend_api_version:state?.coordinate_api_version??1,
     fields:Object.fromEntries(joints.map(j=>[j.field,j.raw??null])),health_torque_status:h.torque_status??null},null,2);
   const hasZero=joints.some(j=>j.state==='reported_zero');
   $('torqueControls').hidden=!hasZero;
@@ -79,6 +81,23 @@ function render(){
     !h.motion_enabled?'网页服务仍为只读，可预览；执行需按启动说明开启实物模式。':'六关节反馈均锁定；已沿用现有标定，不需要棋盘或相机在线。';
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy;
   $('recover').hidden=!h.fault;$('recover').disabled=busy||moving||!h.connected;
+  const resetReasons=[];
+  if(busy)resetReasons.push('正在处理请求');
+  if(!h.connected)resetReasons.push('先连接机械臂');
+  if(!h.motion_enabled)resetReasons.push('网页服务为只读模式');
+  if(Array.isArray(h.allowed_joints)&&h.allowed_joints.length!==6)resetReasons.push('官方复位需要授权全部六个关节');
+  if(!locked)resetReasons.push('六关节扭矩尚未全部确认锁定');
+  if(!r||!['b','s','e','t','r','g'].every(k=>Number.isFinite(r[k])))resetReasons.push('缺少有效六关节角度反馈');
+  if(moving)resetReasons.push(h.pending.kind==='factory'?'官方复位执行中，请等待反馈':'上一动作尚未结束，不能叠加复位；复位不是急停');
+  if(state&&(state.coordinate_api_version||0)<5)resetReasons.push('请更新并重启网页控制服务以加载复位接口');
+  $('factoryResetOpen').disabled=resetReasons.length>0;
+  $('factoryResetReason').textContent=resetReasons.length?resetReasons.join('；'):'';
+  $('factoryResetExecute').disabled=resetReasons.length>0||!factoryResetRequestID||!$('factoryResetConfirmed').checked;
+  const resetCommand=h.last_command;
+  $('factoryResetStatus').textContent=h.pending?.kind==='factory'?`正在恢复官方初始姿态，等待六关节反馈。${typeof h.pending.max_error_deg==='number'?`当前最大角度差 ${number(h.pending.max_error_deg)}°。`:''}`:
+    resetCommand?.command?.T!==100?'':h.fault?'官方复位尚未确认：'+h.fault.message:
+    resetCommand.status==='feedback_confirmed'?'官方初始姿态反馈已确认，请目视核对实物；继续点位测试需重新预览。':
+    resetCommand.status==='settled_with_offset'?`官方复位已停稳，最大角度偏差 ${number(resetCommand.error_deg)}°，请目视核对实物。`:'官方复位指令已发送，尚待反馈确认。';
   for(const [id,k] of [['actualX','x'],['actualY','y'],['actualZ','z']])$(id).textContent=number(r?.[k]);
   $('height').textContent=typeof state?.height_mm==='number'?`当前名义末端离桌 ${number(state.height_mm)} mm。俯仰 ${number(r.tit*180/Math.PI)}°、旋转 ${number(r.r*180/Math.PI)}°、夹爪 ${number(r.g*180/Math.PI)}°。`:'';
   $('pitchMode').disabled=busy||moving;
@@ -115,7 +134,7 @@ function render(){
     const pitchNote=orientation?`末端俯仰 ${number(orientation.initial_pitch_deg)}° → ${number(orientation.target_pitch_deg)}°。`:'保持当前俯仰。';
     $('planNote').textContent=ready?`预览有效；移动距离 ${number(plan.plan.distance_mm)} mm。${pitchNote}保持末端旋转。${gripNote}`:'预览已失效，请重新预览。';
   }
-  const labels={prepared:'目标预览已保存，尚未发送运动。',moving:'已发送一次T104，等待实际反馈…',already_at_target:'当前反馈已在目标点附近，没有发送运动。',
+  const labels={prepared:'目标预览已保存，尚未发送运动。',superseded:'旧坐标预览已失效，请重新选点并预览。',moving:'已发送一次T104，等待实际反馈…',already_at_target:'当前反馈已在目标点附近，没有发送运动。',
     feedback_within_tolerance:'反馈已稳定并进入6mm参考带，实际准确度由你验收。',settled_with_offset:'反馈已稳定，但与目标有偏差；本次停止在实际位置，没有重发。',
     timeout_unverified:'反馈未在等待窗口内确认；请核对实际状态。',fault:'出现设备故障，请核对实际状态。',transmission_uncertain:'指令传输结果不确定，已锁定后续动作。'};
   if(result){
@@ -147,6 +166,22 @@ async function refresh(){
 async function action(fn){if(busy)return;busy=true;revision++;$('error').hidden=true;render();try{await fn();}catch(exc){error(exc);}finally{busy=false;await refresh();render();}}
 $('connect').onclick=()=>action(async()=>{await api('/api/auto-connect','POST',{});resetPlan();});
 $('recover').onclick=()=>action(async()=>{await api('/api/recover','POST',{declaration:'已检查机械臂静止且运动区域安全'});resetPlan();});
+$('factoryResetOpen').onclick=()=>action(async()=>{
+  resetPlan();const info=await api('/api/home/preview?kind=factory');
+  state=await api('/api/coordinates/state');
+  $('factoryResetTargets').textContent=info.rows.map(row=>`${row.label}：${number(row.current_deg)}° → ${number(row.target_deg)}°`).join('\n');
+  $('factoryResetFaultNote').textContent=state?.health?.fault?'当前有故障：确认后会先做只读稳定反馈复核，通过后再复位。':'确认后会先读取两次静止反馈，通过后执行一次。';
+  factoryResetRequestID=crypto.randomUUID().replaceAll('-','');$('factoryResetConfirmed').checked=false;
+  $('factoryResetDialog').showModal();
+});
+$('factoryResetConfirmed').onchange=render;
+$('factoryResetCancel').onclick=()=>$('factoryResetDialog').close();
+$('factoryResetDialog').onclose=()=>{factoryResetRequestID=null;$('factoryResetConfirmed').checked=false;render();};
+$('factoryResetExecute').onclick=()=>{
+  if(busy||$('factoryResetExecute').disabled)return;
+  const request_id=factoryResetRequestID;$('factoryResetDialog').close();
+  return action(async()=>{resetPlan();await api('/api/coordinates/factory-reset','POST',{request_id,declaration:factoryResetDeclaration});});
+};
 $('useCurrent').onclick=fillCurrent;
 $('pointMode').onclick=()=>setSelectionMode('point');$('numericMode').onclick=()=>setSelectionMode('numeric');
 $('heightRange').oninput=()=>{if(!busy&&!state?.health?.pending&&target().slice(0,2).every(Number.isFinite))applyHeight(...target().slice(0,2));};
