@@ -86,6 +86,8 @@ class MotionStateTests(unittest.TestCase):
             svc.status()
             with self.assertRaises(UnsafeMotion):
                 svc.recover_fault("not confirmed")
+            self.assertFalse(svc.health()["armed"])
+            self.assertIsNotNone(svc.fault)
             recovered = svc.recover_fault("已检查机械臂静止且运动区域安全")
             self.assertTrue(recovered["recovered"])
             self.assertIsNone(svc.fault)
@@ -96,6 +98,23 @@ class MotionStateTests(unittest.TestCase):
             svc.unlock_once("已检查设备并清空运动区域")
             svc.step(1, 5)
             self.assertEqual(len(svc.arm.commands), 2)
+
+    def test_recovery_refuses_unlocked_torque_and_preserves_fault(self):
+        with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION":"1"}), \
+             patch("control_ui.service.time.sleep", return_value=None):
+            svc = self.make()
+            svc.fault = {"code": "motion_stalled_or_offset", "message": "test"}
+            original_status = svc.arm.status
+            def unlocked_status(timeout=None):
+                output = original_status(timeout)
+                output["torswitchS"] = 0
+                return output
+            svc.arm.status = unlocked_status
+            with self.assertRaisesRegex(UnsafeMotion, "扭矩未全部锁定"):
+                svc.recover_fault("已检查机械臂静止且运动区域安全")
+            self.assertIsNotNone(svc.fault)
+            self.assertFalse(svc.health()["armed"])
+            self.assertEqual(svc.arm.commands, [])
 
     def test_recovery_refuses_motion_detected_during_samples(self):
         with patch.dict(os.environ, {"EVOARM_ENABLE_MOTION": "1"}), \

@@ -2,6 +2,9 @@
 import os
 import threading
 import time
+import math
+import json
+from pathlib import Path
 
 from serial.tools import list_ports
 from evoarm.serial_arm import RoArmSerial
@@ -12,7 +15,7 @@ from .safety import (
     current_degrees, checked_home_pose, plan_single_step, plan_gripper_step, plan_home_step,
 )
 
-SESSION_SECONDS = 120
+SESSION_SECONDS = 1800
 MIN_GAP_SECONDS = 0.8
 ARRIVAL_TOLERANCE = 2.0
 # These are *classification heuristics*, not new servo commands or safety
@@ -26,8 +29,19 @@ MIN_JOG_PROGRESS_DEG = 0.4
 JOG_CONFIRM_TIMEOUT_S = 10.0
 GRIPPER_CONFIRM_TIMEOUT_S = 12.0
 FACTORY_CONFIRM_TIMEOUT_S = 45.0
+CART_CONFIRM_TIMEOUT_S = 65.0
+CART_ARRIVAL_TOLERANCE_MM = 6.0
+CART_SETTLED_OFFSET_MAX_MM = 10.0
+# Do not classify a slowly-interpolating T104 path as stalled at the
+# generic 2.5s joint-settling threshold; a brief plateau is not completion.
+CART_MIN_STALL_ELAPSED_S = 8.0
 RECOVERY_SAMPLE_GAP_S = 0.75
+# Send T=210 once. Retry only read-only T=105 status verification.
+TORQUE_VERIFY_ATTEMPTS = 3
+TORQUE_VERIFY_TIMEOUT_S = 3.5
+TORQUE_VERIFY_PAUSE_S = 0.35
 STABLE_POSITION_TOLERANCE_DEG = 0.6
+FACTORY_RESET_DECLARATION = '已确认机械臂静止、阻挡已解除、整臂回位空间已清空且双手离开运动范围'
 
 
 class ArmService:
@@ -40,6 +54,14 @@ class ArmService:
         self.pending = None
         self.last_command = None
         self.fault = None
+        # Teach mode never auto-enables. Keep a fail-closed flag after releasing torque.
+        self.teach_active = False
+        self.last_torque_status = None
+        self.last_torque_result = None
+
+    @property
+    def teach_enabled(self):
+        return os.getenv("EVOARM_ENABLE_TEACH", "0") == "1"
 
     @property
     def motion_enabled(self):
@@ -58,8 +80,57 @@ class ArmService:
         return [{"device": p.device, "description": p.description} for p in list_ports.comports()
                 if p.device.startswith("/dev/cu.")]
 
+    @staticmethod
+    def _last_port_path():
+        return Path.home() / ".evoarm" / "last_serial_port.json"
+
+    def auto_connect(self):
+        """One conservative, idempotent attempt shared by all browser pages.
+
+        Never toggle a connected port or auto-retry motion/faulted hardware.
+        Auto connect requests serial STATUS only. Motion unlock is separate.
+        """
+        with self.lock:
+            if self.arm is not None:
+                return {"connected": True, "port": self.port, "reused": True}
+            available = {entry["device"] for entry in self.ports()}
+            preferred = os.getenv("EVOARM_SERIAL_PORT", "").strip()
+            if not preferred:
+                try:
+                    data = json.loads(self._last_port_path().read_text(encoding="utf-8"))
+                    preferred = data.get("port", "") if isinstance(data, dict) else ""
+                except (OSError, ValueError):
+                    pass
+            candidates = sorted(
+                port for port in available
+                if any(token in port.lower() for token in ("usbserial", "slab_usbtouart", "usbmodem"))
+            )
+            # Never connect to an arbitrary unrelated serial port.
+            if preferred in available:
+                selected = preferred
+            elif len(candidates) == 1:
+                selected = candidates[0]
+            else:
+                return {
+                    "connected": False,
+                    "port": None,
+                    "reason": "无法唯一确定 RoArm USB 串口；请展开连接设置并手动选择一次",
+                }
+            try:
+                self.connect(selected)
+            except Exception as exc:
+                return {"connected": False, "port": selected,
+                        "reason": f"自动连接失败：{exc}。请检查 USB 或供电，必要时手动重连"}
+            return {"connected": True, "port": selected, "reused": False}
+
     def connect(self, port):
         with self.lock:
+            if self.arm is not None and self.port == port:
+                # Opening the same port again would reset the ESP32 and could
+                # disrupt an in-flight motion or a released-torque teach pose.
+                return self.arm.status()
+            if self.arm is not None and (self.pending or self.teach_active):
+                raise UnsafeMotion("机械臂正在运动或处于释放扭矩示教中，禁止切换串口")
             if port not in {p["device"] for p in self.ports()}:
                 raise ValueError("选择的串口不在 Mac 可用设备列表")
             self.disconnect()
@@ -74,6 +145,21 @@ class ArmService:
             self.arm, self.port = arm, port
             self.armed_until = 0
             self.pending = self.last_command = None  # Keep a latched fault across reconnects.
+            flags = [result.get("torswitch" + k) for k in "BSETRG"]
+            self.last_torque_status = flags
+            self.last_torque_result = None
+            self.teach_active = not all(v == 1 for v in flags)
+            # Save only an already verified working device; never persist an
+            # unverified guessed port and never store private serial status.
+            try:
+                path = self._last_port_path()
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"port": port}) + "\n", encoding="utf-8")
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+            except OSError:
+                pass  # Read-only home directories should not break a connection.
             return result
 
     def disconnect(self):
@@ -102,6 +188,9 @@ class ArmService:
                 # Firmware T=100 can block other commands during reset.
                 if pending and pending.get("kind") == "factory":
                     result = self.arm.status(timeout=20)
+                elif pending and (pending.get("kind") in ("cartesian", "coordinate_test") or
+                                  pending.get("kind") == "ball_trial" and pending.get("stage_kind") == "cartesian"):
+                    result = self.arm.status(timeout=30)
                 else:
                     result = self.arm.status()
             except Exception as exc:
@@ -111,6 +200,13 @@ class ArmService:
                     detail=str(exc),
                 )
                 raise
+            self.last_torque_status = [result.get("torswitch" + k) for k in "BSETRG"]
+            # A T=210 response can time out after the torque state has changed.
+            # The *next genuine T=1051 reply* is authoritative: reconcile the
+            # fail-closed teach flag only when all six hardware flags are valid.
+            # This does not send T=210 or cause any motor motion.
+            if all(v in (0, 1) for v in self.last_torque_status):
+                self.teach_active = not all(v == 1 for v in self.last_torque_status)
             if pending is None:
                 return result
             try:
@@ -122,8 +218,61 @@ class ArmService:
             now = time.monotonic()
             elapsed = now - pending["since"]
             pending["elapsed_s"] = round(elapsed, 1)
+            if pending.get("kind") == "coordinate_test":
+                from .coordinates import observe_pending
+                observe_pending(self, pending, result, now)
+                return result
+            if pending.get("kind") == "ball_trial":
+                from .ball_trial import observe_pending
+                observe_pending(self, pending, result, now)
+                return result
             stable = observe_stability(pending, angles, now)
             is_factory = pending.get("kind") == "factory"
+            if pending.get("kind") == "cartesian":
+                # Official T104 is interpolated and can block firmware processing.
+                # Verify reported end-effector XYZ, not just joint-angle changes.
+                def xyz(k):
+                    v = result.get(k)
+                    if type(v) not in (int, float) or not math.isfinite(v):
+                        raise UnsafeMotion("末端XYZ反馈缺失或无效")
+                    return float(v)
+                try:
+                    current_xyz = [xyz(k) for k in "xyz"]
+                except UnsafeMotion as exc:
+                    self._latch_fault("invalid_cartesian_feedback",str(exc))
+                    raise
+                target = pending["xyz_target"]
+                residual = math.dist(current_xyz,target)
+                progress = math.dist(current_xyz,pending["xyz_start"])
+                pending["actual_xyz_mm"] = [round(v,2) for v in current_xyz]
+                pending["position_error_mm"] = round(residual,2)
+                pending["progress_mm"] = round(progress,2)
+                if residual <= CART_ARRIVAL_TOLERANCE_MM and progress >= 0.8:
+                    self.pending = None
+                    if self.last_command:
+                        self.last_command["status"] = "feedback_confirmed"
+                        self.last_command["position_error_mm"] = round(residual,2)
+                        self.last_command["confirmed_at"] = time.time()
+                elif stable and elapsed >= CART_MIN_STALL_ELAPSED_S:
+                    if residual <= CART_SETTLED_OFFSET_MAX_MM and progress >= 0.8:
+                        self.pending = None
+                        self.armed_until = 0
+                        if self.last_command:
+                            self.last_command["status"] = "settled_with_offset"
+                            self.last_command["position_error_mm"] = round(residual,2)
+                            self.last_command["message"] = (
+                                f"末端XYZ已停稳但偏离目标{residual:.1f}mm，请核查姿态并重新授权")
+                    else:
+                        self._latch_fault("cartesian_stalled",
+                            f"XYZ反馈已稳定但偏离目标{residual:.1f}mm，禁止继续运动；请检查实际位置",
+                            expected_xyz_mm=target, actual_xyz_mm=current_xyz,
+                            error_mm=round(residual,2))
+                elif elapsed >= CART_CONFIRM_TIMEOUT_S:
+                    self._latch_fault("cartesian_unverified",
+                        f"XYZ反馈等待超过{CART_CONFIRM_TIMEOUT_S:g}秒，目标仍未确认；请检查供电、卡滞与串口",
+                        expected_xyz_mm=target, actual_xyz_mm=current_xyz,
+                        error_mm=round(residual,2))
+                return result
             if is_factory:
                 differences = {
                     j: round(angles[j] - FACTORY_DEGREES[j], 2)
@@ -213,6 +362,10 @@ class ArmService:
             return {
                 "connected": self.arm is not None, "port": self.port,
                 "motion_enabled": self.motion_enabled,
+                "teach_enabled": self.teach_enabled,
+                "teach_active": self.teach_active,
+                "torque_status": self.last_torque_status,
+                "torque_last_result": self.last_torque_result,
                 "allowed_joints": sorted(self.allowed_joints) if self.motion_enabled else [],
                 "armed": bool(self.arm and self.motion_enabled and remaining > 0),
                 "arm_seconds_left": remaining,
@@ -227,13 +380,15 @@ class ArmService:
             }
 
     def unlock_once(self, declaration):
-        # API name kept for backward compatibility; unlock lasts 2 minutes.
+        # API name kept for backward compatibility; unlock lasts 30 minutes (manual, never auto-renewed).
         with self.lock:
             self.armed_until = 0
             if not self.motion_enabled:
                 raise UnsafeMotion("只读模式：需要显式设置 EVOARM_ENABLE_MOTION=1")
             if self.arm is None:
                 raise UnsafeMotion("请先连接机械臂")
+            if self.teach_active:
+                raise UnsafeMotion("示教释放扭矩状态下，禁止解锁运动。请先支撑机械臂并确认恢复扭矩")
             if declaration != "已检查设备并清空运动区域":
                 raise UnsafeMotion("请先确认机械臂、固定支架和工作区域安全")
             self.status()
@@ -242,30 +397,154 @@ class ArmService:
             self.armed_until = time.monotonic() + SESSION_SECONDS
             return {"armed": True, "expires_in_seconds": SESSION_SECONDS}
 
+    def set_torque(self, enabled, declaration):
+        """Explicit T=210 all-servo transition; never retry the actuation itself.
+
+        T=1051 can time out immediately after T=210 even if the servo switch
+        succeeded. Retrying status reads is safe; replaying T=210 is not.
+        """
+        with self.lock:
+            if type(enabled) is not bool:
+                raise UnsafeMotion("扭矩模式无效")
+            if not self.teach_enabled:
+                raise UnsafeMotion("示教扭矩控制默认关闭，须显式设置 EVOARM_ENABLE_TEACH=1")
+            if self.arm is None:
+                raise UnsafeMotion("机械臂未连接")
+            if self.pending is not None:
+                raise UnsafeMotion("动作未确认完成，不能切换扭矩")
+            if self.fault and not enabled:
+                raise UnsafeMotion("有运动异常时不能释放扭矩")
+            required = ("已托住机械臂并确认重新锁定" if enabled
+                        else "已托住机械臂并确认释放全部关节")
+            if declaration != required:
+                raise UnsafeMotion("请先确认托住机械臂、避免重力下垂与突然转动")
+            before = self.arm.status()
+            flags = [before.get("torswitch" + k) for k in "BSETRG"]
+            if any(v not in (0, 1) for v in flags):
+                raise UnsafeMotion("扭矩反馈不完整，拒绝切换")
+            if not enabled and any(v != 1 for v in flags):
+                raise UnsafeMotion("一个或多个关节已释放；请读取实际状态，勿重复释放")
+            self.last_torque_status = flags
+            self.armed_until = 0
+            target = 1 if enabled else 0
+            if all(v == target for v in flags):
+                # An explicit re-lock may arrive after the earlier response
+                # timed out, while the physical servos are already locked.
+                self.teach_active = not enabled
+                result = {
+                    "verified": True, "torque_enabled": enabled,
+                    "torque_state": flags, "command_sent": False,
+                    "verification_attempts": 0,
+                    "message": ("六关节已经全部锁定，无需重复发送扭矩指令"
+                                if enabled else "六关节已经全部释放，无需重复发送指令"),
+                }
+                self.last_torque_result = result
+                return result
+            self.teach_active = True  # fail closed before sending
+            try:
+                self.arm.send({"T": 210, "cmd": target})
+            except Exception as exc:
+                # Transport may fail after some bytes were written. We cannot
+                # assume the command was not received. Never auto-reissue it.
+                self.last_torque_status = None
+                result = {
+                    "verified": False, "torque_enabled": None,
+                    "torque_state": None, "command_sent": False,
+                    "verification_attempts": 0,
+                    "message": (
+                        f"指令发送异常：{exc}；可能已生效。保持托住机械臂，"
+                        "请点击“读取实际扭矩状态”；当前禁止运动，不会自动重发"
+                    ),
+                }
+                self.last_torque_result = result
+                return result
+            current = None
+            last_error = None
+            attempts = 0
+            for attempt in range(TORQUE_VERIFY_ATTEMPTS):
+                if attempt:
+                    time.sleep(TORQUE_VERIFY_PAUSE_S)
+                attempts = attempt + 1
+                try:
+                    observed = self.arm.status(timeout=TORQUE_VERIFY_TIMEOUT_S)
+                except Exception as exc:
+                    last_error = str(exc)
+                    continue
+                values = [observed.get("torswitch" + k) for k in "BSETRG"]
+                if any(v not in (0, 1) for v in values):
+                    last_error = "扭矩反馈不完整"
+                    continue
+                current = values
+                self.last_torque_status = values
+                if all(v == target for v in values):
+                    self.teach_active = not enabled
+                    result = {
+                        "verified": True, "torque_enabled": enabled,
+                        "torque_state": values, "command_sent": True,
+                        "verification_attempts": attempts,
+                        "message": ("六关节扭矩已锁定；运动仍需重新手动授权"
+                                    if enabled else
+                                    "六关节扭矩已释放；请持续托住大臂，避免下垂"),
+                    }
+                    self.last_torque_result = result
+                    return result
+                last_error = "尚未全部达到目标扭矩状态"
+            # Do not report failure of actuation: only verification failed.
+            # Never expose stale pre-command feedback as the latest state.
+            self.teach_active = True
+            if current is None:
+                self.last_torque_status = None
+            result = {
+                "verified": False, "torque_enabled": None,
+                "torque_state": current, "command_sent": True,
+                "verification_attempts": attempts,
+                "message": (
+                    f"T=210仅发送一次，但{attempts}次状态读取仍未确认"
+                    + (f"（最近反馈错误：{last_error}）" if last_error else "")
+                    + "。指令可能已经生效！请托住机械臂，点击“读取实际扭矩状态”。"
+                    "当前禁止新的运动指令，不会自动重发扭矩指令"
+                ),
+            }
+            self.last_torque_result = result
+            return result
+
     def disarm(self):
         # Intentionally does not claim to stop a command already sent.
         with self.lock:
             self.armed_until = 0
             return {"locked": True, "notice": "已锁定新的运动指令。已发出的运动不会因此立即停止；紧急情况请切断机械臂运动电源"}
 
+    def _stationary_feedback(self):
+        """Read-only verification under the serial owner's lock."""
+        first_status = self.arm.status()
+        first = current_degrees(first_status)
+        time.sleep(RECOVERY_SAMPLE_GAP_S)
+        second_status = self.arm.status()
+        second = current_degrees(second_status)
+        for sample in (first_status, second_status):
+            if any(sample.get('torswitch' + key) != 1 for key in 'BSETRG'):
+                raise UnsafeMotion('六关节扭矩未全部锁定，不能继续运动')
+        deviation = max(abs(second[j] - first[j]) for j in JOINTS)
+        if deviation > STABLE_POSITION_TOLERANCE_DEG:
+            raise UnsafeMotion(f'机械臂仍存在反馈变化（最大{deviation:.2f}°），不能解锁')
+        return second_status
+
     def recover_fault(self, declaration):
         """Operator-confirmed stable feedback recovery; NEVER send movement here."""
         with self.lock:
             if not self.fault:
                 raise UnsafeMotion("没有需要恢复的动作异常")
+            # Fail closed on EVERY recovery attempt, including a rejected one.
+            # A fault may be raised while a previous authorization remains.
+            self.armed_until = 0
             if not self.arm:
                 raise UnsafeMotion("请先检查串口连接")
             if declaration != "已检查机械臂静止且运动区域安全":
                 raise UnsafeMotion("需要确认机械臂已静止且无障碍")
             try:
-                first = current_degrees(self.arm.status())
-                time.sleep(RECOVERY_SAMPLE_GAP_S)
-                second = current_degrees(self.arm.status())
+                self._stationary_feedback()
             except Exception as exc:
                 raise UnsafeMotion(f"恢复失败：无法连续读取有效关节状态：{exc}") from exc
-            deviation = max(abs(second[j] - first[j]) for j in JOINTS)
-            if deviation > STABLE_POSITION_TOLERANCE_DEG:
-                raise UnsafeMotion(f"机械臂仍存在反馈变化（最大{deviation:.2f}°），不能解锁")
             previous_fault = self.fault
             self.fault = None
             self.pending = None
@@ -273,7 +552,73 @@ class ArmService:
             return {"recovered": True, "previous_fault": previous_fault,
                     "message": "反馈稳定、异常已解除。需要重新点击“确认安全并解锁”"}
 
+    def recover_rsi_cartesian_stall(self, session_id):
+        """Auto-clear ONLY a latched RSI cartesian_stalled fault after
+        repeated stable T=1051 joint AND Cartesian readings.
+
+        This function NEVER enables motion, unlocks a lease, retries a
+        command, changes torque, resets the official pose or advances the
+        pick session. After recovery the human must re-arm for any movement.
+        """
+        with self.lock:
+            fault=self.fault
+            last=self.last_command or {}
+            if (not isinstance(fault,dict) or
+                fault.get("code")!="cartesian_stalled"):
+                raise UnsafeMotion("RSI自动恢复仅支持cartesian_stalled")
+            if (not isinstance(session_id,str) or
+                last.get("pick_session_id")!=session_id):
+                raise UnsafeMotion("故障不属于本次抓取，禁止自动恢复")
+            self.armed_until=0
+            if not self.arm or self.pending is not None or self.teach_active:
+                raise UnsafeMotion("电机状态未确认静止，禁止RSI自动恢复")
+            samples=[]
+            try:
+                for i in range(3):
+                    if i:
+                        time.sleep(RECOVERY_SAMPLE_GAP_S)
+                    raw=self.arm.status()
+                    joint=current_degrees(raw)
+                    xyz=[raw.get(k) for k in "xyz"]
+                    if (any(type(v) not in (int,float) or
+                            not math.isfinite(v) for v in xyz) or
+                        any(raw.get("torswitch"+k)!=1 for k in "BSETRG")):
+                        raise UnsafeMotion("关节扭矩或Cartesian反馈不可信")
+                    samples.append((joint,[float(v) for v in xyz]))
+            except Exception as exc:
+                raise UnsafeMotion("RSI自动恢复失败：连续真实状态检测异常："+str(exc)) from exc
+            joint_drift=max(
+                abs(samples[i][0][j]-samples[0][0][j])
+                for i in (1,2) for j in JOINTS
+            )
+            xyz_drift=max(
+                math.dist(samples[i][1],samples[0][1])
+                for i in (1,2)
+            )
+            if joint_drift>STABLE_POSITION_TOLERANCE_DEG or xyz_drift>1.5:
+                raise UnsafeMotion(
+                    f"RSI自动恢复失败：仍有运动（关节{joint_drift:.2f}°, "
+                    f"XYZ {xyz_drift:.2f}mm）"
+                )
+            if self.fault is not fault and self.fault!=fault:
+                raise UnsafeMotion("恢复期间故障发生变化，拒绝清除")
+            self.fault=None
+            self.pending=None
+            self.armed_until=0
+            return {
+                "software_fault_cleared":True,
+                "motor_command_sent":False,
+                "motion_reauthorized":False,
+                "joint_drift_deg":round(joint_drift,3),
+                "xyz_drift_mm":round(xyz_drift,3),
+                "actual_xyz_mm":[round(v,2) for v in samples[-1][1]],
+                "previous_fault":fault,
+                "message":"已自动清除本次RSI锁存异常；未重新授权运动或补发目标",
+            }
+
     def _preflight(self, joint):
+        if self.teach_active:
+            raise UnsafeMotion("当前为释放扭矩的示教模式，禁止下发运动指令")
         if self.arm is None or not self.motion_enabled:
             raise UnsafeMotion("机械臂未连接，或后端仍处于只读模式")
         if self.fault:
@@ -288,13 +633,28 @@ class ArmService:
         status = self.status()
         if self.fault:
             raise UnsafeMotion("动作反馈异常：" + self.fault["message"])
+        if any(status.get("torswitch" + k) != 1 for k in "BSETRG"):
+            raise UnsafeMotion("全部关节扭矩未锁定，禁止运动")
         if self.pending is not None:
             elapsed = self.pending.get("elapsed_s", 0)
             raise UnsafeMotion(f"上一动作正在等待到位反馈（{elapsed:.1f}秒），请查看下方执行状态")
         return status
 
+    def _send_motion(self, command):
+        """One write attempt; a failed flush may follow a received command."""
+        with self.lock:
+            try:
+                self.arm.send(command)
+            except Exception as exc:
+                self.last_command = {"status": "unverified_fault", "command": command,
+                                     "attempted_at": time.time(), "transmission_confirmed": False}
+                self._latch_fault("motion_transmission_unverified",
+                    "运动指令传输失败，是否已生效未知；已锁定后续动作，未自动重发",
+                    detail=str(exc))
+                raise
+
     def _send_move(self, plan):
-        self.arm.send(plan.payload)
+        self._send_motion(plan.payload)
         self.last_motion_at = time.monotonic()
         self.pending = {"joint": plan.joint, "target_deg": plan.target_deg,
                         "since": time.monotonic(), "elapsed_s": 0.0,
@@ -312,13 +672,95 @@ class ArmService:
             status = self._preflight(joint)
             return self._send_move(plan_single_step(status, joint, delta))
 
+    def teach_move_to(self, joint, target_deg):
+        """One explicitly clicked bounded joint move; never streams slider events."""
+        from .safety import plan_to_angle, current_degrees
+        if type(joint) is not int or type(target_deg) not in (int, float):
+            raise UnsafeMotion("关节或目标角度格式错误")
+        if not math.isfinite(target_deg):
+            raise UnsafeMotion("目标角度必须是有限值")
+        with self.lock:
+            status = self._preflight(joint)
+            current = current_degrees(status)[joint]
+            # Absolute target via slider, but bounded displacement per command.
+            # No automatic multi-command chaining.
+            max_delta = 30.0
+            difference = target_deg - current
+            if abs(difference) > max_delta + 1e-6:
+                raise UnsafeMotion(
+                    f"当前{current:.1f}° → 目标{target_deg:.1f}°差{difference:+.1f}°；"
+                    "单次最多30°。请先到中间角度，核对反馈后再继续")
+            if abs(difference) < 0.5:
+                raise UnsafeMotion("已经接近目标角度，无需重复发送")
+            return self._send_move(plan_to_angle(status, joint, target_deg))
+
+    def teach_move_relative(self, joint, delta_deg):
+        """One-click relative jog based on latest hardware feedback, not slider state."""
+        from .safety import plan_to_angle, current_degrees
+        if type(joint) is not int or joint not in JOINTS:
+            raise UnsafeMotion("关节编号无效")
+        if type(delta_deg) not in (int, float) or not math.isfinite(delta_deg):
+            raise UnsafeMotion("调整角度无效")
+        if delta_deg not in (-10, -5, 5, 10):
+            raise UnsafeMotion("快速调整仅支持 ±5° 或 ±10°")
+        with self.lock:
+            status = self._preflight(joint)
+            current = current_degrees(status)[joint]
+            return self._send_move(plan_to_angle(status, joint, current + delta_deg))
+
     def gripper_step(self, delta):
         """Move gripper by a bounded angle. Uses official T=106 radians command."""
         with self.lock:
             status = self._preflight(6)
             return self._send_move(plan_gripper_step(status, delta))
 
-    def factory_reset(self):
+    def confirmed_factory_reset(self, request_id, declaration, before_send=None):
+        """One confirmed reset; no extra torque command, retry or new owner."""
+        from evoarm_rsi.task_agent import _write
+        with self.lock:
+            self.armed_until = 0
+            if len(request_id) != 32 or any(c not in '0123456789abcdef' for c in request_id):
+                raise UnsafeMotion('复位请求编号无效')
+            if declaration != FACTORY_RESET_DECLARATION:
+                raise UnsafeMotion('请先确认机械臂静止、阻挡解除和整臂回位空间')
+            receipt = Path.home()/'.evoarm/rsi/factory_resets'/f'{request_id}.json'
+            if receipt.exists():
+                raise UnsafeMotion('本次复位请求已经使用；不会重复发送，请查看实际状态')
+            if not self.motion_enabled or not self.arm:
+                raise UnsafeMotion('机械臂未连接或运动模式未开启')
+            if self.allowed_joints != set(JOINTS):
+                raise UnsafeMotion('官方复位需要授权全部六个关节')
+            self.status()
+            if self.pending is not None:
+                raise UnsafeMotion('上一动作仍在执行或等待反馈，不能叠加复位；复位不是急停')
+            previous_fault = self.fault
+            if previous_fault:
+                self.recover_fault('已检查机械臂静止且运动区域安全')
+            else:
+                self._stationary_feedback()
+            report = {'request_id':request_id,'command':{'T':100},'target_degrees':FACTORY_DEGREES,
+                      'previous_fault':previous_fault,'created_at':time.time()}
+            def consume(feedback):
+                if before_send:before_send()
+                report.update(status='dispatching',initial_status=dict(feedback))
+                _write(receipt,report)  # Persist BEFORE the only potentially uncertain write.
+            try:
+                self.unlock_once('已检查设备并清空运动区域')
+                result = self.factory_reset(before_send=consume)
+                self.last_command['factory_reset_request_id'] = request_id
+                report.update(status='sent_not_verified',sent_at=time.time())
+                _write(receipt,report)
+                return {**result,'request_id':request_id,'report_file':str(receipt)}
+            except Exception as exc:
+                if receipt.exists():
+                    report.update(status='transmission_or_reporting_uncertain',error=str(exc))
+                    try:_write(receipt,report)
+                    except OSError:pass
+                raise
+            finally:
+                self.armed_until = 0
+
+    def factory_reset(self, before_send=None):
         """Explicit firmware T=100 reset, never a silent automatic command.
 
         This moves all joints, potentially along an unsafe trajectory. Requires the
@@ -328,6 +770,8 @@ class ArmService:
         with self.lock:
             if not self.motion_enabled or self.arm is None:
                 raise UnsafeMotion("机械臂未连接或运动模式未开启")
+            if self.teach_active:
+                raise UnsafeMotion("示教释放扭矩时禁止执行官方复位")
             if self.fault:
                 raise UnsafeMotion("存在未解决的动作异常，不能执行官方复位")
             if set(JOINTS) - self.allowed_joints:
@@ -347,7 +791,8 @@ class ArmService:
                    ("torswitchB", "torswitchS", "torswitchE",
                     "torswitchT", "torswitchR", "torswitchG")):
                 raise UnsafeMotion("一个或多个关节扭矩状态未确认，不能执行整臂复位")
-            self.arm.send({"T": 100})
+            if before_send:before_send(feedback)
+            self._send_motion({"T": 100})
             self.last_motion_at = time.monotonic()
             self.pending = {"kind": "factory", "target": "official_init",
                             "since": time.monotonic(), "elapsed_s": 0.0,
@@ -364,6 +809,8 @@ class ArmService:
 
     def home_save(self):
         with self.lock:
+            if self.teach_active:
+                raise UnsafeMotion("释放扭矩中不能保存正常动作待机位置")
             status = self.status()
             if self.fault or self.pending is not None:
                 raise UnsafeMotion("动作异常或尚未到位，不能把运动中姿态保存为复位点")

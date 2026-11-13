@@ -1,22 +1,14 @@
 """Bounded single-joint manual control. Software limits are NOT collision avoidance."""
 from dataclasses import dataclass
 import math
+from evoarm.limits import JOINTS, GRIPPER_MAX_RAD
 
 
 class UnsafeMotion(ValueError):
     pass
 
 
-# Training limits are intentionally narrower than official RoArm-M3 joint limits.
-# (Chinese name, T=1051 radians feedback key, min degrees, max degrees)
-JOINTS = {
-    1: ("底座旋转", "b", -75.0, 75.0),
-    2: ("肩部前后", "s", -50.0, 50.0),
-    3: ("肘部上下", "e", 35.0, 145.0),
-    4: ("手腕俯仰", "t", -60.0, 60.0),
-    5: ("末端旋转", "r", -90.0, 90.0),
-    6: ("夹爪开合", "g", 65.0, 180.0),
-}
+# Shared vendor command ranges; no separate manual-training envelope.
 JOG_STEPS = (1, 3, 5, 10)
 GRIPPER_STEPS = (5, 15, 30)
 # Feedback may differ slightly from the official command range at a hard stop.
@@ -52,7 +44,8 @@ def current_degrees(status):
     return degrees
 
 
-def plan_to_angle(status, joint, target_deg):
+def validate_angle_range(status, joint, target_deg):
+    """Pure feedback/target range validation; this never authorizes actuation."""
     if type(joint) is not int or joint not in JOINTS:
         raise UnsafeMotion("未知的关节编号")
     if type(target_deg) not in (int, float) or not math.isfinite(target_deg):
@@ -64,15 +57,21 @@ def plan_to_angle(status, joint, target_deg):
     if not (lower_feedback <= current <= upper_feedback):
         raise UnsafeMotion(f"{name} 当前角度 {current:.1f}° 超出允许偏差，需检查反馈和零位")
     if not low <= target_deg <= high:
-        raise UnsafeMotion(f"{name} 目标角度 {target_deg:.1f}° 超出了手动训练范围 [{low}, {high}]°")
+        raise UnsafeMotion(f"{name} 目标角度 {target_deg:.1f}° 超出了官方接口范围 [{low:.1f}, {high:.1f}]°")
     if current < low and target_deg <= current or current > high and target_deg >= current:
         raise UnsafeMotion(f"{name} 已轻微越界，只允许朝安全区间恢复")
+    return current
+
+
+def plan_to_angle(status, joint, target_deg):
+    current = validate_angle_range(status, joint, target_deg)
+    name = JOINTS[joint][0]
     if status.get(TORQUE_FIELDS[joint]) != 1:
         raise UnsafeMotion(f"{name} 的扭矩使能状态未确认，拒绝运动")
     if joint == 6:
         # Official M3 T=106 gripper command accepts radians in [1.08, 3.14].
         # Its speed is servo steps/s, unlike T=121 degrees/s.
-        cmd_rad = round(min(math.radians(target_deg), 3.14), 5)
+        cmd_rad = round(min(math.radians(target_deg), GRIPPER_MAX_RAD), 5)
         return Movement(joint, round(current, 2), round(target_deg, 2), {
             "T": 106, "cmd": cmd_rad,
             "spd": GRIPPER_SPEED_STEPS_S, "acc": GRIPPER_ACCEL_100_STEPS_S2,
@@ -124,5 +123,5 @@ def checked_home_pose(status):
     for j, angle in angles.items():
         name, _, lo, hi = JOINTS[j]
         if not lo <= angle <= hi:
-            raise UnsafeMotion(f"无法保存：{name} 超出了手动训练范围")
+            raise UnsafeMotion(f"无法保存：{name} 超出了官方接口范围 [{lo:.1f}, {hi:.1f}]°")
     return {j: round(value, 3) for j, value in angles.items()}
