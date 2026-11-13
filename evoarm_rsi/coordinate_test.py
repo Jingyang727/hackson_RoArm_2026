@@ -6,6 +6,32 @@ import math
 from .ball_trial import check_segment, SPEED
 from .bench_calibration import fit_points, _digest
 from .roarm_geometry import forward, inverse, height_above_plane
+from control_ui.safety import JOINTS, plan_to_angle
+
+
+def gripper_hold(status):
+    """Use the measured aperture, bounded by legal COMMAND limits.
+
+    Firmware feedback at a mechanical stop may be slightly over the command
+    boundary. The existing manual-control policy already permits a 2-degree
+    feedback band for an inward recovery. Reuse that policy, never extend
+    the command range or rewrite the actual feedback.
+    """
+    measured=status['g']
+    low=math.radians(JOINTS[6][2]);high=min(math.radians(JOINTS[6][3]),3.14)
+    target=min(max(measured,low),high)
+    # Pure validation; this does NOT send the helper's T106 payload.
+    plan_to_angle(status,6,math.degrees(target))
+    return {'feedback_rad':measured,'command_rad':target,'feedback_deg':math.degrees(measured),
+            'command_deg':math.degrees(target),'normalized':abs(measured-target)>1e-9}
+
+
+def check_coordinate_segment(status,stage,plane):
+    # Recheck the real gripper feedback band at preview AND each preflight.
+    # Only the gripper hold command can be normalized; all other joints and
+    # the entire Cartesian path retain the existing strict checks.
+    plan_to_angle(status,6,math.degrees(stage['gripper_rad']))
+    check_segment(status,stage,plane)
 
 
 def calibrated_table(session):
@@ -32,19 +58,21 @@ def plan_point(session, status, target):
         if start_height < -10 or math.dist(current[:2],target[:2])>1 or target_height<=start_height:
             raise ValueError('当前末端较低；请先预览同XY、Z更高的竖直抬升点')
         minimum=start_height-1
+    hold=gripper_hold(status)
     stage={'stage':'coordinate_test','kind':'cartesian','xyz_mm':list(target),'pitch_rad':status['tit'],
-           'roll_rad':status['r'],'gripper_rad':status['g'],'minimum_tip_height_mm':minimum}
-    check_segment(status,stage,plane)
-    predicted=inverse(target,status['tit'],status['r'],status['g'])
+           'roll_rad':status['r'],'gripper_rad':hold['command_rad'],'minimum_tip_height_mm':minimum}
+    check_coordinate_segment(status,stage,plane)
+    predicted=inverse(target,status['tit'],status['r'],hold['command_rad'])
     count=max(2,math.ceil(math.dist(current,target)/8))
     path=[[a+(b-a)*i/count for a,b in zip(current,target)] for i in range(count+1)]
     return {'kind':'single_xyz_validation_v1','setup_id':session['setup_id'],'frame':'robot_firmware_mm',
             'initial_status':status,'target_xyz_mm':list(target),'table_plane':plane,'path_xyz_mm':path,
             'target_height_mm':target_height,'distance_mm':math.dist(current,target),
-            'pose_preserved_rad':{k:status[field] for k,field in [('pitch','tit'),('roll','r'),('gripper','g')]},
+            'pose_preserved_rad':{'pitch':status['tit'],'roll':status['r'],'gripper':hold['command_rad']},
+            'gripper_hold':hold,
             'predicted_joints_xyz_mm':forward(predicted)['joints_xyz_mm'],
             'command':{'T':104,'x':target[0],'y':target[1],'z':target[2],'t':status['tit'],'r':status['r'],
-                       'g':status['g'],'spd':SPEED},'stage':stage,'calibration_fingerprint':fingerprint(session),
+                       'g':hold['command_rad'],'spd':SPEED},'stage':stage,'calibration_fingerprint':fingerprint(session),
             'physical_accuracy':'unverified_until_operator_checks','camera_required':False,'board_required':False}
 
 

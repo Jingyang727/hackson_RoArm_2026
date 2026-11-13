@@ -16,9 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
 from evoarm_rsi.bench_calibration import load_session
-from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point, errors
+from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point, errors, check_coordinate_segment
 from evoarm_rsi.roarm_geometry import forward, height_above_plane
-from evoarm_rsi.ball_trial import camera_geometry, check_segment
+from evoarm_rsi.ball_trial import camera_geometry
 from evoarm_rsi.task_scene import load_rgbd
 from evoarm_rsi.task_agent import _write
 from evoarm_rsi.bench_start import _ready
@@ -165,16 +165,16 @@ def install(app, service_provider):
                 if any(abs(raw[k]-plan['initial_status'][k])>math.radians(1) for k in 'bsetrg'):
                     raise ValueError('机械臂姿态已改变，请重新预览目标')
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('本次XYZ移动需要现有六关节授权')
-                check_segment(raw,plan['stage'],plan['table_plane'])
+                check_coordinate_segment(raw,plan['stage'],plan['table_plane'])
                 if math.dist([raw[k] for k in 'xyz'],plan['target_xyz_mm'])<.8:
                     report.update(status='already_at_target',**errors(raw,plan['target_xyz_mm'],plan['pose_preserved_rad']))
                     persist(report);return {'sent':False,**result_view(report)}
                 service.unlock_once('已检查设备并清空运动区域');unlocked=True;raw=service._preflight(1)
                 if any(abs(raw[k]-plan['initial_status'][k])>math.radians(1) for k in 'bsetrg'):
                     service.disarm();raise ValueError('执行前姿态变化，请重新预览')
-                check_segment(raw,plan['stage'],plan['table_plane'])
+                check_coordinate_segment(raw,plan['stage'],plan['table_plane'])
                 # Consume before the only serial write, including uncertain writes.
-                report.update(status='dispatching',command=plan['command'],sent_at_unix=time.time());persist(report)
+                report.update(status='dispatching',command=plan['command'],dispatch_status=dict(raw),sent_at_unix=time.time());persist(report)
                 service._send_motion(plan['command'])
                 service.last_motion_at=time.monotonic()
                 report['status']='moving'

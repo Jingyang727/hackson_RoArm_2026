@@ -33,5 +33,5 @@ jobs:
           for f in control_ui/*.js /tmp/*.js; do
             if [ -f "$f" ]; then node --check "$f"; fi
           done
-      - name: Browser torque button smoke tests (mock serial API)
-        run: node --test tests/workspace_ui.test.cjs
+      - name: Browser controls and coordinate geometry (no hardware)
+        run: node --test tests/*.test.cjs

@@ -9,22 +9,26 @@
 .coord-legend{display:flex;gap:18px;font-size:12px;color:var(--muted);flex-wrap:wrap}.coord-legend span:before{content:'●';margin-right:6px}.actual:before{color:#177d69}.target:before{color:#ce6d30}.predicted:before{color:#8a9aa5}
 .xyz-inputs,.xyz-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.xyz-inputs label{font-size:12px;color:var(--muted)}.xyz-inputs input{display:block;width:100%;margin-top:6px}.xyz-values div{padding:10px;background:#f5f8f8;border-radius:8px}.xyz-values span{display:block;font-size:11px;color:var(--muted)}.xyz-values strong{font:600 18px ui-monospace,monospace;color:var(--green)}
 .coordinate-controls>button{width:100%;margin-top:12px}.coordinate-controls .check-row{margin:15px 0 0}.coordinate-controls h3{font-size:13px;margin:20px 0 10px}.coordinate-controls textarea{width:100%;min-height:55px;border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit}.verify-row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:12px}.coordinate-controls [hidden]{display:none!important}
+.target-mode{display:flex;gap:8px;margin:12px 0}.target-mode button{flex:1;background:white;color:var(--muted)}.target-mode button[aria-pressed=true]{background:var(--soft);border-color:#bfded3;color:var(--green)}.height-control{display:block;margin:16px 0;color:var(--muted);font-size:12px}.height-control strong{float:right;color:var(--green);font:600 17px ui-monospace,monospace}.height-control input{display:block;width:100%;margin:14px 0 6px;accent-color:var(--green)}.xyz-inputs input[readonly]{background:#f5f8f8;color:#567267}
 #summary{white-space:pre-line;font-size:13px;line-height:1.9;margin-top:15px}#depthPanel{margin-top:22px}.depth-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.depth-grid img{width:100%;border-radius:8px;cursor:crosshair}.depth-grid figure{margin:0}.depth-grid figcaption{font-size:12px;color:var(--muted);margin:6px 0}#depthPoint{white-space:pre-line}.depth-actions{display:flex;gap:10px;align-items:center;margin:15px 0}.depth-grid [hidden]{display:none}
 @media(max-width:850px){.coordinate-grid{grid-template-columns:1fr}#scene{height:370px}.depth-grid{grid-template-columns:1fr}nav{margin-left:12px;gap:1px}nav a{padding:8px 9px}}
 </style></head>
 <body><header><a class="brand" href="/coordinates"><span class="brand-mark">e</span>EvoArm<span class="brand-sub">/ 机械臂工作区</span></a>
 <nav aria-label="主导航"><a href="/coordinates" aria-current="page">坐标验证</a><a href="/calibration">手动标定</a><a href="/experiments">抓取试验</a></nav><span id="connection" class="status-chip">读取状态</span></header>
-<main><div class="page-heading"><div><div class="eyebrow">第一步 / 验证 XYZ</div><h1>输入一个点，验证末端落点。</h1><p>保留当前末端姿态，只移动XYZ。相机、底座和桌面默认固定，棋盘可以撤走。</p></div><span id="setupBadge" class="setup-badge"></span></div>
+<main><div class="page-heading"><div><div class="eyebrow">第一步 / 验证 XYZ</div><h1>选一个点，验证末端落点。</h1><p>在桌面选位置，拖动滑块选高度。相机、底座和桌面默认固定，棋盘可以撤走。</p></div><span id="setupBadge" class="setup-badge"></span></div>
 <div id="error" class="alert" role="alert" hidden></div>
 <section class="coordinate-grid"><div class="card"><div class="card-heading"><h2>机械臂与坐标系</h2><span class="mini-badge">单位 mm</span></div>
 <canvas id="scene" role="img" aria-label="可旋转的三维机械臂、桌面、当前末端及输入目标示意图"></canvas>
-<div class="view-tools"><button id="view3d" class="secondary">三维视图</button><button id="viewTop" class="secondary">俯视 XY</button><button id="viewFront" class="secondary">侧视 XZ</button><span class="small-note">拖动旋转 · 滚轮缩放</span></div>
+<div class="view-tools"><button id="view3d" class="secondary">三维视图</button><button id="viewTop" class="secondary">俯视 XY</button><button id="viewFront" class="secondary">侧视 XZ</button><span class="small-note">点击桌面选点 · 拖动旋转 · 滚轮缩放</span></div>
 <div class="coord-legend"><span class="actual">当前机械臂 / 反馈末端</span><span class="target">输入目标 / 直线路径</span><span class="predicted">目标姿态预览</span></div>
 <p class="small-note">O为固件坐标原点；X朝机械臂正前方、Y为横向、Z向上。Z=0不是桌面。末端标记采用固件指尖参考点，不是夹爪开口中心。机械臂形状由关节反馈计算，是示意图；实物位置需要你核对。</p>
 <h3>当前末端（固件反馈）</h3><div class="xyz-values"><div><span>X</span><strong id="actualX">—</strong></div><div><span>Y</span><strong id="actualY">—</strong></div><div><span>Z</span><strong id="actualZ">—</strong></div></div><p id="height" class="small-note"></p></div>
-<div class="card coordinate-controls"><div class="card-heading"><h2>移动到一个 XYZ 点</h2><span id="motionMode" class="mini-badge"></span></div>
+<div class="card coordinate-controls"><div class="card-heading"><h2>选择末端目标</h2><span id="motionMode" class="mini-badge"></span></div>
 <p id="readiness" class="inline-note">正在读取实际状态。</p><button id="connect" class="secondary" hidden>连接机械臂</button><button id="recover" class="secondary" hidden>确认机械臂静止并复核异常</button>
-<div class="xyz-inputs"><label>X · mm<input id="x" type="number" step="1" inputmode="decimal"/></label><label>Y · mm<input id="y" type="number" step="1" inputmode="decimal"/></label><label>Z · mm<input id="z" type="number" step="1" inputmode="decimal"/></label></div>
+<div class="target-mode"><button id="pointMode" aria-pressed="true">图上选点</button><button id="numericMode" aria-pressed="false">XYZ输入</button></div>
+<p id="selectionHint" class="small-note" role="status">点左侧桌面网格选择位置，再拖动滑块设置离桌高度；点图不会移动机械臂。</p>
+<label id="heightControl" class="height-control">目标离桌高度<strong id="heightValue">— mm</strong><input id="heightRange" type="range" min="25" max="400" step="1" value="150" aria-label="目标离桌高度"/></label>
+<div class="xyz-inputs"><label>X · mm<input id="x" type="number" step="1" inputmode="decimal" readonly/></label><label>Y · mm<input id="y" type="number" step="1" inputmode="decimal" readonly/></label><label>Z · mm<input id="z" type="number" step="1" inputmode="decimal" readonly/></label></div>
 <button id="useCurrent" class="subtle">填入当前 XYZ</button><p id="targetHeight" class="small-note">先从当前位置附近、离桌较高的点开始验证。</p>
 <button id="prepare" class="secondary" disabled>1 · 预览目标和路径</button><p id="planNote" class="small-note"></p>
 <label class="check-row"><input id="confirmed" type="checkbox" disabled/><span>已核对目标和路径，现场有人看护，双手离开运动范围。</span></label>
@@ -35,4 +39,4 @@
 <details id="depthPanel" class="card"><summary>查看已采集的 RGB-D 与空间点（只读）</summary><p class="small-note">先验证XYZ运动，再接球心定位。这里读取已有录像的对齐深度，展示真实测量点，不需要启动新的相机进程。</p>
 <div class="depth-actions"><button id="readDepth" class="secondary">读取最近RGB-D</button><span id="depthSource" class="small-note">非实时</span></div>
 <div class="depth-grid"><figure><img id="depthRGB" alt="已采集RGB图像，可点击读取表面坐标" hidden/><figcaption>RGB · 点击像素读取对应深度</figcaption></figure><figure><img id="depthImage" alt="毫米深度伪彩图，黑色表示无有效深度" hidden/><figcaption id="depthLegend">深度图 · 黑色为空洞</figcaption></figure></div><p id="depthPoint" class="inline-note">深度测量的是可见表面；它不是球心。下一阶段再用球面深度与34mm直径估计球心。</p></details>
-</main><footer>反馈坐标与实物验收分别记录；当前步骤不调用模型，也不执行自动抓取。</footer><script src="/assets/coordinates.js"></script></body></html>
+</main><footer>反馈坐标与实物验收分别记录；当前步骤不调用模型，也不执行自动抓取。</footer><script src="/assets/coordinate_view.js"></script><script src="/assets/coordinates.js"></script></body></html>

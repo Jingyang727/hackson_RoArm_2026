@@ -377,6 +377,12 @@ def coordinates_script():
                     media_type="application/javascript",headers={"Cache-Control":"no-store"})
 
 
+@app.get("/assets/coordinate_view.js")
+def coordinate_view_script():
+    return Response(Path(__file__).with_name("coordinate_view.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript",headers={"Cache-Control":"no-store"})
+
+
 @app.get("/assets/workspace.css")
 def workspace_styles():
     return Response(Path(__file__).with_name("workspace.css").read_text(encoding="utf-8"),

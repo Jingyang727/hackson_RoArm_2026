@@ -11,7 +11,8 @@ from evoarm_rsi.roarm_geometry import forward
 
 def check(url,output):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
-    raw=SimulatedArm().status();plane={'normal_up':[0,0,1.],'d_mm':115.}
+    raw=SimulatedArm().status();raw['g']=3.155555287605748  # Real device reports ~180.8 at its closed stop.
+    plane={'normal_up':[0,0,1.],'d_mm':115.}
     h={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'pending':None,'fault':None}
     model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None}
     calls=[];errors=[];key='a'*32
@@ -24,7 +25,9 @@ def check(url,output):
         if path=='/coordinates/state':data=model
         elif path=='/coordinates/prepare':
             target=body['xyz_mm'];model['result']={'plan_id':key,'status':'prepared','target_xyz_mm':target,'physical_accuracy':'not_checked'}
-            data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,'predicted_joints_xyz_mm':model['model']['joints_xyz_mm']}}
+            data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,
+                  'gripper_hold':{'normalized':True,'feedback_deg':180.8,'command_deg':179.90874767},
+                  'predicted_joints_xyz_mm':model['model']['joints_xyz_mm']}}
         elif path=='/coordinates/move':
             assert body['plan_id']==key
             assert body['declaration']=='已核对XYZ目标和路径，现场有人看护且双手离开运动范围'
@@ -48,9 +51,36 @@ def check(url,output):
         page.goto(url+'/coordinates');page.locator('#actualX').filter(has_text='340.0').wait_for()
         assert not any(c[0]=='POST' for c in calls)
         assert page.locator('#move').is_disabled()
+        assert page.locator('#x').get_attribute('readonly') is not None
+        page.locator('#viewFront').click();page.locator('#scene').click(position={'x':200,'y':200})
+        page.locator('#selectionHint').filter(has_text='无法确定桌面位置').wait_for()
+        page.locator('#viewTop').click()
+        box=page.locator('#scene').bounding_box();scale=min(box['width']/700,box['height']/620)
+        page.locator('#scene').click(position={'x':box['width']*.48+180*scale,'y':box['height']*.48+30*scale})
+        assert abs(float(page.locator('#x').input_value())-350)<.2
+        assert abs(float(page.locator('#y').input_value())-30)<.2
+        page.locator('#heightRange').evaluate("e=>{e.value='150';e.dispatchEvent(new Event('input',{bubbles:true}));}")
+        assert abs(float(page.locator('#z').input_value())-35)<.02
+        assert not any(c[0]=='POST' for c in calls)  # Picking and slider movement cannot actuate.
+        page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
+        selected=[page.locator('#'+axis).input_value() for axis in ('x','y','z')]
+        page.locator('#view3d').click();box=page.locator('#scene').bounding_box()
+        page.mouse.move(box['x']+180,box['y']+180);page.mouse.down()
+        page.mouse.move(box['x']+215,box['y']+200,steps=5);page.mouse.up()
+        assert [page.locator('#'+axis).input_value() for axis in ('x','y','z')]==selected
+        assert page.locator('#move').is_enabled()  # Camera orbit changes no robot target.
+        page.locator('#view3d').click()
+        page.screenshot(path=str(output/'coordinates-point-selection.png'),full_page=True)
+        page.locator('#heightRange').evaluate("e=>{e.value='160';e.dispatchEvent(new Event('input',{bubbles:true}));}")
+        assert page.locator('#move').is_disabled();assert not page.locator('#confirmed').is_checked()
+        assert not any(c[1]=='/coordinates/move' for c in calls)
+        page.locator('#numericMode').click()
         page.locator('#useCurrent').click();page.locator('#x').fill('360')
         assert page.locator('#move').is_disabled()
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        assert '180.8°' in page.locator('#planNote').inner_text()
+        assert '179.9°' in page.locator('#planNote').inner_text()
         assert not any(c[1]=='/coordinates/move' for c in calls)
         page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
         page.locator('#viewTop').click();page.locator('#view3d').click()
@@ -64,6 +94,7 @@ def check(url,output):
         count=len([c for c in calls if c[0]=='POST']);page.reload()
         page.locator('#summary').filter(has_text='等待实际反馈').wait_for()
         assert len([c for c in calls if c[0]=='POST'])==count
+        assert float(page.locator('#x').input_value())==360  # Restore the running target, not current XYZ.
         h['pending']=None;model['result'].update(status='settled_with_offset',actual_xyz_mm=[350.,10.,145.],
             actual_minus_target_mm=[-10.,0.,0.],position_error_mm=10.,pose_error_deg={'pitch':.4,'roll':.1,'gripper':.2},movement_observed=True)
         model['robot']={**raw,'x':350.,'y':10.};model['model']=forward(raw)
@@ -81,8 +112,8 @@ def check(url,output):
         page.screenshot(path=str(output/'coordinates-mobile.png'),full_page=True)
         assert not errors,errors;browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','api_calls':len(calls),'checks':[
-        '3D robot/table/frame and target drawn','no motion on load, preview or depth clicks',
-        'changed target invalidates plan','one move under double click','reload never resends',
+        '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible','no motion on load, preview or depth clicks',
+        'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
         '390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))

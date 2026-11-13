@@ -13,7 +13,7 @@ import numpy as np
 from control_ui import main
 from control_ui.coordinates import DECLARATION, observe_pending
 from control_ui.service import ArmService
-from evoarm_rsi.coordinate_test import plan_point
+from evoarm_rsi.coordinate_test import plan_point, check_coordinate_segment
 from evoarm_rsi.roarm_geometry import inverse
 from tests import test_ball_trial as fixtures
 from tests.test_serial_transport_errors import api_request
@@ -44,6 +44,53 @@ class Coordinates(unittest.TestCase):
         self.assertEqual(plan['command']['T'],104)
         for source,target in [('tit','t'),('r','r'),('g','g')]:self.assertEqual(plan['command'][target],self.arm.raw[source])
         self.assertEqual(plan['physical_accuracy'],'unverified_until_operator_checks')
+
+    def test_reported_180_8_gripper_keeps_raw_feedback_and_uses_a_legal_hold_command(self):
+        self.arm.raw=inverse([353.6,-2.7,189.9],math.radians(6.2),math.radians(.4),math.radians(180.8))
+        prepared=self.prepare([400.,50.,50.]);plan=prepared['plan']
+        self.assertAlmostEqual(math.degrees(plan['initial_status']['g']),180.8)
+        self.assertTrue(plan['gripper_hold']['normalized'])
+        self.assertEqual(plan['command']['g'],3.14)
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+        response,result=self.move(prepared)
+        self.assertEqual(response['status'],200,result)
+        self.assertEqual([c['T'] for c in self.arm.commands],[104])
+        self.assertEqual(self.arm.commands[0]['g'],3.14)
+        self.assertEqual(self.arm.commands[0]['t'],plan['initial_status']['tit'])
+        self.assertEqual(self.arm.commands[0]['r'],plan['initial_status']['r'])
+        saved=json.loads(Path(result['report_file']).read_text())
+        self.assertAlmostEqual(math.degrees(saved['plan']['initial_status']['g']),180.8)
+        self.assertAlmostEqual(math.degrees(saved['dispatch_status']['g']),180.8)
+        self.assertEqual(self.move(prepared)[0]['status'],409)
+        self.assertEqual(len(self.arm.commands),1)
+
+    def test_gripper_feedback_outside_existing_tolerance_is_not_hidden_by_normalizing(self):
+        self.arm.raw['g']=math.radians(183)
+        response,detail=self.request('prepare',{'xyz_mm':[350.,0.,145.]})
+        self.assertEqual(response['status'],409,detail)
+        self.assertIn('超出允许偏差',detail['detail'])
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+
+    def test_normalized_preview_still_rechecks_fresh_feedback_band_before_execution(self):
+        self.arm.raw['g']=math.radians(181.8);prepared=self.prepare()
+        # Less than the 1-degree plan drift limit, but beyond the existing
+        # 2-degree stop-feedback tolerance. The command must still reject.
+        self.arm.raw['g']=math.radians(182.5)
+        response,detail=self.move(prepared)
+        self.assertEqual(response['status'],409,detail)
+        self.assertIn('超出允许偏差',detail['detail'])
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+
+    def test_legal_hold_does_not_expand_active_gripper_or_other_joint_limits(self):
+        prepared=self.prepare();stage=dict(prepared['plan']['stage']);stage['gripper_rad']=math.radians(181)
+        with self.assertRaisesRegex(ValueError,'目标角度'):
+            check_coordinate_segment(self.arm.status(),stage,prepared['plan']['table_plane'])
+        self.arm.raw['g']=math.radians(180.8)
+        target=[340*math.cos(math.radians(80)),340*math.sin(math.radians(80)),145.]
+        response,detail=self.request('prepare',{'xyz_mm':target})
+        self.assertEqual(response['status'],409,detail)
+        self.assertIn('joint 1 training range',detail['detail'])
+        self.assertEqual(self.arm.commands,[])
 
     def test_move_sends_exactly_once_records_per_axis_and_manual_verification(self):
         prepared=self.prepare();response,data=self.move(prepared)
