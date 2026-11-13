@@ -24,7 +24,8 @@ SYSTEM = (
     'NEVER infer robot XYZ signs from screen directions or from a mirrored coordinate diagram. '
     'For example gripper image-right of ball => direction=image_right; the controller computes the opposite correction. '
     'Use the close/descend frames for pickup alignment, not an arbitrary transport frame. '
-    'If obscured or ambiguous use unknown/none. Return one JSON object only: '
+    'If obscured or ambiguous use unknown/none. First give 1-2 short Chinese sentences stating visible evidence '
+    'and a qualitative adjustment suggestion, then the following single result JSON. Write note in Chinese too. Do not invent numeric corrections. '
     '{"outcome":"placed|grasp_missed|pushed_away|slipped|placement_missed|bounced_out|execution_failed|unknown",'
     '"direction":"none|image_left|image_right|image_up|image_down|too_high|too_low",'
     '"ball_state":"table|gripper|funnel|unknown","magnitude":"small|medium|large|unknown",'
@@ -37,7 +38,8 @@ SCENE_SYSTEM = (
     'Image u increases RIGHT and v increases DOWN, independent of robot XYZ. Confirm the marked YELLOW BALL '
     'is a real visible ball on the table, the marked BLACK FUNNEL is its actual visible open mouth, '
     'and the gripper is empty. A green path overlay is a proposed path, not evidence of execution. '
-    'Do not issue commands or estimate millimeters. Return ONLY JSON {"ready":true or false,"note":"short reason"}. '
+    'Do not issue commands or estimate millimeters. First briefly describe the visible scene in Chinese, '
+    'then JSON {"ready":true or false,"note":"short Chinese reason"}. '
     'When ambiguous, obstructed, or a ball is already held, ready=false.'
 )
 
@@ -107,7 +109,7 @@ def select_frames(index,limit=8):
     return [index[i] for i in sorted(selected)]
 
 
-def review(context, root, stop, *, timeout_s=120, preflight=False):
+def review(context, root, stop, *, timeout_s=120, preflight=False,on_update=None):
     if stop.is_set():
         raise RuntimeError('用户已停止任务，不启动新的Grok请求')
     config = configuration()
@@ -142,8 +144,29 @@ def review(context, root, stop, *, timeout_s=120, preflight=False):
         image=base64.b64encode(path.read_bytes()).decode('ascii')
         content.extend([{'type':'text','text':f"{frame['label']} / frame={frame.get('frame_index')} / {frame['elapsed_s']:.2f}s / raw RGB: u RIGHT, v DOWN"},
                         {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+image}}])
-    final=complete_content(system,content,stop,timeout_s=timeout_s)
-    verdict=_final_json(final,preflight=preflight)
+    output=[];pending=[];last_flush=0.
+    def flush():
+        nonlocal last_flush
+        if pending and on_update and not stop.is_set():
+            on_update({'type':'text','delta':''.join(pending)});pending.clear();last_flush=time.monotonic()
+    def receive(delta):
+        output.append(delta);pending.append(delta)
+        if time.monotonic()-last_flush>=.1 or sum(map(len,pending))>=120:flush()
+    if on_update:on_update({'type':'started','preflight':preflight,'model':config['model'],'frame_count':len(frames)})
+    try:
+        options={'on_delta':receive,'on_mode':lambda mode:on_update({'type':'mode','mode':mode})} if on_update else {}
+        final=complete_content(system,content,stop,timeout_s=timeout_s,**options)
+        if on_update and not output:receive(final)  # A buffered provider replies once; never fake token streaming.
+        flush()
+        if stop.is_set():raise RuntimeError('用户停止了模型分析，未应用回复')
+        verdict=_final_json(final,preflight=preflight)
+        if on_update:on_update({'type':'validated','verdict':verdict})
+    except Exception:
+        flush()
+        if on_update:on_update({'type':'stopped' if stop.is_set() else 'failed','error':'模型回复未完成或未通过校验，未应用本次回复。'})
+        raise
+    finally:
+        if output:(root/('grok-scene-output.txt' if preflight else 'grok-output.txt')).write_text(''.join(output),encoding='utf-8')
     _write(root / ('grok-scene-review.json' if preflight else 'grok-recovery-review.json' if recovery else 'grok-review.json'), {'model': config['model'], 'verdict': verdict,
                                      'reviewed_frames': frames, 'completed_at_unix': time.time()})
     return verdict

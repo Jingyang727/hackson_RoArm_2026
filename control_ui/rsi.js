@@ -39,7 +39,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':grok.reason||'正在检查公司Grok API配置。';
-  const compatible=state?.api_version===4;
+  const compatible=state?.api_version===5;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
@@ -52,7 +52,8 @@ function render(){
   $('sessionBackupLink').hidden=!a.session_backup_file;
   if(a.session_backup_file)$('sessionBackupLink').href=`${prefix}/sessions/${a.session_id}/archive`;
   const review=p?.review||a.review;$('grokVerdict').hidden=!review;
-  if(review)$('grokVerdict').textContent=`${review.source==='human'?'既有人工记录':'Grok判断'}：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`;
+  if(review)$('grokVerdict').textContent=review.source==='human'?`既有人工记录：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`:window.RSIProcess?.verdict(review)||`Grok判断：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`;
+  window.RSIProcess?.snapshot(state?.process);
   const proposal=review?.proposal;$('changeDetails').hidden=!proposal;
   if(proposal){
     const changes=(proposal.parameters_changed||[]).map(key=>`${parameterNames[key]||key}：${JSON.stringify(proposal.before[key])} → ${JSON.stringify(proposal.after[key])}`);
@@ -121,7 +122,9 @@ async function loadHistory(){
       title.textContent=`试次 ${trial.id.slice(0,10)} · 参数 v${trial.policy_version}`;
       const timing=Number.isFinite(trial.result?.physical_elapsed_s)?`动作 ${number(trial.result.physical_elapsed_s)} 秒`:'动作未完整结束';
       summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'Grok：')+(outcomes[trial.review.outcome]||trial.review.outcome):'未分析'}；${timing}`;
-      row.append(title,summary);if(trial.review?.changes?.length){const changes=document.createElement('p');changes.className='quiet';changes.textContent=trial.review.changes.join('\n');row.append(changes);}if(trial.backup_url){const link=document.createElement('a');link.href=trial.backup_url;link.textContent='下载本轮备份';link.setAttribute('download','');row.append(link);}$('trials').append(row);}
+      row.append(title,summary);
+      if(trial.review){const details=document.createElement('details'),label=document.createElement('summary'),text=document.createElement('p');label.textContent='查看本轮判断与修正';text.className='quiet';text.textContent=(window.RSIProcess?.verdict(trial.review)||trial.review.note||'')+'\n'+(trial.review.changes||[]).join('\n');details.append(label,text);row.append(details);}
+      if(trial.backup_url){const link=document.createElement('a');link.href=trial.backup_url;link.textContent='下载本轮备份';link.setAttribute('download','');row.append(link);}$('trials').append(row);}
   }catch(error){showError(error);}
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopStream();else refresh();});

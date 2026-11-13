@@ -10,6 +10,7 @@ import uuid
 from . import grok_review
 from .rsi_journal import append_event,archive_session
 from .task_agent import _write
+from .rsi_events import LearningEvents
 
 LEARNING_DECLARATION='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试'
 
@@ -39,6 +40,7 @@ class LearningLoop:
         self.recover=recover;self.archive=archive;self.trial_stop=trial_stop;self.reset_failure=reset_failure
         self.lock=threading.RLock();self.stop_event=threading.Event();self.worker_ident=None
         self.value={'status':'idle','phase':'idle'}
+        self.events=LearningEvents();self._event_phase=None;self._motion_phase=None
 
     def snapshot(self):
         with self.lock:return copy.deepcopy(self.value)
@@ -51,6 +53,14 @@ class LearningLoop:
     def publish(self,phase,**values):
         with self.lock:
             self.value.update(phase=phase,**values)
+            signature=(phase,self.value.get('attempt'),self.value.get('plan_id'))
+            if signature!=self._event_phase:
+                self.events.emit('phase',phase=phase,attempt=self.value.get('attempt',0),plan_id=self.value.get('plan_id'),
+                                 message=values.get('message'),error=values.get('error'))
+                self._event_phase=signature
+            if 'review' in values:
+                self.events.emit('policy',attempt=self.value.get('attempt',0),plan_id=self.value.get('plan_id'),
+                                 review=values['review'],changes=values.get('changes',[]))
             if self.value.get('session_id'):
                 _write(Path.home()/'.evoarm/rsi/learning_sessions'/self.value['session_id']/'state.json',self.value)
 
@@ -69,6 +79,7 @@ class LearningLoop:
             key=uuid.uuid4().hex;self.stop_event.clear();self.trial_stop.clear()
             self.value={'session_id':key,'status':'running','phase':'starting','attempt':0,'max_attempts':max_attempts,
                         'trials':[],'recovery_events':[],'started_at_unix':time.time(),'error':None}
+            self.events.reset(key);self._event_phase=None;self._motion_phase=None
             service.automation_owner=key
             try:self.publish('starting');_launch_learning(lambda:self._worker(key,max_attempts))
             except Exception:
@@ -79,6 +90,7 @@ class LearningLoop:
         with self.lock:
             if self.value['status']!='running':return {'stop_requested':False}
             self.stop_event.set();self.trial_stop.set();self.value['phase']='stopping'
+            self.events.emit('phase',phase='stopping',attempt=self.value.get('attempt',0))
         threading.Thread(target=self.service_provider().disarm,daemon=True).start()
         return {'stop_requested':True,'notice':'阻止后续动作、恢复和重试；已接受的动作可能继续'}
 
@@ -92,6 +104,7 @@ class LearningLoop:
             key=uuid.uuid4().hex;self.stop_event.clear();self.trial_stop.clear()
             self.value={'session_id':key,'status':'running','phase':'recovering','attempt':0,'max_attempts':0,
                         'trials':[],'recovery_events':[],'started_at_unix':time.time(),'error':None}
+            self.events.reset(key);self._event_phase=None;self._motion_phase=None
             service.automation_owner=key
             def worker():
                 self.worker_ident=threading.get_ident()
@@ -110,6 +123,21 @@ class LearningLoop:
     def _guard(self):
         if self.stop_event.is_set():raise RuntimeError('用户停止了自动学习')
 
+    def record_motion_phase(self,phase):
+        with self.lock:
+            if self.value.get('status')!='running' or self.stop_event.is_set():return
+            signature=(self.value.get('plan_id'),phase)
+            if signature!=self._motion_phase:
+                self.events.emit('motion',phase=phase,attempt=self.value.get('attempt',0),plan_id=self.value.get('plan_id'))
+                self._motion_phase=signature
+
+    def _review(self,key,*,preflight=False):
+        def update(value):
+            if self.stop_event.is_set() and value['type'] not in ('failed','stopped'):return
+            self.events.model(value,attempt=self.value.get('attempt',0),plan_id=key)
+        return grok_review.review(self.context(key),Path.home()/'.evoarm/rsi/pick_place_runs'/key,
+                                  self.stop_event,preflight=preflight,on_update=update)
+
     def _reset_error(self,session_id,current,exc,phase):
         """A NEW event, never suppressed by a previous trial's recovery receipt."""
         self._guard();key=uuid.uuid4().hex;info=error_info(exc)
@@ -126,7 +154,7 @@ class LearningLoop:
 
     def _prepare_from_home_if_needed(self,session_id,attempt):
         for retry in range(2):
-            self._guard();self.publish('observing',attempt=attempt)
+            self._guard();self.publish('observing',attempt=attempt,plan_id=None)
             try:return self.prepare()
             except Exception as exc:
                 report=self._reset_error(session_id,None,exc,'planning')
@@ -140,6 +168,8 @@ class LearningLoop:
         current['recovery']=report
         self.publish('recovering',last_recovery={'status':report['status'],'id':current['id'],
                      'already_at_official_pose':report.get('already_at_official_pose',False)})
+        self.events.emit('recovery',attempt=self.value.get('attempt',0),status=report['status'],
+                         already_at_official_pose=report.get('already_at_official_pose',False))
         return report
 
     def _worker(self,session_id,max_attempts):
@@ -154,8 +184,11 @@ class LearningLoop:
                 current=None;phase='planning';key=self._prepare_from_home_if_needed(session_id,attempt)
                 current=self.get_trial(key);current['learning_session_id']=session_id;phase='scene_check'
                 self.publish('scene_check',plan_id=key)
+                self.events.emit('plan',attempt=attempt,plan_id=key,policy_version=current['policy_version'],
+                                 policy_application=current['plan'].get('policy_application'),
+                                 depth_used=current['plan']['scene']['ball']['depth_evidence']['depth_used'])
                 if attempt==1 or current['plan']['scene']['funnel'].get('ambiguous'):
-                    assessment=grok_review.review(self.context(key),Path.home()/'.evoarm/rsi/pick_place_runs'/key,self.stop_event,preflight=True)
+                    assessment=self._review(key,preflight=True)
                     if not assessment['ready']:raise RuntimeError('Grok无法确认当前球与漏斗：'+assessment['note'])
                 self._guard();phase='executing';self.publish('executing');self.run_trial(key)
                 until=time.monotonic()+150
@@ -170,7 +203,7 @@ class LearningLoop:
                     self._recover_trial(current,{'ball_state':'unknown'},session_id)
                 if current.get('backup_error'):raise RuntimeError('本轮备份未完成：'+current['backup_error'])
                 phase='analyzing';self.publish('analyzing');root=Path.home()/'.evoarm/rsi/pick_place_runs'/key
-                append_event(root,'grok_review_started');verdict=grok_review.review(self.context(key),root,self.stop_event)
+                append_event(root,'grok_review_started');verdict=self._review(key)
                 append_event(root,'grok_review_completed',verdict=verdict)
                 if not result.get('grasp_attempted') and verdict['outcome'] not in ('unknown','execution_failed','pushed_away'):
                     verdict.update(outcome='execution_failed',direction='none')

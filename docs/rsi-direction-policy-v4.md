@@ -1,5 +1,7 @@
 # RSI v4：相机方向、参数修正与实际应用记录
 
+> 此文记录 v4。当前实时过程展示与更新步骤见 [RSI v5](rsi-live-process-v5.md)。
+
 分支 `feature/rsi-pick-place-loop-v1`，`GET /api/bench/rsi/state` 的 `api_version=4`。沿用已保存标定、同一个机械臂控制器和独立相机服务。
 
 ## 转交本地 OpenCode

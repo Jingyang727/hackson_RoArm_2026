@@ -113,6 +113,96 @@ class CompanyAPI(unittest.TestCase):
         self.assertIn('HTTP 401',str(caught.exception));self.assertNotIn('secret',str(caught.exception))
         self.assertNotIn('fake-test-token',str(caught.exception));opener.open.assert_called_once()
 
+    def sse(self,packets):
+        data=b''.join(b'data: '+(p.encode() if isinstance(p,str) else json.dumps(p,ensure_ascii=False).encode())+b'\n\n' for p in packets)
+        opener=MagicMock();response=opener.open.return_value.__enter__.return_value
+        response.headers={'Content-Type':'text/event-stream; charset=utf-8'}
+        response.readline.side_effect=io.BytesIO(data).readline
+        return opener
+
+    def test_stream_sends_public_unicode_content_before_completion_and_ignores_reasoning(self):
+        self.explicit();pieces=[];modes=[]
+        opener=self.sse([{'choices':[{'delta':{'reasoning_content':'private must not appear','content':'球仍在'}}]},
+                         {'choices':[{'delta':{'content':'桌面。'}}]},
+                         {'choices':[{'delta':{},'finish_reason':'stop'}]},'[DONE]'])
+        with patch.object(api.request,'build_opener',return_value=opener):
+            final=api.complete_content('review',[],threading.Event(),on_delta=pieces.append,on_mode=modes.append)
+        self.assertEqual(pieces,['球仍在','桌面。']);self.assertEqual(final,'球仍在桌面。')
+        self.assertEqual(modes,['streaming']);self.assertNotIn('private',''.join(pieces))
+        self.assertTrue(json.loads(opener.open.call_args.args[0].data)['stream'])
+
+    def test_truncated_stream_is_not_a_final_result_even_when_prefix_looks_complete(self):
+        self.explicit();pieces=[]
+        opener=self.sse([{'choices':[{'delta':{'content':'{"ready":true,"note":"visible"}'}}]}])
+        with patch.object(api.request,'build_opener',return_value=opener),self.assertRaises(ValueError):
+            api.complete_content('scene',[],threading.Event(),on_delta=pieces.append)
+        self.assertEqual(len(pieces),1)
+
+    def test_first_delta_reaches_caller_while_http_stream_is_still_open(self):
+        self.explicit();first=threading.Event();release=threading.Event();result=[];pieces=[]
+        packets=[{'choices':[{'delta':{'content':'正在观察'}}]},
+                 {'choices':[{'delta':{'content':'，球未离桌。'},'finish_reason':'stop'}]},'[DONE]']
+        opener=self.sse(packets);response=opener.open.return_value.__enter__.return_value
+        read=response.readline.side_effect;lines=0
+        def gated(limit):
+            nonlocal lines
+            if lines==2:release.wait(2)
+            lines+=1;return read(limit)
+        response.readline.side_effect=gated
+        def observe(text):pieces.append(text);first.set()
+        def worker():
+            try:result.append(api.complete_content('review',[],threading.Event(),on_delta=observe))
+            except Exception as exc:result.append(exc)
+        with patch.object(api.request,'build_opener',return_value=opener):
+            thread=threading.Thread(target=worker);thread.start()
+            try:
+                self.assertTrue(first.wait(1));self.assertTrue(thread.is_alive());self.assertEqual(result,[])
+                self.assertEqual(pieces,['正在观察'])
+            finally:release.set();thread.join(2)
+        self.assertEqual(result,['正在观察，球未离桌。'])
+
+    def test_length_limited_or_malformed_stream_never_returns_a_completed_reply(self):
+        self.explicit()
+        for packet in ({'choices':[{'delta':{'content':'partial'},'finish_reason':'length'}]},'not json'):
+            opener=self.sse([packet,'[DONE]'])
+            with patch.object(api.request,'build_opener',return_value=opener),self.assertRaises(ValueError):
+                api.complete_content('review',[],threading.Event(),on_delta=lambda text:None)
+
+    def test_explicit_unsupported_stream_falls_back_once_but_auth_failure_does_not(self):
+        self.explicit();modes=[];opener=MagicMock();response=MagicMock()
+        response.headers={'Content-Type':'application/json'}
+        response.read.return_value=b'{"choices":[{"message":{"content":"final buffered reply"}}]}'
+        opener.open.side_effect=[error.HTTPError('https://company.invalid/v1',400,'invalid',{},io.BytesIO(b'{"error":"stream is not supported"}')),
+                                MagicMock(__enter__=MagicMock(return_value=response))]
+        with patch.object(api.request,'build_opener',return_value=opener):
+            final=api.complete_content('review',[],threading.Event(),on_delta=lambda text:None,on_mode=modes.append)
+        self.assertEqual(final,'final buffered reply');self.assertEqual(opener.open.call_count,2)
+        self.assertEqual(modes,['buffered_fallback'])
+        bodies=[json.loads(call.args[0].data) for call in opener.open.call_args_list]
+        self.assertEqual([b['stream'] for b in bodies],[True,False])
+        opener.open.reset_mock();opener.open.side_effect=error.HTTPError('https://company.invalid/v1',401,'denied',{},io.BytesIO(b'secret stream auth'))
+        with patch.object(api.request,'build_opener',return_value=opener),self.assertRaises(RuntimeError):
+            api.complete_content('review',[],threading.Event(),on_delta=lambda text:None)
+        opener.open.assert_called_once()
+
+    def test_provider_buffered_response_is_labeled_and_has_no_fake_deltas(self):
+        self.explicit();pieces=[];modes=[];opener=MagicMock()
+        response=opener.open.return_value.__enter__.return_value;response.headers={'Content-Type':'application/json'}
+        response.read.return_value=b'{"choices":[{"message":{"content":"complete"}}]}'
+        with patch.object(api.request,'build_opener',return_value=opener):
+            self.assertEqual(api.complete_content('review',[],threading.Event(),on_delta=pieces.append,on_mode=modes.append),'complete')
+        self.assertEqual(pieces,[]);self.assertEqual(modes,['buffered'])
+
+    def test_cancelled_stream_does_not_publish_late_chunks_or_return_a_result(self):
+        self.explicit();stop=threading.Event();release=threading.Event();pieces=[]
+        def slow(*args,**options):
+            options['on_delta']('first');release.wait(2);options['on_delta']('late');return 'late result'
+        def observe(text):pieces.append(text);stop.set()
+        with patch.object(api,'_http_content',side_effect=slow),self.assertRaises(RuntimeError):
+            try:api.complete_content('review',[],stop,on_delta=observe)
+            finally:release.set()
+        self.assertEqual(pieces,['first'])
+
     def test_credentials_are_never_redirected_to_another_host(self):
         req=request.Request('https://company.invalid/v1/chat/completions',headers={'Authorization':'Bearer fake-key'})
         with self.assertRaises(error.HTTPError):

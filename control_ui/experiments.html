@@ -16,6 +16,10 @@
     .recordings details{margin-top:18px}.depth-image{display:block;max-width:100%;max-height:360px;margin-top:10px}
     .facts{font-size:12px;line-height:1.9;white-space:pre-line;color:var(--muted)}.trial-row p{margin:8px 0}
     .media-links{display:flex;gap:18px;flex-wrap:wrap}.limits-note{font-size:12px;line-height:1.8;color:var(--muted)}
+    .process-card{margin-top:22px}.process-events{max-height:340px;overflow:auto;padding-left:24px;scrollbar-gutter:stable}
+    .process-events li{padding:8px 8px 8px 4px;border-bottom:1px solid var(--line)}.process-events p{margin:5px 0;white-space:pre-line;line-height:1.8}
+    .process-time{font-size:12px;color:var(--muted)}.grok-live{border-top:1px solid var(--line);padding-top:14px;margin-top:18px}
+    .grok-public{white-space:pre-wrap;line-height:1.9;overflow-wrap:anywhere}.grok-raw{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
     [hidden]{display:none!important}@media(max-width:850px){.learning-grid{grid-template-columns:1fr}}
   </style>
 </head>
@@ -55,6 +59,17 @@
       <p class="limits-note">抓放目标为10秒，分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
     </div>
   </section>
+  <section class="card process-card">
+    <div class="card-heading"><h2>RSI 过程</h2><span id="processConnection" class="mini-badge">连接实时过程…</span></div>
+    <p id="processEmpty" class="quiet">启动后，这里会显示每轮动作、Grok判断、程序修正与下一轮尝试。</p>
+    <ol id="processEvents" class="process-events" aria-label="逐轮RSI过程"></ol>
+    <p id="processStorageError" class="quiet"></p>
+    <div id="grokLive" class="grok-live" hidden>
+      <strong id="grokLiveTitle">Grok公开回复</strong><p id="grokReplyStatus" class="quiet" role="status"></p>
+      <p id="grokLiveText" class="grok-public"></p>
+      <details><summary>完整公开回复</summary><pre id="grokRawText" class="grok-raw"></pre></details>
+    </div>
+  </section>
   <section id="recordings" class="card recordings" hidden>
     <div class="card-heading"><h2>本轮录像与记录</h2><span id="policyVersion" class="mini-badge"></span></div>
     <p id="resultText" class="quiet"></p>
@@ -66,6 +81,6 @@
   <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
 <footer>录像、RGB-D、指令、反馈、Grok判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
-<script src="/assets/rsi.js"></script>
+<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>
 </body>
 </html>

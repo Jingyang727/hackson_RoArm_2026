@@ -409,6 +409,12 @@ def rsi_script():
                     media_type='application/javascript',headers={'Cache-Control':'no-store'})
 
 
+@app.get('/assets/rsi-process.js')
+def rsi_process_script():
+    return Response(Path(__file__).with_name('rsi-process.js').read_text(encoding='utf-8'),
+                    media_type='application/javascript',headers={'Cache-Control':'no-store'})
+
+
 @app.get("/api/pick/workspace")
 def pick_workspace_geometry():
     """Read-only calibrated workspace geometry for camera overlay.

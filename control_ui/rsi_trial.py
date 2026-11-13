@@ -11,8 +11,8 @@ import shutil
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
@@ -31,6 +31,7 @@ from evoarm_rsi import grok_review
 from evoarm_rsi.rsi_journal import append_event, archive_trial
 from evoarm_rsi.rsi_learning import LearningLoop, LEARNING_DECLARATION,error_info
 from evoarm_rsi.rsi_recovery import recover as recover_trial
+from evoarm_rsi.rsi_events import stream_events
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -118,6 +119,7 @@ def install(app,service_provider):
     def fail(exc):raise HTTPException(status_code=409,detail=str(exc)) from exc
     def publish(phase,**values):
         with lock:job.update(phase='stopping' if stop.is_set() and phase not in ('finished','saving_recording') else phase,**values)
+        learner.record_motion_phase(phase)
     def validate_live(state):
         packet=preview_frame(Path.home());image=cv2.imdecode(np.frombuffer(packet['jpeg'],np.uint8),cv2.IMREAD_COLOR)
         if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
@@ -148,8 +150,14 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':4,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':5,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+                'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
+
+    @router.get('/learning/events')
+    async def learning_events(request:Request):
+        return StreamingResponse(stream_events(request,learner.events),media_type='text/event-stream',
+                                 headers={'Cache-Control':'no-cache, no-store','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'})
 
     @router.post('/prepare')
     def prepare(req:Empty):

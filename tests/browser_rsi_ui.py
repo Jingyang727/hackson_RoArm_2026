@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import time
 from pathlib import Path
 
 import cv2
@@ -24,13 +25,19 @@ def check(url, output):
     for _ in range(8):writer.write(cv2.resize(image,(160,90)))
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
-    model={'api_version':4,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},
+    process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
+    model={'api_version':5,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
                    'depth_evidence':{'depth_used':True,'valid_samples':350,'fit_residual_mm':1.2}},
            'funnel':{'pixel_center':[850,400],'mouth_center_robot_mm':[290,-110,-69.6]}}
     calls=[];errors=[];history=[]
+    def emit(kind,**data):
+        sequence=int(process['cursor'].split(':')[-1])+1
+        row={'id':f"{process['session_id']}:{sequence}",'sequence':sequence,'session_id':process['session_id'],
+             'kind':kind,'at_unix':time.time(),**data}
+        process['cursor']=row['id'];process['events'].append(row)
     def plan(key,version):
         return {'plan_id':key,'status':'active','seconds_left':180,'scene':scene,'policy_version':version,
                 'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'steps':['approach_ball','descend','close','lift','transport','release'],
@@ -42,6 +49,9 @@ def check(url, output):
         if path=='/bench/live-frame':
             after=int(request.url.split('after=')[1]);return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes(),
                 headers={'X-Frame-Sequence':str(after+1),'X-Frame-Age-Ms':'10','X-Frame-Width':'1280','X-Frame-Height':'720'})
+        if path=='/bench/rsi/learning/events':
+            body='retry: 250\n'+f"id: {process['cursor']}\nevent: snapshot\ndata: {json.dumps(process)}\n\n"
+            return handler.fulfill(status=200,content_type='text/event-stream',body=body)
         if path.startswith('/bench/rsi/plans/'):
             if path.endswith('/video'):return handler.fulfill(status=200,content_type='video/mp4',body=playback)
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
@@ -50,6 +60,9 @@ def check(url, output):
         elif path=='/bench/rsi/learning/start':
             assert body=={'declaration':LEARNING_DECLARATION,'max_attempts':5}
             model['learning']={'status':'running','phase':'observing','session_id':'d'*32,'attempt':1,'max_attempts':5,'trials':[]}
+            key='d'*32 if not process['session_id'] else 'e'*32
+            process.update(cursor=key+':0',session_id=key,started_at_unix=time.time(),events=[],model_output=None)
+            emit('phase',phase='observing',attempt=1)
             data={'started':True,'session_id':'d'*32}
         elif path=='/bench/rsi/learning/stop':
             model['learning']['phase']='stopping';data={'stop_requested':True}
@@ -82,19 +95,42 @@ def check(url, output):
                 'within_10s':True,'recording_covers_motion':True,'capture_trial_id':'a'*32,'keyframes_file':'/local/keyframes.jpg'}
         model['job'].update(status='completed',phase='finished',result=result);model['learning']['phase']='analyzing'
         health.update(pending=None,armed=False)
+        emit('motion',phase='close',attempt=1,plan_id=key)
+        emit('motion',phase='lift',attempt=1,plan_id=key)
+        emit('phase',phase='analyzing',attempt=1,plan_id=key)
+        emit('grok_started',preflight=False,model='grok-4.7-build',frame_count=8,attempt=1,plan_id=key)
+        process['model_output']={'plan_id':key,'attempt':1,'preflight':False,'status':'generating','mode':'streaming','text':'球仍在桌面，'}
         page.locator('#phase').filter(has_text='Grok正在分析').wait_for()
+        page.locator('#grokLiveText').filter(has_text='球仍在桌面').wait_for()
+        assert '尚未确认' in page.locator('#grokReplyStatus').inner_text()
+        assert model['plan'].get('review') is None
+        process['model_output']['text']+='夹爪在球左侧合拢，建议向画面右侧修正。'
+        emit('grok_mode',mode='streaming',attempt=1,plan_id=key)
+        page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
+        page.screenshot(path=str(output/'rsi-streaming.png'),full_page=True)
         posts=len([call for call in calls if call[0]=='POST']);page.reload()
         page.locator('#phase').filter(has_text='Grok正在分析').wait_for()
+        page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
         assert len([call for call in calls if call[0]=='POST'])==posts
         review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'company_grok',
-                'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移6mm。'],'after_version':2}
+                'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移6mm。'],'after_version':2,
+                'ball_state':'table','adjustment':'pickup_xy','confidence':.92}
         review['proposal']={'parameters_changed':['pickup_xy_mm'],'before':{'pickup_xy_mm':[0,0]},
                             'after':{'pickup_xy_mm':[0,-6]},'robot_delta_mm':[0,-6],
                             'predicted_pixel_delta':[7,0],'allow_retry':True}
         model['plan']['review']=review;model['plan']['backup_url']=f'/api/bench/rsi/plans/{key}/archive'
         model['learning'].update(phase='recovering',review=review,changes=review['changes'])
+        process['model_output'].update(status='validated',verdict=review)
+        emit('grok_validated',verdict=review,attempt=1,plan_id=key)
+        emit('policy',review=review,changes=review['changes'],attempt=1,plan_id=key)
+        emit('recovery',status='completed',attempt=1)
         page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         page.locator('#grokVerdict').filter(has_text='夹爪偏左').wait_for()
+        assert '调整抓取平面偏移' in page.locator('#grokVerdict').inner_text()
+        page.locator('#processEvents').filter(has_text='程序采用的修正').wait_for()
+        count=page.locator('#processEvents li').count()
+        page.evaluate('window.RSIProcess.close();window.RSIProcess.connect()')
+        page.wait_for_timeout(450);assert page.locator('#processEvents li').count()==count
         page.locator('#changeDetails summary').click();assert '→' in page.locator('#changeFacts').inner_text()
         assert page.locator('#start').is_disabled()
         # No user review or second execution request: backend starts round two.
@@ -106,6 +142,12 @@ def check(url, output):
         model['plan'].update(status='completed',review=success,backup_url=f'/api/bench/rsi/plans/{key}/archive')
         model['job'].update(status='completed',phase='finished',result=result)
         model['learning'].update(status='completed',phase='completed',review=success,changes=success['changes'])
+        process['model_output']={'plan_id':key,'attempt':2,'preflight':False,'status':'validated','mode':'streaming',
+                                 'text':'球随夹爪离桌，释放后留在漏斗内。','verdict':success}
+        emit('motion',phase='close',attempt=2,plan_id=key)
+        emit('grok_validated',verdict=success,attempt=2,plan_id=key)
+        emit('policy',review=success,changes=success['changes'],attempt=2,plan_id=key)
+        emit('phase',phase='completed',attempt=2,plan_id=key)
         health.update(armed=False,pending=None)
         history.append({'id':key,'status':'completed','policy_version':2,'review':success,'result':result,'backup_url':model['plan']['backup_url']})
         page.locator('#phase').filter(has_text='策略已保存').wait_for()
@@ -128,7 +170,7 @@ def check(url, output):
         model['learning'].update(status='completed',phase='reset_completed')
         page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
-        model['api_version']=3
+        model['api_version']=4
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
         assert not errors,errors
@@ -139,7 +181,9 @@ def check(url, output):
         'successful Grok verdict and persistent policy shown','native H.264 playback','backup and raw download links',
         'depth diagnostics folded with distance legend','stop cancels further learning','missing Grok blocks unattended execution but not official reset',
         'observation target overlays and camera-relative side labels','before/after policy changes shown',
-        'stale backend blocks new learning with restart explanation','390px layout','no page errors']}
+        'stale backend blocks new learning with restart explanation','public Grok response before final validation',
+        'stream reconnect and page reload preserve process without duplicate events or execution',
+        'structured outcome, direction, suggestion and confidence shown','390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

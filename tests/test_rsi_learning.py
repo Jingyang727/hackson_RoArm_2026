@@ -398,6 +398,32 @@ class AutomaticRecovery(unittest.TestCase):
 
 
 class GrokAdapter(unittest.TestCase):
+    def test_public_partial_output_is_visible_but_validation_waits_for_complete_reply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);cv2.imwrite(str(root/'preview.jpg'),np.full((90,160,3),200,np.uint8))
+            updates=[];answer={'ready':True,'note':'黄球与漏斗可见'}
+            def streaming(system,content,stop,**options):
+                options['on_mode']('streaming');options['on_delta']('黄球与漏斗可见。\n')
+                self.assertFalse(any(row['type']=='validated' for row in updates))
+                options['on_delta'](json.dumps(answer,ensure_ascii=False))
+                return '黄球与漏斗可见。\n'+json.dumps(answer,ensure_ascii=False)
+            with (patch('evoarm_rsi.grok_review.configuration',return_value={'configured':True,'model':'grok-test','backend':'company_api'}),
+                  patch('evoarm_rsi.grok_review.complete_content',side_effect=streaming)):
+                result=grok_review.review({},root,threading.Event(),preflight=True,on_update=updates.append)
+            self.assertEqual(result,answer);self.assertEqual(updates[-1]['type'],'validated')
+            self.assertTrue(any(row['type']=='text' for row in updates))
+            self.assertIn('黄球与漏斗',(root/'grok-scene-output.txt').read_text())
+
+    def test_invalid_streamed_reply_never_publishes_a_validated_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);cv2.imwrite(str(root/'preview.jpg'),np.full((90,160,3),200,np.uint8));updates=[]
+            def invalid(*args,**options):options['on_delta']('看起来成功了，但没有结果JSON');return '看起来成功了，但没有结果JSON'
+            with (patch('evoarm_rsi.grok_review.configuration',return_value={'configured':True,'model':'grok-test','backend':'company_api'}),
+                  patch('evoarm_rsi.grok_review.complete_content',side_effect=invalid),self.assertRaises(ValueError)):
+                grok_review.review({},root,threading.Event(),preflight=True,on_update=updates.append)
+            self.assertEqual(updates[-1]['type'],'failed')
+            self.assertFalse(any(row['type']=='validated' for row in updates))
+
     def test_bounded_frame_selection_preserves_close_lift_and_release(self):
         index=[{'label':'sample','frame_index':i} for i in range(20)]
         for i,label in ((0,'before'),(4,'close'),(6,'lift'),(17,'release'),(19,'last')):index[i]['label']=label

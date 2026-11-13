@@ -204,46 +204,115 @@ class _NoRedirect(request.HTTPRedirectHandler):
         raise error.HTTPError(req.full_url,code,'company API redirects are disabled',headers,fp)
 
 
-def _http_content(cfg,system,content,timeout_s):
-    endpoint=cfg.base_url if cfg.base_url.endswith('/chat/completions') else cfg.base_url+'/chat/completions'
-    headers={'Content-Type':'application/json',**cfg.headers}
-    if cfg.token and not any(k.lower() in ('authorization','x-api-key','api-key') for k in headers):headers['Authorization']='Bearer '+cfg.token
-    body={'model':cfg.model,'stream':False,'messages':[{'role':'system','content':system},{'role':'user','content':content}]}
-    req=request.Request(endpoint,data=json.dumps(body,ensure_ascii=False).encode(),headers=headers,method='POST')
-    try:
-        with request.build_opener(_NoRedirect()).open(req,timeout=timeout_s) as response:
-            raw=response.read(2_000_001)
-    except error.HTTPError as exc:
-        code=exc.code;exc.close()
-        raise RuntimeError(f'公司Grok API HTTP {code}；未自动重试') from None
-    except (OSError,error.URLError):raise RuntimeError('公司Grok API连接失败；未自动重试') from None
-    if len(raw)>2_000_000:raise ValueError('公司Grok API回复过大')
-    try:value=json.loads(raw)['choices'][0]['message']['content']
-    except (ValueError,KeyError,TypeError,IndexError):raise ValueError('公司Grok API未返回最终文本') from None
+def _text(value):
     if isinstance(value,list):value=''.join(p.get('text','') for p in value if isinstance(p,dict) and p.get('type')=='text')
     if not isinstance(value,str):raise ValueError('公司Grok API最终回复不是文本')
     return value
 
 
-def complete_content(system,content,stop,*,timeout_s=120):
+def _sse_content(response,on_delta,cancel):
+    """Read only public content deltas; reasoning/tool fields are never forwarded."""
+    parts=[];event=[];total=0;size=0;complete=False
+    def consume(lines):
+        nonlocal size,complete
+        data=b'\n'.join(lines)
+        if data.strip()==b'[DONE]':complete=True;return
+        try:packet=json.loads(data)
+        except (ValueError,UnicodeDecodeError):raise ValueError('公司Grok流式数据格式无效') from None
+        if not isinstance(packet,dict) or packet.get('error'):raise ValueError('公司Grok流式回复异常')
+        choices=packet.get('choices',[])
+        if not choices:return
+        try:choice=next(c for c in choices if c.get('index',0)==0)
+        except (StopIteration,AttributeError):raise ValueError('公司Grok流式选项无效') from None
+        if choice.get('finish_reason') not in (None,'stop'):
+            raise ValueError('公司Grok流式回复未正常完成，未应用策略')
+        if choice.get('finish_reason')=='stop':complete=True
+        delta=choice.get('delta',{})
+        if not isinstance(delta,dict):raise ValueError('公司Grok流式文本无效')
+        value=delta.get('content')
+        if value is not None:
+            value=_text(value);size+=len(value.encode())
+            if size>2_000_000:raise ValueError('公司Grok API回复过大')
+            if value:parts.append(value);on_delta(value)
+    while True:
+        if cancel is not None and cancel.is_set():raise RuntimeError('模型请求已取消')
+        line=response.readline(65537)
+        if not line:
+            if event:consume(event)
+            break
+        total+=len(line)
+        if len(line)>65536 or total>16_000_000:raise ValueError('公司Grok流式回复过大')
+        line=line.rstrip(b'\r\n')
+        if not line:
+            if event:
+                done=b'\n'.join(event).strip()==b'[DONE]';consume(event);event=[]
+                if done:break
+        elif line.startswith(b'data:'):event.append(line[5:].lstrip(b' '))
+    if not complete or not parts:raise ValueError('公司Grok流式回复中断，未应用策略')
+    return ''.join(parts)
+
+
+def _http_content(cfg,system,content,timeout_s,*,on_delta=None,on_mode=None,cancel=None):
+    endpoint=cfg.base_url if cfg.base_url.endswith('/chat/completions') else cfg.base_url+'/chat/completions'
+    headers={'Content-Type':'application/json',**cfg.headers}
+    if cfg.token and not any(k.lower() in ('authorization','x-api-key','api-key') for k in headers):headers['Authorization']='Bearer '+cfg.token
+    streaming=on_delta is not None and os.getenv('EVOARM_COMPANY_LLM_STREAM','1')!='0'
+    body={'model':cfg.model,'stream':streaming,'messages':[{'role':'system','content':system},{'role':'user','content':content}]}
+    req=request.Request(endpoint,data=json.dumps(body,ensure_ascii=False).encode(),headers=headers,method='POST')
+    try:
+        with request.build_opener(_NoRedirect()).open(req,timeout=timeout_s) as response:
+            content_type=response.headers.get('Content-Type','')
+            if streaming and isinstance(content_type,str) and 'text/event-stream' in content_type.lower():
+                if on_mode:on_mode('streaming')
+                return _sse_content(response,on_delta,cancel)
+            if on_mode:on_mode('buffered')
+            raw=response.read(2_000_001)
+    except error.HTTPError as exc:
+        code=exc.code
+        # Retry only an explicit rejection of stream=true, before inference.
+        rejection=exc.read(8192).decode('utf-8',errors='replace').lower() if streaming and code in (400,422) else ''
+        exc.close()
+        if 'stream' in rejection and any(word in rejection for word in ('not supported','unsupported','does not support','not allowed','extra inputs','not implemented')):
+            if cancel is not None and cancel.is_set():raise RuntimeError('模型请求已取消')
+            if on_mode:on_mode('buffered_fallback')
+            return _http_content(cfg,system,content,timeout_s,on_mode=None,cancel=cancel)
+        raise RuntimeError(f'公司Grok API HTTP {code}；未自动重试') from None
+    except (OSError,error.URLError):raise RuntimeError('公司Grok API连接失败；未自动重试') from None
+    if len(raw)>2_000_000:raise ValueError('公司Grok API回复过大')
+    try:value=json.loads(raw)['choices'][0]['message']['content']
+    except (ValueError,KeyError,TypeError,IndexError):raise ValueError('公司Grok API未返回最终文本') from None
+    return _text(value)
+
+
+def complete_content(system,content,stop,*,timeout_s=120,on_delta=None,on_mode=None):
     if stop.is_set():raise RuntimeError('用户已停止，不发送新的模型请求')
-    cfg=settings();responses=queue.Queue(maxsize=1)
+    cfg=settings();responses=queue.Queue(maxsize=128);cancel=threading.Event()
+    def emit(kind,value):
+        while not cancel.is_set():
+            try:responses.put((kind,value),timeout=.1);return
+            except queue.Full:continue
     def perform():
-        try:responses.put((True,_http_content(cfg,system,content,timeout_s)))
-        except Exception as exc:responses.put((False,exc))
+        try:
+            options={'on_delta':lambda value:emit('text',value),'on_mode':lambda mode:emit('mode',mode),'cancel':cancel} if on_delta else {}
+            emit('result',_http_content(cfg,system,content,timeout_s,**options))
+        except Exception as exc:emit('error',exc)
     # Network work has no motor access or persistence. Cancellation discards
     # its eventual result; it cannot restart a stopped learning task.
     threading.Thread(target=perform,name='evoarm-company-grok-http',daemon=True).start()
     until=time.monotonic()+timeout_s
-    while True:
-        if stop.is_set():raise RuntimeError('用户停止了模型分析；迟到回复不会触发动作')
-        remaining=until-time.monotonic()
-        if remaining<=0:raise RuntimeError('公司Grok API分析超时；未自动重试')
-        try:ok,value=responses.get(timeout=min(.1,remaining))
-        except queue.Empty:continue
-        if stop.is_set():raise RuntimeError('用户停止了模型分析')
-        if not ok:raise value
-        return value
+    try:
+        while True:
+            if stop.is_set():raise RuntimeError('用户停止了模型分析；迟到回复不会触发动作')
+            remaining=until-time.monotonic()
+            if remaining<=0:raise RuntimeError('公司Grok API分析超时；未自动重试')
+            try:kind,value=responses.get(timeout=min(.1,remaining))
+            except queue.Empty:continue
+            if stop.is_set():raise RuntimeError('用户停止了模型分析')
+            if kind=='error':raise value
+            if kind=='text' and on_delta:on_delta(value)
+            if kind=='mode' and on_mode:on_mode(value)
+            if kind=='result':return value
+    finally:cancel.set()
 
 
 if __name__=='__main__':
