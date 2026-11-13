@@ -26,6 +26,9 @@
     const [nx,ny,nz]=plane.normal_up;
     return [x,y,(height-plane.d_mm-nx*x-ny*y)/nz];
   }
-  root.CoordinateView={project,tablePoint,atHeight};
+  function torqueState(value){
+    return value===1||value===true?'locked':value===0||value===false?'released':'unknown';
+  }
+  root.CoordinateView={project,tablePoint,atHeight,torqueState};
   if(typeof module!=='undefined')module.exports=root.CoordinateView;
 })(globalThis);

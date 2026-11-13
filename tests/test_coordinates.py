@@ -45,6 +45,39 @@ class Coordinates(unittest.TestCase):
         for source,target in [('tit','t'),('r','r'),('g','g')]:self.assertEqual(plan['command'][target],self.arm.raw[source])
         self.assertEqual(plan['physical_accuracy'],'unverified_until_operator_checks')
 
+    def test_no_25mm_floor_for_reachable_targets_above_the_saved_plane(self):
+        self.arm.raw=inverse([300.,0.,-65.],math.radians(75),0,3.14)
+        for height in (0.,1.,10.,17.,24.):
+            plan=self.prepare([300.,0.,-115.+height])['plan']
+            self.assertAlmostEqual(plan['target_height_mm'],height)
+            self.assertEqual(plan['stage']['minimum_tip_height_mm'],0.)
+        self.arm.raw=inverse([300.,0.,-105.],math.radians(75),0,3.14)
+        self.assertAlmostEqual(self.prepare([310.,0.,-105.])['plan']['target_height_mm'],10.)
+        response,detail=self.request('prepare',{'xyz_mm':[300.,0.,-116.]})
+        self.assertEqual(response['status'],409,detail);self.assertIn('低于已标定桌面',detail['detail'])
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+
+    def test_released_or_unknown_torque_allows_preview_but_never_execution(self):
+        status=self.arm.status
+        for flags,expected in [({k:0 for k in ('torswitch'+j for j in 'BSETRG')},'released'),({'torswitchG':None},'unknown')]:
+            with patch.object(self.arm,'status',side_effect=lambda timeout=None:{**status(timeout),**flags}):
+                _,state=self.request('state',method='GET')
+                self.assertEqual(state['torque_feedback']['joints'][5]['state'],expected)
+                self.assertFalse(state['torque_feedback']['all_locked']);self.assertTrue(state['feedback_valid'])
+                prepared=self.prepare()
+                self.assertEqual(self.move(prepared)[0]['status'],409)
+                self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+
+    def test_boolean_true_is_the_same_locked_feedback_as_numeric_one(self):
+        status=self.arm.status
+        with patch.object(self.arm,'status',side_effect=lambda timeout=None:{**status(timeout),**{'torswitch'+j:True for j in 'BSETRG'}}):
+            _,state=self.request('state',method='GET')
+            self.assertTrue(state['torque_feedback']['all_locked'])
+            self.assertTrue(all(j['raw'] is True and j['state']=='locked' for j in state['torque_feedback']['joints']))
+            prepared=self.prepare();response,data=self.move(prepared)
+            self.assertEqual(response['status'],200,data);self.assertTrue(data['sent'])
+        self.assertEqual(len(self.arm.commands),1)
+
     def test_reported_180_8_gripper_keeps_raw_feedback_and_uses_a_legal_hold_command(self):
         self.arm.raw=inverse([353.6,-2.7,189.9],math.radians(6.2),math.radians(.4),math.radians(180.8))
         prepared=self.prepare([400.,50.,50.]);plan=prepared['plan']
@@ -148,7 +181,7 @@ class Coordinates(unittest.TestCase):
         self.assertAlmostEqual(state['result']['pose_error_deg']['gripper'],-3,places=4)
 
     def test_unreachable_table_and_changed_pose_reject_before_any_motor_write(self):
-        for target in ([1000,0,100],[350,0,-115]):
+        for target in ([1000,0,100],[350,0,-116]):
             self.assertEqual(self.request('prepare',{'xyz_mm':target})[0]['status'],409)
         prepared=self.prepare();self.arm.raw=inverse([330,0,145],self.arm.raw['tit'],0,self.arm.raw['g'])
         self.assertEqual(self.move(prepared)[0]['status'],409)

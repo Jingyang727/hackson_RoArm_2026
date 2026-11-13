@@ -52,7 +52,8 @@ def current_degrees(status):
     return degrees
 
 
-def plan_to_angle(status, joint, target_deg):
+def validate_angle_range(status, joint, target_deg):
+    """Pure feedback/target range validation; this never authorizes actuation."""
     if type(joint) is not int or joint not in JOINTS:
         raise UnsafeMotion("未知的关节编号")
     if type(target_deg) not in (int, float) or not math.isfinite(target_deg):
@@ -67,6 +68,12 @@ def plan_to_angle(status, joint, target_deg):
         raise UnsafeMotion(f"{name} 目标角度 {target_deg:.1f}° 超出了手动训练范围 [{low}, {high}]°")
     if current < low and target_deg <= current or current > high and target_deg >= current:
         raise UnsafeMotion(f"{name} 已轻微越界，只允许朝安全区间恢复")
+    return current
+
+
+def plan_to_angle(status, joint, target_deg):
+    current = validate_angle_range(status, joint, target_deg)
+    name = JOINTS[joint][0]
     if status.get(TORQUE_FIELDS[joint]) != 1:
         raise UnsafeMotion(f"{name} 的扭矩使能状态未确认，拒绝运动")
     if joint == 6:

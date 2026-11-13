@@ -15,6 +15,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
+from .safety import JOINTS, TORQUE_FIELDS
 from evoarm_rsi.bench_calibration import load_session
 from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point, errors, check_coordinate_segment
 from evoarm_rsi.roarm_geometry import forward, height_above_plane
@@ -24,6 +25,22 @@ from evoarm_rsi.task_agent import _write
 from evoarm_rsi.bench_start import _ready
 
 DECLARATION='已核对XYZ目标和路径，现场有人看护且双手离开运动范围'
+
+
+def torque_feedback(raw):
+    """Describe THIS status reply; missing fields are unknown, never released.
+
+    Both firmware JSON booleans and numeric binary flags are legitimate.
+    This is display/diagnostic normalization, not a torque command.
+    """
+    joints=[]
+    for joint,field in TORQUE_FIELDS.items():
+        value=raw.get(field) if raw else None
+        valid=type(value) in (bool,int,float) and value in (0,1)
+        state='locked' if valid and value==1 else 'released' if valid else 'unknown'
+        joints.append({'joint':joint,'name':JOINTS[joint][0],'field':field,'raw':value,'state':state})
+    return {'source':'current_T1051_reply' if raw else 'no_current_reply','fresh':raw is not None,
+            'all_locked':all(j['state']=='locked' for j in joints),'joints':joints}
 
 
 class Target(BaseModel):
@@ -119,15 +136,19 @@ def install(app, service_provider):
         if raw:
             try:model=forward(raw)
             except ValueError as exc:error=str(exc)
+        valid_xyz=bool(raw and all(type(raw.get(k)) in (int,float) and math.isfinite(raw[k]) for k in 'xyz'))
+        if raw and not valid_xyz:error='本次反馈缺少有效的XYZ字段'
         with lock:report=plans.get(latest)
         # Transport faults can clear pending before the coordinate observer.
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
+                'coordinate_api_version':2,
+                'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
                 'result':result_view(report) if report else None,
-                'height_mm':height_above_plane([raw[k] for k in 'xyz'],plane) if raw and plane else None}
+                'height_mm':height_above_plane([raw[k] for k in 'xyz'],plane) if valid_xyz and plane else None}
 
     @router.post('/prepare')
     def prepare(req:Target):
@@ -160,7 +181,13 @@ def install(app, service_provider):
                 if report['status']!='prepared':raise ValueError('该计划已执行或消耗，不会重发')
                 if time.monotonic()-report['created_monotonic']>180:raise ValueError('预览已过期，请重新预览')
                 if req.declaration!=DECLARATION:raise ValueError('请核对目标、路径和现场运动范围')
-                raw=service.status();_ready(service.health())
+                raw=service.status();torque=torque_feedback(raw)
+                if not torque['all_locked']:
+                    labels={'locked':'锁定','released':'释放','unknown':'未知'}
+                    details='、'.join(f"{j['name']}={labels[j['state']]}(原始值{json.dumps(j['raw'])})"
+                                     for j in torque['joints'] if j['state']!='locked')
+                    raise ValueError('发送运动前需要六关节扭矩锁定；本次反馈：'+details)
+                _ready(service.health())
                 if fingerprint(session())!=plan['calibration_fingerprint']:raise ValueError('标定发生变化，请重新预览')
                 if any(abs(raw[k]-plan['initial_status'][k])>math.radians(1) for k in 'bsetrg'):
                     raise ValueError('机械臂姿态已改变，请重新预览目标')

@@ -21,13 +21,13 @@ function targetHeight(){const t=target(),p=state?.table_plane;return p&&t.every(
 function syncHeight(){
   const h=targetHeight();if(h===null)return;
   $('heightRange').max=Math.max(400,Math.ceil(h/25)*25);
-  $('heightRange').value=Math.max(25,Math.round(h));
+  $('heightRange').value=Math.max(0,Math.round(h));
 }
 function applyHeight(x,y){
   x=Math.round(x*10)/10;y=Math.round(y*10)/10;
   const point=CoordinateView.atHeight(x,y,Number($('heightRange').value),state?.table_plane);
   if(!point)return;
-  // Round upward so the 25mm slider stop cannot round below table clearance.
+  // Round upward so the table-plane endpoint cannot round below the plane.
   for(const [i,id] of ['x','y','z'].entries())$(id).value=i===2?Math.ceil(point[i]*100)/100:point[i];
   targetInitialized=true;resetPlan();
 }
@@ -50,13 +50,29 @@ function setSelectionMode(mode){
 }
 function render(){
   const h=state?.health||{},r=state?.robot,result=state?.result;
-  const moving=Boolean(h.pending),locked=Array.isArray(h.torque_status)&&h.torque_status.length===6&&h.torque_status.every(v=>v===1);
+  const names=['底座','肩','肘','俯仰','旋转','夹爪'],fields=['B','S','E','T','R','G'].map(k=>'torswitch'+k);
+  const source=state?.torque_feedback;
+  const joints=(source?.joints?.length===6?source.joints:fields.map((field,i)=>({joint:i+1,field,raw:r?.[field]})))
+    .map(j=>({...j,state:CoordinateView.torqueState(j.raw)}));
+  const torqueLabels={locked:'锁定',released:'释放',unknown:'未知'};
+  const moving=Boolean(h.pending),locked=joints.every(j=>j.state==='locked');
+  const torqueProblem=joints.filter(j=>j.state!=='locked').map(j=>names[j.joint-1]+torqueLabels[j.state]).join('、');
+  const feedbackValid=state?.feedback_valid??Boolean(r&&state?.model&&['x','y','z'].every(k=>Number.isFinite(r[k])));
+  $('torqueFeedback').replaceChildren();
+  for(const j of joints){const item=document.createElement('span');item.className=j.state;item.dataset.joint=j.joint;
+    item.textContent=`J${j.joint} ${names[j.joint-1]} ${torqueLabels[j.state]}`;item.title=`${j.field}: ${JSON.stringify(j.raw)??'未报告'}`;$('torqueFeedback').append(item);}
+  $('torqueRaw').textContent=JSON.stringify({source:source?.source||(r?'本次T1051':'无本次反馈'),
+    ui_diagnostics_version:2,backend_api_version:state?.coordinate_api_version??1,
+    fields:Object.fromEntries(joints.map(j=>[j.field,j.raw??null])),health_torque_status:h.torque_status??null},null,2);
+  $('torqueControls').hidden=!joints.some(j=>j.state==='released');
   $('setupBadge').textContent=state?.setup_id||'当前布置';
   $('connection').textContent=h.connected?'机械臂已连接':'机械臂未连接';$('connection').className='status-chip '+(h.connected?'connected':'');
   $('motionMode').textContent=h.motion_enabled?'实物模式':'只读模式';
   $('readiness').textContent=h.fault?h.fault.message:state?.calibration_error?'无法读取已完成标定：'+state.calibration_error:
     !h.connected?'先连接机械臂，串口初始化可能使设备移动，请在现场看护。':moving?'动作执行中，正在读取实际反馈。':
-    !locked?'请先确认六关节扭矩均已锁定。':!h.motion_enabled?'网页服务仍为只读，请按启动说明开启实物模式。':'已沿用现有标定；不需要棋盘或相机在线。';
+    !feedbackValid?(state?.feedback_error||'本次未读到有效XYZ与关节反馈。'):
+    !locked?`本次扭矩反馈：${torqueProblem}。可以预览；发送运动前须确认六关节锁定。`:
+    !h.motion_enabled?'网页服务仍为只读，可预览；执行需按启动说明开启实物模式。':'六关节反馈均锁定；已沿用现有标定，不需要棋盘或相机在线。';
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy;
   $('recover').hidden=!h.fault;$('recover').disabled=busy||moving||!h.connected;
   for(const [id,k] of [['actualX','x'],['actualY','y'],['actualZ','z']])$(id).textContent=number(r?.[k]);
@@ -68,11 +84,20 @@ function render(){
   $('heightControl').hidden=!graphical;$('heightRange').disabled=busy||moving||!state?.table_plane;
   $('heightValue').textContent=number(height)+' mm';$('useCurrent').textContent=graphical?'从当前位置选点':'填入当前 XYZ';
   for(const id of ['x','y','z'])$(id).readOnly=graphical;
-  $('targetHeight').textContent=height===null?'请输入机械臂基坐标XYZ。':`输入目标离桌 ${number(height)} mm；坐标验证先使用离桌至少25mm的点。`;
-  $('prepare').disabled=busy||moving||!h.connected||!locked||!valid||Boolean(state?.calibration_error);
+  $('targetHeight').textContent=height===null?'请输入机械臂基坐标XYZ。':`目标离桌 ${number(height)} mm。`+(height<0?'目标在保存平面下方，不能执行。':height<25?'目标接近桌面，实际间隙以实物检查为准。':'');
+  const previewReasons=[];
+  if(busy)previewReasons.push('正在处理请求');if(moving)previewReasons.push('当前动作尚未结束');
+  if(!h.connected)previewReasons.push('机械臂未连接');if(!feedbackValid)previewReasons.push('未读到有效坐标反馈');
+  if(!valid)previewReasons.push('请先选点或填写XYZ');if(state?.calibration_error)previewReasons.push('保存标定不可用');
+  $('prepare').disabled=previewReasons.length>0;
+  $('previewReason').textContent=previewReasons.length?'暂不可预览：'+previewReasons.join('；'):'';
   const ready=plan&&valid&&plan.plan.target_xyz_mm.every((v,i)=>v===t[i])&&performance.now()<plan.expires;
   $('confirmed').disabled=busy||moving||!ready;
-  $('move').disabled=busy||moving||!ready||!$('confirmed').checked||!locked||!h.connected||!h.motion_enabled||Boolean(h.fault);
+  const moveReasons=[...previewReasons];
+  if(!ready)moveReasons.push('请先预览当前目标');if(!locked)moveReasons.push('扭矩未全部确认锁定：'+torqueProblem);
+  if(!h.motion_enabled)moveReasons.push('后端为只读模式');if(h.fault)moveReasons.push('存在未解除故障');
+  if(ready&&!$('confirmed').checked)moveReasons.push('尚未勾选现场确认');
+  $('move').disabled=moveReasons.length>0;$('moveReason').textContent=moveReasons.length?'暂不可执行：'+moveReasons.join('；'):'';
   $('useCurrent').disabled=busy||moving||!r;
   for(const id of ['x','y','z'])$(id).disabled=busy||moving;
   $('disarm').hidden=!moving;
@@ -120,7 +145,7 @@ for(const id of ['x','y','z'])$(id).oninput=resetPlan;
 $('confirmed').onchange=render;
 $('prepare').onclick=()=>action(async()=>{resetPlan();const prepared=await api('/api/coordinates/prepare','POST',{xyz_mm:target()});plan={...prepared,expires:performance.now()+prepared.expires_in_s*1000};});
 $('move').onclick=()=>{if($('move').disabled)return;const key=plan.plan_id;return action(async()=>{$('confirmed').checked=false;const result=await api('/api/coordinates/move','POST',{plan_id:key,declaration});state.result=result;state.health.pending=result.sent?{kind:'coordinate_test'}:null;plan=null;render();});};
-$('disarm').onclick=async()=>{try{await api('/api/disarm','POST',{});$('summary').textContent+='\n已锁定后续运动；当前指令可能继续。';}catch(exc){error(exc);}};
+$('disarm').onclick=async()=>{try{await api('/api/disarm','POST',{});$('summary').textContent+='\n已撤销后续运动授权，扭矩不变；当前指令可能继续。';}catch(exc){error(exc);}};
 $('saveCheck').onclick=()=>action(async()=>{await api('/api/coordinates/verify','POST',{plan_id:state.result.plan_id,result:document.querySelector('input[name=verified]:checked').value,note:$('note').value});});
 // Draw a rotatable orthographic 3D schematic directly, with no CDN or SDK.
 function draw(){

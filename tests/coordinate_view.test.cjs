@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {project,tablePoint,atHeight}=require('../control_ui/coordinate_view.js');
+const {project,tablePoint,atHeight,torqueState}=require('../control_ui/coordinate_view.js');
 const close=(a,b)=>a.forEach((v,i)=>assert.ok(Math.abs(v-b[i])<1e-7,`${a} != ${b}`));
 
 test('table clicks round-trip in rotated, top, zoomed and mobile views',()=>{
@@ -25,4 +25,10 @@ test('side view or missing calibration cannot invent a depth for a click',()=>{
   assert.equal(tablePoint([300,200],{normal_up:[0,0,1],d_mm:120},view),null);
   assert.equal(tablePoint([300,200],null,view),null);
   assert.equal(atHeight(NaN,0,100,{normal_up:[0,0,1],d_mm:120}),null);
+});
+
+test('numeric and boolean torque replies agree, while missing replies stay unknown',()=>{
+  for(const value of [1,true])assert.equal(torqueState(value),'locked');
+  for(const value of [0,false])assert.equal(torqueState(value),'released');
+  for(const value of [undefined,null,'1','0',2,NaN])assert.equal(torqueState(value),'unknown');
 });

@@ -6,7 +6,7 @@ import math
 from .ball_trial import check_segment, SPEED
 from .bench_calibration import fit_points, _digest
 from .roarm_geometry import forward, inverse, height_above_plane
-from control_ui.safety import JOINTS, plan_to_angle
+from control_ui.safety import JOINTS, validate_angle_range
 
 
 def gripper_hold(status):
@@ -20,8 +20,9 @@ def gripper_hold(status):
     measured=status['g']
     low=math.radians(JOINTS[6][2]);high=min(math.radians(JOINTS[6][3]),3.14)
     target=min(max(measured,low),high)
-    # Pure validation; this does NOT send the helper's T106 payload.
-    plan_to_angle(status,6,math.degrees(target))
+    # Preview is pure geometry; torque is checked by the serial owner when
+    # executing. Never manufacture locked feedback to make preview work.
+    validate_angle_range(status,6,math.degrees(target))
     return {'feedback_rad':measured,'command_rad':target,'feedback_deg':math.degrees(measured),
             'command_deg':math.degrees(target),'normalized':abs(measured-target)>1e-9}
 
@@ -30,7 +31,7 @@ def check_coordinate_segment(status,stage,plane):
     # Recheck the real gripper feedback band at preview AND each preflight.
     # Only the gripper hold command can be normalized; all other joints and
     # the entire Cartesian path retain the existing strict checks.
-    plan_to_angle(status,6,math.degrees(stage['gripper_rad']))
+    validate_angle_range(status,6,math.degrees(stage['gripper_rad']))
     check_segment(status,stage,plane)
 
 
@@ -52,11 +53,11 @@ def plan_point(session, status, target):
         raise ValueError('当前固件XYZ与原装夹爪几何不一致，需要先核对实际反馈')
     plane=calibrated_table(session)
     start_height=height_above_plane(current,plane);target_height=height_above_plane(target,plane)
-    if target_height<25:raise ValueError(f'坐标验证先使用离桌至少25mm的点；该目标离桌{target_height:.1f}mm')
-    minimum=25.
-    if start_height<25:
+    if target_height < -1e-6:raise ValueError(f'目标低于已标定桌面{-target_height:.1f}mm，不能生成穿过桌面的运动')
+    minimum=0.
+    if start_height<0:
         if start_height < -10 or math.dist(current[:2],target[:2])>1 or target_height<=start_height:
-            raise ValueError('当前末端较低；请先预览同XY、Z更高的竖直抬升点')
+            raise ValueError('当前末端反馈低于保存平面；仅允许预览同XY向上的竖直抬升')
         minimum=start_height-1
     hold=gripper_hold(status)
     stage={'stage':'coordinate_test','kind':'cartesian','xyz_mm':list(target),'pitch_rad':status['tit'],
@@ -68,6 +69,7 @@ def plan_point(session, status, target):
     return {'kind':'single_xyz_validation_v1','setup_id':session['setup_id'],'frame':'robot_firmware_mm',
             'initial_status':status,'target_xyz_mm':list(target),'table_plane':plane,'path_xyz_mm':path,
             'target_height_mm':target_height,'distance_mm':math.dist(current,target),
+            'clearance_policy':'no_below_table_target_or_path',
             'pose_preserved_rad':{'pitch':status['tit'],'roll':status['r'],'gripper':hold['command_rad']},
             'gripper_hold':hold,
             'predicted_joints_xyz_mm':forward(predicted)['joints_xyz_mm'],

@@ -10,6 +10,7 @@
 .xyz-inputs,.xyz-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.xyz-inputs label{font-size:12px;color:var(--muted)}.xyz-inputs input{display:block;width:100%;margin-top:6px}.xyz-values div{padding:10px;background:#f5f8f8;border-radius:8px}.xyz-values span{display:block;font-size:11px;color:var(--muted)}.xyz-values strong{font:600 18px ui-monospace,monospace;color:var(--green)}
 .coordinate-controls>button{width:100%;margin-top:12px}.coordinate-controls .check-row{margin:15px 0 0}.coordinate-controls h3{font-size:13px;margin:20px 0 10px}.coordinate-controls textarea{width:100%;min-height:55px;border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit}.verify-row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:12px}.coordinate-controls [hidden]{display:none!important}
 .target-mode{display:flex;gap:8px;margin:12px 0}.target-mode button{flex:1;background:white;color:var(--muted)}.target-mode button[aria-pressed=true]{background:var(--soft);border-color:#bfded3;color:var(--green)}.height-control{display:block;margin:16px 0;color:var(--muted);font-size:12px}.height-control strong{float:right;color:var(--green);font:600 17px ui-monospace,monospace}.height-control input{display:block;width:100%;margin:14px 0 6px;accent-color:var(--green)}.xyz-inputs input[readonly]{background:#f5f8f8;color:#567267}
+.torque-feedback{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0;font-size:11px}.torque-feedback span{padding:7px;border-radius:6px;background:#f2f4f5;color:#697986}.torque-feedback .locked{background:#eaf5f0;color:#137965}.torque-feedback .released{background:#fff1e8;color:#96521f}.torque-raw{font-size:11px;margin:8px 0 12px;color:var(--muted)}.torque-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px}.button-reason{font-size:11px;color:#8b562f;line-height:1.7;margin:5px 0}
 #summary{white-space:pre-line;font-size:13px;line-height:1.9;margin-top:15px}#depthPanel{margin-top:22px}.depth-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.depth-grid img{width:100%;border-radius:8px;cursor:crosshair}.depth-grid figure{margin:0}.depth-grid figcaption{font-size:12px;color:var(--muted);margin:6px 0}#depthPoint{white-space:pre-line}.depth-actions{display:flex;gap:10px;align-items:center;margin:15px 0}.depth-grid [hidden]{display:none}
 @media(max-width:850px){.coordinate-grid{grid-template-columns:1fr}#scene{height:370px}.depth-grid{grid-template-columns:1fr}nav{margin-left:12px;gap:1px}nav a{padding:8px 9px}}
 </style></head>
@@ -25,15 +26,18 @@
 <h3>当前末端（固件反馈）</h3><div class="xyz-values"><div><span>X</span><strong id="actualX">—</strong></div><div><span>Y</span><strong id="actualY">—</strong></div><div><span>Z</span><strong id="actualZ">—</strong></div></div><p id="height" class="small-note"></p></div>
 <div class="card coordinate-controls"><div class="card-heading"><h2>选择末端目标</h2><span id="motionMode" class="mini-badge"></span></div>
 <p id="readiness" class="inline-note">正在读取实际状态。</p><button id="connect" class="secondary" hidden>连接机械臂</button><button id="recover" class="secondary" hidden>确认机械臂静止并复核异常</button>
+<div id="torqueFeedback" class="torque-feedback" aria-label="六关节扭矩实际反馈"></div>
+<details class="torque-raw"><summary>查看原始扭矩反馈</summary><pre id="torqueRaw"></pre></details>
+<a id="torqueControls" class="text-button" href="/calibration" hidden>在标定页查看扭矩控制</a>
 <div class="target-mode"><button id="pointMode" aria-pressed="true">图上选点</button><button id="numericMode" aria-pressed="false">XYZ输入</button></div>
 <p id="selectionHint" class="small-note" role="status">点左侧桌面网格选择位置，再拖动滑块设置离桌高度；点图不会移动机械臂。</p>
-<label id="heightControl" class="height-control">目标离桌高度<strong id="heightValue">— mm</strong><input id="heightRange" type="range" min="25" max="400" step="1" value="150" aria-label="目标离桌高度"/></label>
+<label id="heightControl" class="height-control">目标离桌高度<strong id="heightValue">— mm</strong><input id="heightRange" type="range" min="0" max="400" step="1" value="150" aria-label="目标离桌高度"/></label>
 <div class="xyz-inputs"><label>X · mm<input id="x" type="number" step="1" inputmode="decimal" readonly/></label><label>Y · mm<input id="y" type="number" step="1" inputmode="decimal" readonly/></label><label>Z · mm<input id="z" type="number" step="1" inputmode="decimal" readonly/></label></div>
 <button id="useCurrent" class="subtle">填入当前 XYZ</button><p id="targetHeight" class="small-note">先从当前位置附近、离桌较高的点开始验证。</p>
-<button id="prepare" class="secondary" disabled>1 · 预览目标和路径</button><p id="planNote" class="small-note"></p>
+<button id="prepare" class="secondary" disabled>1 · 预览目标和路径</button><p id="previewReason" class="button-reason"></p><p id="planNote" class="small-note"></p>
 <label class="check-row"><input id="confirmed" type="checkbox" disabled/><span>已核对目标和路径，现场有人看护，双手离开运动范围。</span></label>
-<button id="move" class="primary" disabled>2 · 移动到这个点</button><button id="disarm" class="secondary" hidden>锁定后续运动</button>
-<div id="summary" role="status" aria-live="polite"></div><p class="small-note">只发送一次T104，不自动重试。锁定只禁止后续指令，已发动作可能继续。</p>
+<button id="move" class="primary" disabled>2 · 移动到这个点</button><p id="moveReason" class="button-reason"></p><button id="disarm" class="secondary" hidden>撤销后续运动授权</button>
+<div id="summary" role="status" aria-live="polite"></div><p class="small-note">只发送一次T104，不自动重试。撤销授权只禁止后续指令，已发动作可能继续；不会释放扭矩。</p>
 <div id="verification" hidden><h3>你的实物验收</h3><div class="verify-row"><label><input type="radio" name="verified" value="matches"/> 基本一致</label><label><input type="radio" name="verified" value="offset"/> 有偏差</label><label><input type="radio" name="verified" value="uncertain" checked/> 尚未确认</label></div><textarea id="note" aria-label="实物验收备注" placeholder="可记录偏向哪个方向、约多远"></textarea><button id="saveCheck" class="secondary">保存验收结果</button><p id="saved" class="small-note"></p></div>
 </div></section>
 <details id="depthPanel" class="card"><summary>查看已采集的 RGB-D 与空间点（只读）</summary><p class="small-note">先验证XYZ运动，再接球心定位。这里读取已有录像的对齐深度，展示真实测量点，不需要启动新的相机进程。</p>

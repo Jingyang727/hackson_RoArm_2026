@@ -4,6 +4,7 @@ import unittest
 from control_ui.safety import (
     JOINTS, UnsafeMotion, current_degrees, plan_single_step,
     plan_home_step, plan_gripper_step, FACTORY_DEGREES,
+    validate_angle_range, plan_to_angle,
 )
 
 
@@ -53,6 +54,12 @@ class SafetyTests(unittest.TestCase):
     def test_refuses_torque_off(self):
         with self.assertRaises(UnsafeMotion):
             plan_single_step(feedback(torswitchB=0), 1, 1)
+
+    def test_numeric_preview_validation_does_not_authorize_a_released_gripper(self):
+        raw=feedback(torswitchG=0,g=math.radians(180.8))
+        self.assertAlmostEqual(validate_angle_range(raw,6,179.9),180.8)
+        with self.assertRaisesRegex(UnsafeMotion,'扭矩'):
+            plan_to_angle(raw,6,179.9)
 
     def test_home_step_maximum_five_degrees(self):
         target = dict(FACTORY_DEGREES)

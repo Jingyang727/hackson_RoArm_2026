@@ -12,8 +12,9 @@ from evoarm_rsi.roarm_geometry import forward
 def check(url,output):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     raw=SimulatedArm().status();raw['g']=3.155555287605748  # Real device reports ~180.8 at its closed stop.
+    raw.update({'torswitch'+j:True for j in 'BSETRG'})
     plane={'normal_up':[0,0,1.],'d_mm':115.}
-    h={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'pending':None,'fault':None}
+    h={'connected':True,'motion_enabled':True,'torque_status':[True]*6,'pending':None,'fault':None}
     model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None}
     calls=[];errors=[];key='a'*32
     image,_=scene();_,jpeg=cv2.imencode('.jpg',image)
@@ -22,7 +23,11 @@ def check(url,output):
         body=request.post_data_json if request.method=='POST' else None;calls.append((request.method,path,body))
         if path.startswith('/coordinates/depth/'):
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
-        if path=='/coordinates/state':data=model
+        if path=='/coordinates/state':
+            data=dict(model)
+            if model.get('canonical_torque'):
+                data['torque_feedback']={'source':'current_T1051_reply','fresh':True,
+                    'joints':[{'joint':i+1,'field':'torswitch'+j,'raw':model['robot'].get('torswitch'+j)} for i,j in enumerate('BSETRG')]}
         elif path=='/coordinates/prepare':
             target=body['xyz_mm'];model['result']={'plan_id':key,'status':'prepared','target_xyz_mm':target,'physical_accuracy':'not_checked'}
             data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,
@@ -51,6 +56,9 @@ def check(url,output):
         page.goto(url+'/coordinates');page.locator('#actualX').filter(has_text='340.0').wait_for()
         assert not any(c[0]=='POST' for c in calls)
         assert page.locator('#move').is_disabled()
+        assert page.locator('#torqueFeedback .locked').count()==6
+        assert '请先预览当前目标' in page.locator('#moveReason').inner_text()
+        assert '扭矩' not in page.locator('#moveReason').inner_text()
         assert page.locator('#x').get_attribute('readonly') is not None
         page.locator('#viewFront').click();page.locator('#scene').click(position={'x':200,'y':200})
         page.locator('#selectionHint').filter(has_text='无法确定桌面位置').wait_for()
@@ -59,11 +67,31 @@ def check(url,output):
         page.locator('#scene').click(position={'x':box['width']*.48+180*scale,'y':box['height']*.48+30*scale})
         assert abs(float(page.locator('#x').input_value())-350)<.2
         assert abs(float(page.locator('#y').input_value())-30)<.2
+        assert page.locator('#heightRange').get_attribute('min')=='0'
+        page.locator('#heightRange').evaluate("e=>{e.value='10';e.dispatchEvent(new Event('input',{bubbles:true}));}")
+        assert abs(float(page.locator('#z').input_value())+105)<.02
+        assert page.locator('#prepare').is_enabled()
+        assert '至少25' not in page.locator('body').inner_text()
         page.locator('#heightRange').evaluate("e=>{e.value='150';e.dispatchEvent(new Event('input',{bubbles:true}));}")
         assert abs(float(page.locator('#z').input_value())-35)<.02
         assert not any(c[0]=='POST' for c in calls)  # Picking and slider movement cannot actuate.
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        assert '尚未勾选现场确认' in page.locator('#moveReason').inner_text()
         page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
+        model['canonical_torque']=True  # Also exercise the new backend snapshot, not only the legacy fallback.
+        # The health cache stays 'locked'; only this current reply changes.
+        # A released or unreported joint cannot be silently treated as locked.
+        raw['torswitchS']=False
+        page.locator('#torqueFeedback [data-joint="2"]').filter(has_text='释放').wait_for()
+        assert page.locator('#prepare').is_enabled();assert page.locator('#move').is_disabled()
+        assert '肩释放' in page.locator('#moveReason').inner_text()
+        page.screenshot(path=str(output/'coordinates-released-torque.png'),full_page=True)
+        raw['torswitchS']=None
+        page.locator('#torqueFeedback [data-joint="2"]').filter(has_text='未知').wait_for()
+        assert page.locator('#prepare').is_enabled();assert page.locator('#move').is_disabled()
+        assert '肩未知' in page.locator('#moveReason').inner_text()
+        raw['torswitchS']=True
+        page.wait_for_function("!document.getElementById('move').disabled")
         selected=[page.locator('#'+axis).input_value() for axis in ('x','y','z')]
         page.locator('#view3d').click();box=page.locator('#scene').bounding_box()
         page.mouse.move(box['x']+180,box['y']+180);page.mouse.down()
@@ -112,7 +140,9 @@ def check(url,output):
         page.screenshot(path=str(output/'coordinates-mobile.png'),full_page=True)
         assert not errors,errors;browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','api_calls':len(calls),'checks':[
-        '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible','no motion on load, preview or depth clicks',
+        '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible',
+        'boolean torque flags display locked','released or unknown current torque blocks movement but allows preview',
+        'disabled button reasons visible','height below 25mm selectable','no motion on load, preview or depth clicks',
         'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
         '390px layout','no page errors']}
