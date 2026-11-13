@@ -54,7 +54,7 @@ function render(){
   const source=state?.torque_feedback;
   const joints=(source?.joints?.length===6?source.joints:fields.map((field,i)=>({joint:i+1,field,raw:r?.[field]})))
     .map(j=>({...j,state:CoordinateView.torqueState(j.raw)}));
-  const torqueLabels={locked:'锁定',released:'释放',unknown:'未知'};
+  const torqueLabels={locked:'锁定',reported_zero:'上报0',unknown:'未知'};
   const moving=Boolean(h.pending),locked=joints.every(j=>j.state==='locked');
   const torqueProblem=joints.filter(j=>j.state!=='locked').map(j=>names[j.joint-1]+torqueLabels[j.state]).join('、');
   const feedbackValid=state?.feedback_valid??Boolean(r&&state?.model&&['x','y','z'].every(k=>Number.isFinite(r[k])));
@@ -62,9 +62,12 @@ function render(){
   for(const j of joints){const item=document.createElement('span');item.className=j.state;item.dataset.joint=j.joint;
     item.textContent=`J${j.joint} ${names[j.joint-1]} ${torqueLabels[j.state]}`;item.title=`${j.field}: ${JSON.stringify(j.raw)??'未报告'}`;$('torqueFeedback').append(item);}
   $('torqueRaw').textContent=JSON.stringify({source:source?.source||(r?'本次T1051':'无本次反馈'),
-    ui_diagnostics_version:2,backend_api_version:state?.coordinate_api_version??1,
+    ui_diagnostics_version:3,backend_api_version:state?.coordinate_api_version??1,
     fields:Object.fromEntries(joints.map(j=>[j.field,j.raw??null])),health_torque_status:h.torque_status??null},null,2);
-  $('torqueControls').hidden=!joints.some(j=>j.state==='released');
+  const hasZero=joints.some(j=>j.state==='reported_zero');
+  $('torqueControls').hidden=!hasZero;
+  $('torqueReviewNote').hidden=!hasZero;
+  $('torqueReviewNote').textContent=hasZero?'上报0可能表示扭矩释放，也可能是舵机反馈读取失败；仅凭这一位不能区分，请先只读复核。':'';
   $('setupBadge').textContent=state?.setup_id||'当前布置';
   $('connection').textContent=h.connected?'机械臂已连接':'机械臂未连接';$('connection').className='status-chip '+(h.connected?'connected':'');
   $('motionMode').textContent=h.motion_enabled?'实物模式':'只读模式';

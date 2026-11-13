@@ -59,7 +59,7 @@ class Coordinates(unittest.TestCase):
 
     def test_released_or_unknown_torque_allows_preview_but_never_execution(self):
         status=self.arm.status
-        for flags,expected in [({k:0 for k in ('torswitch'+j for j in 'BSETRG')},'released'),({'torswitchG':None},'unknown')]:
+        for flags,expected in [({k:0 for k in ('torswitch'+j for j in 'BSETRG')},'reported_zero'),({'torswitchG':None},'unknown')]:
             with patch.object(self.arm,'status',side_effect=lambda timeout=None:{**status(timeout),**flags}):
                 _,state=self.request('state',method='GET')
                 self.assertEqual(state['torque_feedback']['joints'][5]['state'],expected)
@@ -77,6 +77,20 @@ class Coordinates(unittest.TestCase):
             prepared=self.prepare();response,data=self.move(prepared)
             self.assertEqual(response['status'],200,data);self.assertTrue(data['sent'])
         self.assertEqual(len(self.arm.commands),1)
+
+    def test_partial_roll_zero_is_reported_without_claiming_all_joints_released(self):
+        status=self.arm.status
+        with patch.object(self.arm,'status',side_effect=lambda timeout=None:{**status(timeout),'torswitchR':0}):
+            _,state=self.request('state',method='GET');torque=state['torque_feedback']
+            self.assertEqual([j['raw'] for j in torque['joints']],[1,1,1,1,0,1])
+            self.assertEqual(torque['joints'][4]['state'],'reported_zero')
+            self.assertEqual(sum(j['state']=='locked' for j in torque['joints']),5)
+            self.assertTrue(torque['zero_may_mean_feedback_failure'])
+            self.assertFalse(torque['per_servo_read_validity_reported'])
+            prepared=self.prepare();response,detail=self.move(prepared)
+            self.assertEqual(response['status'],409)
+            self.assertIn('末端旋转=上报0',detail['detail']);self.assertIn('反馈读取失败',detail['detail'])
+        self.assertEqual(self.arm.commands,[])
 
     def test_reported_180_8_gripper_keeps_raw_feedback_and_uses_a_legal_hold_command(self):
         self.arm.raw=inverse([353.6,-2.7,189.9],math.radians(6.2),math.radians(.4),math.radians(180.8))

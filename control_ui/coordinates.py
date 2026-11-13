@@ -37,10 +37,12 @@ def torque_feedback(raw):
     for joint,field in TORQUE_FIELDS.items():
         value=raw.get(field) if raw else None
         valid=type(value) in (bool,int,float) and value in (0,1)
-        state='locked' if valid and value==1 else 'released' if valid else 'unknown'
+        state='locked' if valid and value==1 else 'reported_zero' if valid else 'unknown'
         joints.append({'joint':joint,'name':JOINTS[joint][0],'field':field,'raw':value,'state':state})
     return {'source':'current_T1051_reply' if raw else 'no_current_reply','fresh':raw is not None,
-            'all_locked':all(j['state']=='locked' for j in joints),'joints':joints}
+            'all_locked':all(j['state']=='locked' for j in joints),'joints':joints,
+            'zero_may_mean_feedback_failure':any(j['state']=='reported_zero' for j in joints),
+            'per_servo_read_validity_reported':False}
 
 
 class Target(BaseModel):
@@ -143,7 +145,7 @@ def install(app, service_provider):
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
-                'coordinate_api_version':2,
+                'coordinate_api_version':3,
                 'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
@@ -183,7 +185,7 @@ def install(app, service_provider):
                 if req.declaration!=DECLARATION:raise ValueError('请核对目标、路径和现场运动范围')
                 raw=service.status();torque=torque_feedback(raw)
                 if not torque['all_locked']:
-                    labels={'locked':'锁定','released':'释放','unknown':'未知'}
+                    labels={'locked':'锁定','reported_zero':'上报0（释放或反馈读取失败）','unknown':'未知'}
                     details='、'.join(f"{j['name']}={labels[j['state']]}(原始值{json.dumps(j['raw'])})"
                                      for j in torque['joints'] if j['state']!='locked')
                     raise ValueError('发送运动前需要六关节扭矩锁定；本次反馈：'+details)

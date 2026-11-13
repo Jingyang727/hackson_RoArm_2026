@@ -81,16 +81,17 @@ def check(url,output):
         model['canonical_torque']=True  # Also exercise the new backend snapshot, not only the legacy fallback.
         # The health cache stays 'locked'; only this current reply changes.
         # A released or unreported joint cannot be silently treated as locked.
-        raw['torswitchS']=False
-        page.locator('#torqueFeedback [data-joint="2"]').filter(has_text='释放').wait_for()
+        raw['torswitchR']=False
+        page.locator('#torqueFeedback [data-joint="5"]').filter(has_text='上报0').wait_for()
         assert page.locator('#prepare').is_enabled();assert page.locator('#move').is_disabled()
-        assert '肩释放' in page.locator('#moveReason').inner_text()
+        assert '旋转上报0' in page.locator('#moveReason').inner_text()
+        assert '反馈读取失败' in page.locator('#torqueReviewNote').inner_text()
         page.screenshot(path=str(output/'coordinates-released-torque.png'),full_page=True)
-        raw['torswitchS']=None
-        page.locator('#torqueFeedback [data-joint="2"]').filter(has_text='未知').wait_for()
+        raw['torswitchR']=None
+        page.locator('#torqueFeedback [data-joint="5"]').filter(has_text='未知').wait_for()
         assert page.locator('#prepare').is_enabled();assert page.locator('#move').is_disabled()
-        assert '肩未知' in page.locator('#moveReason').inner_text()
-        raw['torswitchS']=True
+        assert '旋转未知' in page.locator('#moveReason').inner_text()
+        raw['torswitchR']=True
         page.wait_for_function("!document.getElementById('move').disabled")
         selected=[page.locator('#'+axis).input_value() for axis in ('x','y','z')]
         page.locator('#view3d').click();box=page.locator('#scene').bounding_box()
@@ -141,7 +142,7 @@ def check(url,output):
         assert not errors,errors;browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','api_calls':len(calls),'checks':[
         '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible',
-        'boolean torque flags display locked','released or unknown current torque blocks movement but allows preview',
+        'boolean torque flags display locked','zero or unknown current torque blocks movement but allows preview',
         'disabled button reasons visible','height below 25mm selectable','no motion on load, preview or depth clicks',
         'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',

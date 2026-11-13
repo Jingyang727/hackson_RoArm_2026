@@ -29,6 +29,6 @@ test('side view or missing calibration cannot invent a depth for a click',()=>{
 
 test('numeric and boolean torque replies agree, while missing replies stay unknown',()=>{
   for(const value of [1,true])assert.equal(torqueState(value),'locked');
-  for(const value of [0,false])assert.equal(torqueState(value),'released');
+  for(const value of [0,false])assert.equal(torqueState(value),'reported_zero');
   for(const value of [undefined,null,'1','0',2,NaN])assert.equal(torqueState(value),'unknown');
 });

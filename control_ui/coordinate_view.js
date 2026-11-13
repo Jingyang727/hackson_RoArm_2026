@@ -27,7 +27,7 @@
     return [x,y,(height-plane.d_mm-nx*x-ny*y)/nz];
   }
   function torqueState(value){
-    return value===1||value===true?'locked':value===0||value===false?'released':'unknown';
+    return value===1||value===true?'locked':value===0||value===false?'reported_zero':'unknown';
   }
   root.CoordinateView={project,tablePoint,atHeight,torqueState};
   if(typeof module!=='undefined')module.exports=root.CoordinateView;
