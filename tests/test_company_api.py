@@ -22,6 +22,40 @@ class CompanyAPI(unittest.TestCase):
         os.environ.update(EVOARM_COMPANY_LLM_BASE_URL='https://company.invalid/v1',
                           EVOARM_COMPANY_LLM_TOKEN='fake-test-token',EVOARM_COMPANY_LLM_MODEL='grok-4.7-build')
 
+    def company_env(self,content):
+        path=self.home/'.evoarm/company_llm.env';path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(content);return path
+
+    def test_user_company_env_file_is_read_as_literals_without_shell_or_environment_mutation(self):
+        file=self.company_env('export OPENAI_BASE_URL="https://inference.tesla.com/v1"\nOPENAI_API_KEY=\'fake-$(`never-execute`)\'\nOPENAI_MODEL=grok-4.7-build\n')
+        before=file.read_bytes();environment=dict(os.environ)
+        with patch('subprocess.Popen',side_effect=AssertionError('no shell')):cfg=api.settings()
+        self.assertEqual(cfg.base_url,'https://inference.tesla.com/v1');self.assertEqual(cfg.token,'fake-$(`never-execute`)')
+        self.assertEqual(cfg.source,'company_env_file');self.assertEqual(dict(os.environ),environment)
+        self.assertEqual(file.read_bytes(),before);self.assertNotIn(cfg.token,json.dumps(api.configuration()))
+
+    def test_complete_explicit_configuration_takes_priority_even_over_invalid_saved_file(self):
+        self.company_env('not a valid assignment');self.explicit()
+        self.assertEqual(api.settings().source,'environment')
+
+    def test_env_base_can_reuse_user_auth_copy_and_auth_only_uses_known_company_endpoint(self):
+        self.provider({},auth={'type':'api','key':'fake-auth-key'})
+        self.company_env('OPENAI_BASE_URL=https://inference.tesla.com/v1\n')
+        self.assertEqual(api.settings().token,'fake-auth-key');self.assertEqual(api.settings().source,'company_env_file')
+        (self.home/'.evoarm/company_llm.env').unlink()
+        self.assertEqual(api.settings().base_url,'https://inference.tesla.com/v1')
+        self.assertEqual(api.settings().source,'company_auth_file')
+
+    def test_partial_custom_endpoint_does_not_receive_another_endpoint_env_token(self):
+        self.company_env('OPENAI_API_KEY=fake-company-key\n')
+        os.environ['EVOARM_COMPANY_LLM_BASE_URL']='https://different.invalid/v1'
+        self.assertFalse(api.configuration()['configured'])
+
+    def test_invalid_saved_file_error_does_not_expose_content(self):
+        self.company_env('fake-private-data-without-assignment')
+        result=api.configuration();self.assertFalse(result['configured'])
+        self.assertNotIn('fake-private-data',json.dumps(result))
+
     def provider(self,options,auth=None):
         folder=self.home/'.config/opencode';folder.mkdir(parents=True,exist_ok=True)
         cfg={'provider':{'bottlerocket':{'npm':'@ai-sdk/openai-compatible','options':options,

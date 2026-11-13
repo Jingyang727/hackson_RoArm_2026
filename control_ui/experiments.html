@@ -8,6 +8,7 @@
   <style>
     .learning-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:22px;align-items:start}
     .learning-grid>*{min-width:0}.workspace-frame{display:block;width:100%;border-radius:10px;background:#edf2f1;aspect-ratio:16/9;object-fit:contain}
+    .workspace-view{position:relative}.workspace-view svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     .learning-controls>button{width:100%;margin:12px 0}.learning-controls .check-row{margin:20px 0}
     .phase-line{font-size:18px;line-height:1.7;white-space:pre-line}.quiet{color:var(--muted);font-size:13px;line-height:1.8;white-space:pre-line}
     .verdict{border-top:1px solid var(--line);margin-top:18px;padding-top:18px;line-height:1.9;white-space:pre-line}
@@ -31,8 +32,9 @@
     <div class="card">
       <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
       <div id="frameEmpty" class="empty-trials"><p>正在读取相机画面。球和黑色漏斗应同时可见。</p></div>
-      <img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/>
+      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
       <p id="imageCaption" class="quiet"></p>
+      <p id="targetCaption" class="quiet" hidden></p>
       <p id="streamNotice" class="quiet" hidden></p>
     </div>
     <div class="card learning-controls">
@@ -46,6 +48,7 @@
       <button id="stop" class="secondary" hidden>停止自动任务</button>
       <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
       <p id="nextChange" class="quiet"></p>
+      <details id="changeDetails" hidden><summary>本轮参数变化</summary><p id="changeFacts" class="facts"></p></details>
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
       <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>

@@ -31,19 +31,23 @@ def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sa
     wanted.extend(("sample",int(stamps[i])) for i in
                   np.linspace(0,len(stamps)-1,sample_count,dtype=int))
     wanted.append(("last",int(stamps[-1])))
-    wanted.sort(key=lambda item:item[1])
-    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];used=set();evidence=[]
+    # Preserve event labels when a uniform sample selects the same frame.
+    selected={}
+    for label,stamp in wanted:
+        index=int(np.argmin(np.abs(stamps-stamp)))
+        labels=selected.setdefault(index,[])
+        if label not in labels:labels.append(label)
+    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];evidence=[]
     try:
-        for label,stamp in wanted:
-            index=int(np.argmin(np.abs(stamps-stamp)))
-            if index in used:continue
-            used.add(index);cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read()
+        for index,labels in sorted(selected.items()):
+            label='/'.join(labels)
+            cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read()
             if not ok:continue
             tile=cv2.resize(frame,(480,270))
             cv2.putText(tile,f"{label}: {(int(stamps[index])-int(stamps[0]))/1e9:.2f}s",(10,25),
                         cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,240),2)
             cv2.imwrite(str(folder/f"evidence-{len(tiles):02d}.jpg"),frame)
-            evidence.append({'label':label,'frame_index':index,
+            evidence.append({'label':label,'labels':labels,'frame_index':index,
                              'elapsed_s':(int(stamps[index])-int(stamps[0]))/1e9,
                              'file':f'evidence-{len(tiles):02d}.jpg'})
             tiles.append(tile)

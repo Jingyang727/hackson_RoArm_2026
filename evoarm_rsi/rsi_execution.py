@@ -73,7 +73,8 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
     root=Path(root);home=Path.home();run_id=root.name;request_id=uuid.uuid4().hex
     report={'kind':'rsi_pick_place_execution_v1','plan_id':run_id,'setup_id':plan['setup_id'],
             'camera_request_id':request_id,'events':[],'dispatches':[],'feedback':[],
-            'parameters':plan['parameters'],'robot_moved':False,'grasp_attempted':False,
+            'parameters':plan['parameters'],'policy_application':plan.get('policy_application'),
+            'target_audit':plan.get('target_audit'),'robot_moved':False,'grasp_attempted':False,
             'placement_attempted':False,'motion_completed':False,'visual_success':None,
             'motion_error':None,'camera_error':None,'created_at_unix':time.time()}
     receipt=root/'attempt.json'

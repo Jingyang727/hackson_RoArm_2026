@@ -24,7 +24,7 @@ def check(url, output):
     for _ in range(8):writer.write(cv2.resize(image,(160,90)))
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
-    model={'api_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},
+    model={'api_version':4,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -73,6 +73,10 @@ def check(url, output):
         model['job']={'status':'running','phase':'descend','plan_id':key}
         health.update(armed=True,pending={'kind':'rsi_trial'})
         page.locator('#phase').filter(has_text='下降').wait_for();assert page.locator('#start').is_disabled()
+        assert page.locator('#targetOverlay circle').count()==2
+        assert page.locator('#targetOverlay').is_visible()
+        assert '画面右侧' in page.locator('#targetCaption').inner_text()
+        assert '正在执行' in page.locator('#resultText').inner_text()
         page.screenshot(path=str(output/'rsi-plan.png'),full_page=True)
         result={'motion_completed':True,'grasp_attempted':True,'placement_attempted':True,'physical_elapsed_s':7.8,
                 'within_10s':True,'recording_covers_motion':True,'capture_trial_id':'a'*32,'keyframes_file':'/local/keyframes.jpg'}
@@ -84,10 +88,14 @@ def check(url, output):
         assert len([call for call in calls if call[0]=='POST'])==posts
         review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'company_grok',
                 'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移6mm。'],'after_version':2}
+        review['proposal']={'parameters_changed':['pickup_xy_mm'],'before':{'pickup_xy_mm':[0,0]},
+                            'after':{'pickup_xy_mm':[0,-6]},'robot_delta_mm':[0,-6],
+                            'predicted_pixel_delta':[7,0],'allow_retry':True}
         model['plan']['review']=review;model['plan']['backup_url']=f'/api/bench/rsi/plans/{key}/archive'
         model['learning'].update(phase='recovering',review=review,changes=review['changes'])
         page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         page.locator('#grokVerdict').filter(has_text='夹爪偏左').wait_for()
+        page.locator('#changeDetails summary').click();assert '→' in page.locator('#changeFacts').inner_text()
         assert page.locator('#start').is_disabled()
         # No user review or second execution request: backend starts round two.
         key='2'*32;model['plan']=plan(key,2);model['learning'].update(phase='executing',attempt=2)
@@ -120,6 +128,9 @@ def check(url, output):
         model['learning'].update(status='completed',phase='reset_completed')
         page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
+        model['api_version']=3
+        page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
+        assert page.locator('#start').is_disabled()
         assert not errors,errors
         browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','checks':[
@@ -127,7 +138,8 @@ def check(url, output):
         'no mandatory human result form','Grok analysis progress survives reload','automatic recovery and round two without browser action',
         'successful Grok verdict and persistent policy shown','native H.264 playback','backup and raw download links',
         'depth diagnostics folded with distance legend','stop cancels further learning','missing Grok blocks unattended execution but not official reset',
-        '390px layout','no page errors']}
+        'observation target overlays and camera-relative side labels','before/after policy changes shown',
+        'stale backend blocks new learning with restart explanation','390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

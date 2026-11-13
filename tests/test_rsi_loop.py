@@ -87,6 +87,16 @@ class RSIApi(unittest.TestCase):
         response,image=asyncio.run(api_request('/api/bench/rsi/plans/'+key+'/depth',{},method='GET',decode_json=False))
         self.assertEqual(response['status'],200);self.assertGreater(len(image),100)
 
+    def test_stale_parameters_from_planner_are_rejected_before_any_dispatch(self):
+        original=build_plan
+        def stale(*args,**kwargs):
+            plan=original(*args,**kwargs);plan['parameters']=copy.deepcopy(plan['parameters'])
+            plan['parameters']['pickup_xy_mm']=[9.,9.]
+            return plan
+        with patch('control_ui.rsi_trial.build_plan',side_effect=stale):response,error=self.request('prepare')
+        self.assertEqual(response['status'],409);self.assertIn('当前RSI参数',error['detail']['message'])
+        self.assertEqual(self.execute_mock.call_count,0);self.assertEqual(self.arm.commands,[])
+
     def test_one_run_requires_confirmation_and_does_not_replay(self):
         key=self.prepare()
         self.assertEqual(self.request('run',{'plan_id':key,'declaration':''})[0]['status'],409)

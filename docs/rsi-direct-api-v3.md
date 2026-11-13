@@ -1,5 +1,7 @@
 # RSI v3：直接公司Grok API与独立官方复位
 
+> 此文记录 v3。当前版本及本地更新步骤见 [RSI v4](rsi-direction-policy-v4.md)。
+
 当前分支`feature/rsi-pick-place-loop-v1`，状态接口版本3。相机、底座、桌面和已有标定继续沿用。
 
 ## 本地更新

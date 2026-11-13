@@ -7,10 +7,51 @@ import os
 from pathlib import Path
 import queue
 import re
+import shlex
 import threading
 import time
 from urllib import request, error
 from urllib.parse import urlparse
+
+DEFAULT_COMPANY_BASE_URL='https://inference.tesla.com/v1'
+
+
+def _company_env():
+    path=Path(os.getenv('EVOARM_COMPANY_LLM_ENV_FILE',str(Path.home()/'.evoarm/company_llm.env'))).expanduser()
+    if not path.is_file():return {}
+    if path.stat().st_size>65536:raise ValueError('公司模型env文件过大')
+    values={}
+    for line in path.read_text().splitlines():
+        line=line.strip()
+        if not line or line.startswith('#'):continue
+        if line.startswith('export '):line=line[7:].lstrip()
+        key,separator,raw=line.partition('=')
+        if not separator or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',key.strip()):
+            raise ValueError('公司模型env文件格式无效')
+        raw=raw.strip()
+        if raw.startswith(('"',"'")):
+            try:parts=shlex.split(raw,comments=True,posix=True)
+            except ValueError:raise ValueError('公司模型env引号格式无效') from None
+            if len(parts)!=1:raise ValueError('公司模型env值格式无效')
+            raw=parts[0]
+        else:raw=raw.split(' #',1)[0].strip()
+        values[key.strip()]=raw
+    return values
+
+
+def _saved_token(provider):
+    home=Path.home();data=Path(os.getenv('XDG_DATA_HOME',str(home/'.local/share')))/'opencode/auth.json'
+    for file in (data,home/'Library/Application Support/opencode/auth.json'):
+        if not file.is_file():continue
+        auth=json.loads(file.read_text()).get(provider,{})
+        if auth.get('type')=='oauth' and auth.get('expires'):
+            try:expires=float(auth['expires'])
+            except (ValueError,TypeError):raise ValueError('公司API登录过期时间格式无效') from None
+            expires=expires/1000 if expires>100_000_000_000 else expires
+            if expires<time.time():raise ValueError('公司API登录凭据已过期，请在本机更新登录')
+        token=_resolve(auth.get('key') or auth.get('apiKey') or auth.get('access') or auth.get('accessToken'))
+        if token:return token
+    return ''
 
 
 @dataclass(frozen=True)
@@ -100,9 +141,24 @@ def settings():
     selected=os.getenv('EVOARM_GROK_MODEL',os.getenv('EVOARM_OPENCODE_MODEL','bottlerocket/grok-4.7-build'))
     provider,model=selected.split('/',1) if '/' in selected else ('bottlerocket',selected)
     explicit=os.getenv('EVOARM_COMPANY_LLM_BASE_URL','').strip()
+    process_token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip()
+    if explicit and process_token:
+        selected_model=os.getenv('EVOARM_COMPANY_LLM_MODEL',model)
+        if selected_model.startswith(provider+'/'):selected_model=selected_model[len(provider)+1:]
+        return _validate(APISettings(explicit.rstrip('/'),process_token,selected_model,'environment'))
+    saved=_company_env()
+    saved_base=saved.get('EVOARM_COMPANY_LLM_BASE_URL') or saved.get('OPENAI_BASE_URL') or saved.get('OPENAI_API_BASE') or DEFAULT_COMPANY_BASE_URL
+    saved_token=(saved.get('EVOARM_COMPANY_LLM_TOKEN') or saved.get('EVOARM_COMPANY_LLM_API_KEY')
+                 or saved.get('OPENAI_API_KEY') or saved.get('GROK_API_KEY') or '')
+    selected_model=os.getenv('EVOARM_COMPANY_LLM_MODEL',saved.get('EVOARM_COMPANY_LLM_MODEL',saved.get('OPENAI_MODEL',model)))
+    if selected_model.startswith(provider+'/'):selected_model=selected_model[len(provider)+1:]
     if explicit:
-        return _validate(APISettings(explicit.rstrip('/'),os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip(),
-                                    os.getenv('EVOARM_COMPANY_LLM_MODEL',model),'environment'))
+        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip()
+        if not token and explicit.rstrip('/')==saved_base.rstrip('/'):token=saved_token
+        return _validate(APISettings(explicit.rstrip('/'),token,selected_model,'environment'))
+    if saved:
+        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip() or saved_token or _saved_token(provider)
+        return _validate(APISettings(saved_base.rstrip('/'),token,selected_model,'company_env_file'))
     home=Path.home();config=Path(os.getenv('XDG_CONFIG_HOME',str(home/'.config')))/'opencode'
     # Auto-discovery is limited to user-owned global settings. A repository
     # config must not redirect a globally stored company credential elsewhere.
@@ -116,24 +172,16 @@ def settings():
     item=merged.get('provider',{}).get(provider,{})
     options=item.get('options',{})
     base=_resolve(options.get('baseURL') or options.get('baseUrl'))
-    if not base:raise ValueError('未找到公司API地址；可复用provider的baseURL，或设置 EVOARM_COMPANY_LLM_BASE_URL')
+    if not base:
+        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip() or _saved_token(provider)
+        if provider=='bottlerocket' and token:
+            return _validate(APISettings(DEFAULT_COMPANY_BASE_URL,token,selected_model,'company_auth_file'))
+        raise ValueError('未找到公司API地址；可复用provider的baseURL，或设置 EVOARM_COMPANY_LLM_BASE_URL')
     npm=item.get('npm','@ai-sdk/openai-compatible')
     if npm not in ('@ai-sdk/openai-compatible','@ai-sdk/openai','@ai-sdk/xai'):
         raise ValueError('现有provider不是已知Chat Completions协议；请显式配置公司Grok API地址与凭据')
     token=_resolve(options.get('apiKey'))
-    if not token:
-        data=Path(os.getenv('XDG_DATA_HOME',str(home/'.local/share')))/'opencode/auth.json'
-        alternatives=[data,home/'Library/Application Support/opencode/auth.json']
-        for file in alternatives:
-            if not file.is_file():continue
-            auth=json.loads(file.read_text()).get(provider,{})
-            if auth.get('type')=='oauth' and auth.get('expires'):
-                try:expires=float(auth['expires'])
-                except (ValueError,TypeError):raise ValueError('公司API登录过期时间格式无效') from None
-                expires=expires/1000 if expires>100_000_000_000 else expires
-                if expires<time.time():raise ValueError('公司API登录凭据已过期，请在本机更新登录')
-            token=_resolve(auth.get('key') or auth.get('apiKey') or auth.get('access') or auth.get('accessToken'))
-            if token:break
+    if not token:token=_saved_token(provider)
     headers={k:_resolve(v) for k,v in options.get('headers',{}).items()
              if k.lower() not in ('host','content-length','connection','proxy-authorization')}
     canonical=item.get('models',{}).get(model,{}).get('id',model)

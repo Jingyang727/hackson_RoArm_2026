@@ -249,9 +249,13 @@ def image_correction(scene,direction,step_mm=4.,*,target='ball'):
     delta=end[:2]-start[:2];return (delta/max(np.linalg.norm(delta),1e-8)*step_mm).tolist()
 
 
-def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown'):
+def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,step_override_mm=None):
     result={k:list(v) if isinstance(v,list) else v for k,v in parameters.items()};change=[]
     step_mm={'small':2.,'medium':4.,'large':6.,'unknown':4.}.get(magnitude,4.)
+    if step_override_mm is not None:
+        if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or not 1<=step_override_mm<=8:
+            raise ValueError('学习试验步长无效')
+        step_mm=step_override_mm
     if outcome=='placed':return result,['本轮成功，保留参数；下一轮换一个球位置验证。']
     if outcome in ('grasp_missed','placement_missed') and direction.startswith('image_'):
         key='pickup_xy_mm' if outcome=='grasp_missed' else 'release_xy_mm'

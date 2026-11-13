@@ -89,6 +89,37 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(response['status'], 409); self.assertEqual(self.fixture.arm.commands, [])
         self.assertEqual(self.policies, [])
 
+    def test_repeated_small_error_uses_larger_new_plan_and_saves_application_receipt(self):
+        miss=verdict('grasp_missed','image_right','small')
+        with (patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},miss,miss,verdict()]),
+              patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'})):
+            self.start()
+        self.assertEqual(len(self.policies),3)
+        first=np.asarray(self.policies[1]['pickup_xy_mm'])-self.policies[0]['pickup_xy_mm']
+        second=np.asarray(self.policies[2]['pickup_xy_mm'])-self.policies[1]['pickup_xy_mm']
+        self.assertAlmostEqual(float(np.linalg.norm(first)),2.)
+        self.assertAlmostEqual(float(np.linalg.norm(second)),4.)
+        _,state=self.request('state',method='GET')
+        self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
+        audit=state['plan']['policy_application'];self.assertTrue(audit['parameters_verified'])
+        saved=json.loads((self.fixture.home/'.evoarm/rsi/pick_place_runs'/state['plan']['plan_id']/'state.json').read_text())
+        self.assertEqual(saved['result']['policy_application'],audit)
+
+    def test_no_effective_new_parameter_recovers_and_stops_instead_of_replaying(self):
+        miss=verdict('grasp_missed','image_right','small')
+        from evoarm_rsi.rsi_policy import propose
+        def bounded(*args,**kwargs):
+            parameters,changes,proposal=propose(*args,**kwargs)
+            proposal['allow_retry']=False
+            return parameters,changes,proposal
+        with (patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},miss]),
+              patch('control_ui.rsi_trial.propose',side_effect=bounded),
+              patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'}) as recovery):
+            self.start()
+        self.assertEqual(len(self.policies),1);self.assertEqual(recovery.call_count,1)
+        _,state=self.request('state',method='GET')
+        self.assertIn('没有可验证的新修正',state['learning']['error'])
+
     def test_scene_rejection_stops_before_physical_attempt(self):
         with patch('evoarm_rsi.grok_review.review', return_value={'ready': False, 'note': 'wrong funnel'}):
             self.start()
@@ -272,6 +303,17 @@ class EvidenceAndTracking(unittest.TestCase):
             self.assertEqual(image.shape[:2], (810, 480)); self.assertGreater(float(image[-200:].mean()), 50)
             self.assertEqual(json.loads((folder / 'keyframes.json').read_text())['padding_frames'], 0)
 
+    def test_uniform_sample_does_not_erase_close_event_label(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp);writer=cv2.VideoWriter(str(folder/'rgb.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),1,(160,90))
+            for _ in range(4):writer.write(np.full((90,160,3),180,np.uint8))
+            writer.release();stamps=[1_000_000_000*i for i in range(4)]
+            (folder/'frames.jsonl').write_text('\n'.join(json.dumps({'host_monotonic_ns':s}) for s in stamps))
+            export_keyframes(folder,[{'stage':'close','host_monotonic_ns':stamps[1]+100}],sample_count=4)
+            frames=json.loads((folder/'keyframes.json').read_text())['frames']
+            self.assertEqual(len(frames),4);self.assertIn('close',frames[1]['labels'])
+            self.assertIn('sample',frames[1]['labels'])
+
     def test_backup_hashes_and_langfuse_contract_preserve_raw_evidence(self):
         import zipfile
         with tempfile.TemporaryDirectory() as temp:
@@ -356,6 +398,14 @@ class AutomaticRecovery(unittest.TestCase):
 
 
 class GrokAdapter(unittest.TestCase):
+    def test_bounded_frame_selection_preserves_close_lift_and_release(self):
+        index=[{'label':'sample','frame_index':i} for i in range(20)]
+        for i,label in ((0,'before'),(4,'close'),(6,'lift'),(17,'release'),(19,'last')):index[i]['label']=label
+        selected=grok_review.select_frames(index)
+        self.assertEqual(len(selected),8)
+        self.assertTrue({'before','close','lift','release','last'}<=set(r['label'] for r in selected))
+        self.assertEqual([r['frame_index'] for r in selected],sorted(r['frame_index'] for r in selected))
+
     def test_wrapped_final_json_is_accepted_but_two_answers_are_rejected(self):
         value=verdict()
         def event(text):return text
