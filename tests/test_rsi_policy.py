@@ -31,9 +31,13 @@ class CameraRelativePolicy(unittest.TestCase):
                 'before':before,'after':after,'proposal':proposal,
                 'ball_xyz_mm':self.scene['ball']['center_robot_mm'],**extra}
 
+    def evidence(self,effect,movement='as_expected'):
+        return {'comparison':{'available':True,'reference_plan_id':'a'*32,'feedback':{'status':'consistent'}},
+                'assessment':{'reference_plan_id':'a'*32,'effect':effect,'movement':movement,'note':'paired actual frames'}}
+
     def test_camera_facing_robot_right_miss_requires_positive_robot_y(self):
         after,changes,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
-        self.assertAlmostEqual(after['pickup_xy_mm'][1],2.)
+        self.assertAlmostEqual(after['pickup_xy_mm'][1],4.)
         self.assertAlmostEqual(after['pickup_xy_mm'][0],0.)
         self.assertLess(proposal['predicted_pixel_delta'][0],0)
         self.assertEqual(proposal['correction_direction'],'image_left')
@@ -50,8 +54,8 @@ class CameraRelativePolicy(unittest.TestCase):
     def test_same_miss_increases_experiment_step_and_records_next_plan_application(self):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
         history=[self.entry(self.parameters,after,proposal)]
-        second,_,decision=propose(after,self.scene,'grasp_missed','image_right','small',history=history)
-        self.assertAlmostEqual(second['pickup_xy_mm'][1]-after['pickup_xy_mm'][1],4.)
+        second,_,decision=propose(after,self.scene,'grasp_missed','image_right','small',history=history,**self.evidence('unchanged'))
+        self.assertAlmostEqual(second['pickup_xy_mm'][1]-after['pickup_xy_mm'][1],8.)
         self.assertEqual(decision['comparison'],'same_error_repeated')
         audit=application(second,copy.deepcopy(second),[self.entry(after,second,decision)])
         self.assertTrue(audit['parameters_verified']);self.assertEqual(audit['source_trial_id'],'a'*32)
@@ -60,21 +64,76 @@ class CameraRelativePolicy(unittest.TestCase):
 
     def test_opposite_error_halves_previous_step_instead_of_oscillating(self):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
-        second,_,decision=propose(after,self.scene,'grasp_missed','image_left','small',history=[self.entry(self.parameters,after,proposal)])
-        self.assertEqual(decision['comparison'],'direction_reversed');self.assertEqual(decision['step_mm'],1.)
-        self.assertAlmostEqual(second['pickup_xy_mm'][1],1.)
+        second,_,decision=propose(after,self.scene,'grasp_missed','image_left','small',history=[self.entry(self.parameters,after,proposal)],**self.evidence('overshot'))
+        self.assertEqual(decision['comparison'],'overshot');self.assertEqual(decision['step_mm'],2.)
+        self.assertAlmostEqual(second['pickup_xy_mm'][1],2.)
 
     def test_worse_error_rolls_back_and_does_not_repeat_blindly(self):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
-        second,changes,decision=propose(after,self.scene,'grasp_missed','image_right','large',history=[self.entry(self.parameters,after,proposal)])
+        second,changes,decision=propose(after,self.scene,'grasp_missed','image_right','large',history=[self.entry(self.parameters,after,proposal)],**self.evidence('worsened'))
         self.assertEqual(second,self.parameters);self.assertFalse(decision['allow_retry'])
         self.assertEqual(decision['status'],'rolled_back');self.assertIn('恢复',' '.join(changes))
+
+    def test_initial_obvious_error_uses_ball_scaled_step_and_improvement_reduces_it(self):
+        first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','large')
+        self.assertAlmostEqual(first['pickup_xy_mm'][1],12.)
+        after,_,decision=propose(first,self.scene,'grasp_missed','image_right','medium',
+                                history=[self.entry(self.parameters,first,proposal)],**self.evidence('improved'))
+        self.assertEqual(decision['step_mm'],4.);self.assertEqual(after['pickup_xy_mm'][1],16.)
+
+    def test_repeated_direction_alone_does_not_prove_need_to_increase(self):
+        first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
+        _,_,decision=propose(first,self.scene,'grasp_missed','image_right','small',history=[self.entry(self.parameters,first,proposal)])
+        self.assertEqual(decision['step_mm'],4.);self.assertFalse(decision['effect_verified'])
+        self.assertNotEqual(decision['comparison'],'same_error_repeated')
+
+    def test_opposite_motion_undoes_and_rejected_policy_is_not_forgotten(self):
+        first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','medium')
+        history=[self.entry(self.parameters,first,proposal)]
+        restored,_,undo=propose(first,self.scene,'grasp_missed','image_right','medium',history=history,**self.evidence('worsened','opposite'))
+        self.assertEqual(restored,self.parameters);self.assertEqual(undo['comparison'],'direction_disproved')
+        self.assertFalse(undo['allow_retry'])
+        history.append(self.entry(first,restored,undo))
+        retried,_,decision=propose(restored,self.scene,'grasp_missed','image_right','medium',history=history)
+        self.assertEqual(retried,restored);self.assertFalse(decision['allow_retry'])
+        self.assertEqual(decision['decision'],'avoid_rejected_policy')
+
+    def test_wrong_reference_does_not_control_the_policy(self):
+        first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right')
+        evidence=self.evidence('worsened');evidence['assessment']['reference_plan_id']='b'*32
+        with self.assertRaises(ValueError):
+            propose(first,self.scene,'grasp_missed','image_right',history=[self.entry(self.parameters,first,proposal)],**evidence)
+
+    def test_tiny_perception_changes_do_not_resurrect_a_rejected_strategy(self):
+        angle=.2;c=np.cos(angle);s=np.sin(angle)
+        rotation=np.asarray(self.scene['camera_geometry']['R'])@np.array([[c,0,s],[0,1,0],[-s,0,c]])
+        self.scene['camera_geometry']['R']=rotation.tolist()
+        self.scene['camera_geometry']['normal_camera']=(rotation.T@np.array([0,0,1.])).tolist()
+        self.scene['ball']['pixel_center']=project(self.scene,self.scene['ball']['center_robot_mm'])
+        first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','medium')
+        history=[self.entry(self.parameters,first,proposal)]
+        restored,_,undo=propose(first,self.scene,'grasp_missed','image_right','medium',history=history,**self.evidence('worsened','opposite'))
+        history.append(self.entry(first,restored,undo))
+        self.scene['ball']['center_robot_mm'][0]+=.5
+        self.scene['ball']['pixel_center']=project(self.scene,self.scene['ball']['center_robot_mm'])
+        fresh,_,_=propose(restored,self.scene,'grasp_missed','image_right','medium')
+        self.assertNotEqual(fresh['pickup_xy_mm'],first['pickup_xy_mm'])
+        after,_,decision=propose(restored,self.scene,'grasp_missed','image_right','medium',history=history)
+        self.assertEqual(after,restored);self.assertEqual(decision['decision'],'avoid_rejected_policy')
+
+    def test_legacy_two_mm_probe_not_visible_is_replaced_by_a_visible_probe_not_a_false_direction_fault(self):
+        old=copy.deepcopy(self.parameters);old['pickup_xy_mm']=[0.,2.]
+        history=[self.entry(self.parameters,old,{'step_mm':2.})]
+        after,_,decision=propose(old,self.scene,'grasp_missed','image_right','small',history=history,**self.evidence('unchanged','no_visible_motion'))
+        self.assertEqual(decision['step_mm'],8.);self.assertTrue(decision['allow_retry'])
+        self.assertAlmostEqual(after['pickup_xy_mm'][1],10.)
 
     def test_wrong_projection_and_exhausted_parameter_do_not_claim_a_new_correction(self):
         wrong=copy.deepcopy(self.parameters);wrong['pickup_xy_mm']=[0.,-4.]
         with patch('evoarm_rsi.rsi_policy.adapt',return_value=(wrong,['incorrect change'])):
             after,changes,decision=propose(self.parameters,self.scene,'grasp_missed','image_right')
         self.assertEqual(after,self.parameters);self.assertFalse(decision['allow_retry'])
+        self.assertEqual(decision['robot_delta_mm'],[0.,0.])
         self.assertNotIn('incorrect change',' '.join(changes))
         at_limit=copy.deepcopy(self.parameters);at_limit['pickup_xy_mm']=[0.,30.]
         after,_,decision=propose(at_limit,self.scene,'grasp_missed','image_right')

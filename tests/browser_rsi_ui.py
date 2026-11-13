@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright
 from evoarm_rsi.browser_video import browser_video
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS
 from evoarm_rsi.rsi_learning import LEARNING_DECLARATION
+from evoarm_rsi.rsi_comparison import comparison_panel
 
 
 def check(url, output):
@@ -26,21 +27,31 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':5,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':6,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
                    'depth_evidence':{'depth_used':True,'valid_samples':350,'fit_residual_mm':1.2}},
            'funnel':{'pixel_center':[850,400],'mouth_center_robot_mm':[290,-110,-69.6]}}
     calls=[];errors=[];history=[]
+    pair_context={'available':True,'expected_image_delta_px':[14.,0.],
+                  'previous_target_pixel':[600,350],'current_target_pixel':[600,350]}
+    for role,key,shift in (('previous','1'*32,0),('current','2'*32,14)):
+        view=image.copy();cv2.rectangle(view,(550+shift,330),(558+shift,375),(10,10,10),-1)
+        path=output/f'{role}-close.jpg';cv2.imwrite(str(path),view)
+        pair_context[role+'_frame']={'path':str(path),'plan_id':key,'frame_index':4,'elapsed_s':3.2}
+    pair_jpeg=Path(comparison_panel(pair_context,output)).read_bytes()
     def emit(kind,**data):
         sequence=int(process['cursor'].split(':')[-1])+1
         row={'id':f"{process['session_id']}:{sequence}",'sequence':sequence,'session_id':process['session_id'],
              'kind':kind,'at_unix':time.time(),**data}
         process['cursor']=row['id'];process['events'].append(row)
     def plan(key,version):
+        parameters=copy.deepcopy(DEFAULT_PARAMETERS)
+        if version>1:parameters['pickup_xy_mm']=[0,-12]
         return {'plan_id':key,'status':'active','seconds_left':180,'scene':scene,'policy_version':version,
-                'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'steps':['approach_ball','descend','close','lift','transport','release'],
+                'parameters':parameters,'policy_application':{'parameters_verified':True,'source_trial_id':'1'*32 if version>1 else None},
+                'steps':['approach_ball','descend','close','lift','transport','release'],
                 'pitch_deg':80,'warnings':[],'preview_url':f'/api/bench/rsi/plans/{key}/preview',
                 'depth_url':f'/api/bench/rsi/plans/{key}/depth','backup_url':None}
     def route(handler):
@@ -54,6 +65,7 @@ def check(url, output):
             return handler.fulfill(status=200,content_type='text/event-stream',body=body)
         if path.startswith('/bench/rsi/plans/'):
             if path.endswith('/video'):return handler.fulfill(status=200,content_type='video/mp4',body=playback)
+            if path.endswith('/comparison'):return handler.fulfill(status=200,content_type='image/jpeg',body=pair_jpeg)
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path=='/bench/rsi/state':data=model
         elif path=='/bench/rsi/history':data={'trials':history}
@@ -113,11 +125,11 @@ def check(url, output):
         page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
         assert len([call for call in calls if call[0]=='POST'])==posts
         review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'company_grok',
-                'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移6mm。'],'after_version':2,
+                'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移12mm。'],'after_version':2,
                 'ball_state':'table','adjustment':'pickup_xy','confidence':.92}
         review['proposal']={'parameters_changed':['pickup_xy_mm'],'before':{'pickup_xy_mm':[0,0]},
-                            'after':{'pickup_xy_mm':[0,-6]},'robot_delta_mm':[0,-6],
-                            'predicted_pixel_delta':[7,0],'allow_retry':True}
+                            'after':{'pickup_xy_mm':[0,-12]},'robot_delta_mm':[0,-12],
+                            'predicted_pixel_delta':[14,0],'allow_retry':True}
         model['plan']['review']=review;model['plan']['backup_url']=f'/api/bench/rsi/plans/{key}/archive'
         model['learning'].update(phase='recovering',review=review,changes=review['changes'])
         process['model_output'].update(status='validated',verdict=review)
@@ -138,7 +150,19 @@ def check(url, output):
         model['job']={'status':'running','phase':'close','plan_id':key}
         health.update(armed=True,pending={'kind':'rsi_trial'})
         page.locator('#attemptBadge').filter(has_text='2 / 5').wait_for();page.locator('#phase').filter(has_text='合抓').wait_for()
+        paired={'available':True,'plan_id':key,'reference_plan_id':'1'*32,'panel_url':f'/api/bench/rsi/plans/{key}/comparison',
+                'parameter_changes':[{'name':'pickup_xy_mm','before':[0,0],'after':[0,-12]}],
+                'requested_xy_delta_mm':[0,-12],'expected_image_delta_px':[14,0],
+                'feedback':{'available':True,'status':'consistent','reported_xy_delta_mm':[0,-11.8]},'assessment':None}
+        emit('comparison',comparison=paired,attempt=2,plan_id=key)
+        model['learning']['phase']='analyzing';model['job'].update(status='completed',result=result)
+        process['model_output']={'plan_id':key,'attempt':2,'preflight':False,'status':'generating','mode':'streaming','text':'第二轮夹爪更接近小球。'}
+        page.locator('#comparisonFrame').wait_for(state='visible')
+        page.locator('#comparisonFacts').filter(has_text='11.80').wait_for()
+        assert '不是图像实测' in page.locator('#comparisonFacts').inner_text()
+        page.screenshot(path=str(output/'rsi-effect-comparison.png'),full_page=True)
         success={'outcome':'placed','source':'company_grok','note':'球随夹爪离桌，释放后留在漏斗内','changes':['保留成功策略。'],'after_version':3}
+        success['comparison']={**paired,'assessment':{'reference_plan_id':'1'*32,'effect':'improved','movement':'as_expected','note':'前后实帧显示夹爪更接近并夹住了球'}}
         model['plan'].update(status='completed',review=success,backup_url=f'/api/bench/rsi/plans/{key}/archive')
         model['job'].update(status='completed',phase='finished',result=result)
         model['learning'].update(status='completed',phase='completed',review=success,changes=success['changes'])
@@ -170,7 +194,7 @@ def check(url, output):
         model['learning'].update(status='completed',phase='reset_completed')
         page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
-        model['api_version']=4
+        model['api_version']=5
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
         assert not errors,errors
@@ -183,7 +207,8 @@ def check(url, output):
         'observation target overlays and camera-relative side labels','before/after policy changes shown',
         'stale backend blocks new learning with restart explanation','public Grok response before final validation',
         'stream reconnect and page reload preserve process without duplicate events or execution',
-        'structured outcome, direction, suggestion and confidence shown','390px layout','no page errors']}
+        'structured outcome, direction, suggestion and confidence shown','paired actual frames and commanded vs reported displacement',
+        '390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

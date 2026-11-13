@@ -1,5 +1,7 @@
 # RSI v5：实时过程与 Grok 公开回复
 
+> 此文记录 v5。当前前后实帧比较与本地更新步骤见 [RSI v6](rsi-effect-learning-v6.md)。
+
 分支 `feature/rsi-pick-place-loop-v1`；`GET /api/bench/rsi/state` 返回 `api_version=5`。相机、标定、策略和机械臂执行接口继续沿用。
 
 ## 本地更新

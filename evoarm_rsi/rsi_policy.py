@@ -8,7 +8,8 @@ import math
 
 import numpy as np
 
-from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS
+from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS,XY_STEPS_MM,MAX_XY_STEP_MM
+from .rsi_comparison import validate_assessment
 
 OPPOSITE={'image_left':'image_right','image_right':'image_left','image_up':'image_down','image_down':'image_up',
           'too_high':'lower','too_low':'higher'}
@@ -49,65 +50,101 @@ def target_audit(scene,parameters):
             'note':'空中投放点因透视可能不与漏斗像素中心重合；原始目标圈标明实际识别区域'}
 
 
-def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,history=(),visual=None):
-    before=copy.deepcopy(parameters);step={'small':2.,'medium':4.,'large':6.,'unknown':4.}[magnitude]
+def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,history=(),comparison=None,assessment=None):
+    before=copy.deepcopy(parameters);step=XY_STEPS_MM[magnitude]
     target='funnel' if outcome=='placement_missed' else 'ball'
     key='release_xy_mm' if target=='funnel' else 'pickup_xy_mm'
     location=scene[target]['mouth_center_robot_mm' if target=='funnel' else 'center_robot_mm']
-    previous=next((r for r in reversed(history) if r.get('outcome')==outcome),None)
-    comparison='first_observation';why=[];allow_retry=True
-    related=False
-    if previous:
-        prior=previous.get('funnel_xyz_mm' if target=='funnel' else 'ball_xyz_mm')
-        related=bool(prior and math.dist(prior[:2],location[:2])<=BALL_RADIUS)
-    if related and outcome in ('grasp_missed','placement_missed') and direction in PIXEL_VECTOR:
-        previous_step=previous.get('proposal',{}).get('step_mm')
-        if previous_step is None:
-            previous_step=math.dist(previous.get('before',before)[key],previous.get('after',before)[key])
-        old_error=(previous.get('visual_evidence') or {}).get('normalized_error')
-        error=(visual or {}).get('normalized_error')
-        ranks={'small':0,'medium':1,'large':2,'unknown':None}
-        old_rank=ranks.get(previous.get('magnitude'));new_rank=ranks.get(magnitude)
-        worsened=(old_error is not None and error is not None and error>old_error*1.25+.05)
-        if worsened or (old_rank is not None and new_rank is not None and new_rank>old_rank):
-            comparison='error_worsened';allow_retry=False
-            why.append('同位置补偿后视觉偏差变大，撤销上一轮该项补偿，停止盲目叠加并核对目标和映射。')
-        elif previous.get('direction')==OPPOSITE[direction]:
-            step=max(1.,float(previous_step or step)/2);comparison='direction_reversed'
-            why.append('偏差方向反转，可能越过目标，下一轮缩小步长。')
-        elif previous.get('direction')==direction:
-            improved=(old_error is not None and error is not None and error<old_error*.8)
-            improved=improved or (old_rank is not None and new_rank is not None and new_rank<old_rank)
-            if improved:comparison='improved';why.append('偏差缩小，保留小步修正。')
-            elif previous_step and previous_step<=8:
-                step=min(8.,max(step,float(previous_step)+2));comparison='same_error_repeated'
-                why.append('同位置连续报告同向偏差，小步未确认改善；本轮增大试验步长，不把它当作已测得的误差。')
+    context=comparison or {};previous=history[-1] if history else None
+    if assessment is not None:assessment=validate_assessment(assessment)
+    verified=bool(context.get('available') and previous and assessment and
+                  previous['plan_id']==context.get('reference_plan_id')==assessment.get('reference_plan_id') and
+                  previous.get('after')==before)
+    if assessment and assessment['reference_plan_id'] is not None and not verified:
+        raise ValueError('前后对照未对应本轮实际使用的参数与画面，不能据此学习')
+    effect=assessment['effect'] if verified else 'not_compared'
+    movement=assessment['movement'] if verified else 'unknown'
+    comparison_status='first_observation' if not context.get('available') else 'unconfirmed'
+    why=[];allow_retry=True;rollback=False;decision='directional_trial'
+    previous_step=None
+    changed_before=[]
+    if verified:
+        changed_before=[k for k in before if previous['before'][k]!=previous['after'][k]]
+        previous_step=math.dist(previous['before'][key],before[key]) if key in changed_before else None
+        feedback=context.get('feedback',{})
+        if outcome=='placed':
+            comparison_status=effect;decision='keep';why.append('本轮已成功，保留本轮实际使用的参数。')
+        elif movement=='opposite' or feedback.get('status')=='opposite' or effect=='worsened':
+            comparison_status='direction_disproved' if movement=='opposite' or feedback.get('status')=='opposite' else 'error_worsened'
+            rollback=True;allow_retry=False;decision='undo'
+            why.append('前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。')
+        elif movement=='no_visible_motion' and effect=='unchanged' and previous_step and previous_step<8:
+            step=min(MAX_XY_STEP_MM,max(8.,step,previous_step+4));comparison_status='probe_too_small';decision='increase_step'
+            why.append('上一轮试探较小，画面无法确认变化；扩大到可见试验尺度，不把看不出变化当成方向已错。')
+        elif movement=='no_visible_motion' and effect=='unchanged':
+            comparison_status='no_effective_motion';rollback=True;allow_retry=False;decision='undo'
+            why.append('画面未显示相应变化，不把已修改的命令当成有效移动；撤销上一轮试验参数并回位。')
+        elif previous_step and effect=='overshot':
+            step=max(2.,previous_step/2);comparison_status='overshot';decision='shrink_step'
+            why.append('前后对照显示越过目标，按本轮观察方向反向修正，步长减半。')
+        elif previous_step and effect=='improved':
+            step=max(2.,min(4.,step,previous_step/2));comparison_status='improved';decision='shrink_step'
+            why.append('前后实帧显示偏差缩小，保留有效方向并缩小步长收敛。')
+        elif previous_step and effect=='unchanged' and movement=='as_expected' and feedback.get('status','missing') in ('consistent','missing'):
+            step=min(MAX_XY_STEP_MM,max(step,previous_step+4));comparison_status='same_error_repeated';decision='increase_step'
+            why.append('已观察到向预期方向移动，但偏差仍未明显改善，增大下一轮试验步长。')
+        else:
+            comparison_status=effect
+            why.append('前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。')
     after,changes=adapt(before,scene,outcome,direction,magnitude,adjustment,step_override_mm=step)
-    if comparison=='error_worsened':
-        after[key]=copy.deepcopy(previous['before'][key])
-        changes=[f'已将{key}恢复为上一轮调整前的值{after[key]}。']
+    if rollback:
+        after=copy.deepcopy(before)
+        for name in changed_before:after[name]=copy.deepcopy(previous['before'][name])
+        changes=[f'已将{name}从{before[name]}恢复为{after[name]}。' for name in changed_before]
     changed=[name for name in before if before[name]!=after[name]]
     correction=OPPOSITE.get(direction,'none')
     proposal={'observed_direction':direction,'correction_direction':correction,'frame':'unmirrored_rgb',
-              'step_mm':step,'parameters_changed':changed,'before':{k:before[k] for k in changed},
-              'after':{k:after[k] for k in changed},'comparison':comparison,'allow_retry':allow_retry,
-              'before_policy_id':policy_id(before),'after_policy_id':policy_id(after),'source_trial_id':previous.get('plan_id') if related else None}
-    if direction in PIXEL_VECTOR and outcome in ('grasp_missed','placement_missed') and comparison!='error_worsened':
+              'step_mm':step if key in changed and not rollback else None,'parameters_changed':changed,'before':{k:before[k] for k in changed},
+              'after':{k:after[k] for k in changed},'comparison':comparison_status,'allow_retry':allow_retry,'decision':decision,
+              'comparison_evidence_bound':verified,'effect_verified':verified and effect not in ('unknown','not_comparable','not_compared'),
+              'previous_motion_visual_check':movement,
+              'before_policy_id':policy_id(before),'after_policy_id':policy_id(after),'source_trial_id':previous.get('plan_id') if verified else None}
+    if rollback:proposal['rejected_policy_id']=policy_id(before)
+    if direction in PIXEL_VECTOR and outcome in ('grasp_missed','placement_missed') and not rollback:
         a=project(scene,center_target(scene,before,target));b=project(scene,center_target(scene,after,target))
         shift=[b[0]-a[0],b[1]-a[1]]
         proposal.update(robot_delta_mm=[after[key][i]-before[key][i] for i in range(2)],predicted_pixel_delta=shift,
                         projection_direction_verified=sum(v*w for v,w in zip(shift,PIXEL_VECTOR[correction]))>.05)
+        proposal['saved_xy_step_mm']=math.hypot(*proposal['robot_delta_mm'])
         if not proposal['projection_direction_verified']:
             after=before;changed=[];allow_retry=False
             proposal.update(after={},before={},parameters_changed=[],after_policy_id=policy_id(before),allow_retry=False)
+            proposal.update(candidate_robot_delta_mm=proposal['robot_delta_mm'],candidate_pixel_delta=shift,
+                            robot_delta_mm=[0.,0.],predicted_pixel_delta=[0.,0.],saved_xy_step_mm=0.)
             changes=[]
             why.append('候选补偿未在当前相机投影中朝正确方向移动，未应用，也不重复原策略。')
-        else:why.insert(0,f"观察到夹爪在目标的{LABELS[direction]}，下一轮向{LABELS[correction]}修正，试验步长{step:g}mm。")
+        else:
+            actual_step=proposal['saved_xy_step_mm']
+            why.insert(0,f"观察到夹爪在目标的{LABELS[direction]}，下一轮向{LABELS[correction]}修正，保存的补偿变化{actual_step:.1f}mm。")
+            if abs(actual_step-step)>.1:why.append(f'原定试验步长{step:g}mm，受已有参数搜索域影响，实际保存变化为{actual_step:.1f}mm。')
+    for record in history:
+        old_location=record.get('funnel_xyz_mm' if target=='funnel' else 'ball_xyz_mm')
+        old_pitch=record.get('grasp_pitch_deg');current_pitch=context.get('current_pitch_deg')
+        same_pose=old_pitch is None or current_pitch is None or abs(old_pitch-current_pitch)<=5
+        rejected=record.get('before',{});rejected_id=record.get('proposal',{}).get('rejected_policy_id')
+        same_trial=bool(rejected_id and set(rejected)==set(after) and rejected_id==policy_id(rejected) and
+                        all(math.dist(after[k],rejected[k])<=1. if k in ('pickup_xy_mm','release_xy_mm') else after[k]==rejected[k] for k in after))
+        if (same_pose and old_location and math.dist(old_location[:2],location[:2])<=BALL_RADIUS and
+                same_trial and changed and not rollback):
+            after=copy.deepcopy(before);changed=[];changes=[]
+            proposal.update(after={},before={},parameters_changed=[],after_policy_id=policy_id(before),allow_retry=False,decision='avoid_rejected_policy')
+            if 'robot_delta_mm' in proposal:proposal.update(robot_delta_mm=[0.,0.],predicted_pixel_delta=[0.,0.],saved_xy_step_mm=0.)
+            why=['该位置和姿态的同一策略已被前后录像否定，本轮未重复应用。'];break
     actionable=outcome in ('grasp_missed','placement_missed','pushed_away','slipped','bounced_out')
     if actionable and not changed:
         proposal['allow_retry']=False
         why.append('本轮没有产生新的有效参数，停止重复相同策略。')
-    proposal['status']='rolled_back' if comparison=='error_worsened' else 'applied' if changed else 'unchanged'
+    proposal['status']='rolled_back' if rollback else 'applied' if changed else 'unchanged'
     proposal['reason']='\n'.join(why+changes)
     return after,why+changes,proposal
 

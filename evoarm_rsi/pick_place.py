@@ -20,6 +20,8 @@ from evoarm.limits import GRIPPER_MAX_RAD
 BALL_RADIUS = 17.
 FUNNEL_RADIUS = 38.
 FUNNEL_HEIGHT = 45.4
+XY_STEPS_MM={'small':4.,'medium':8.,'large':12.,'unknown':8.}
+MAX_XY_STEP_MM=16.
 DEFAULT_PARAMETERS = {
     'pickup_xy_mm':[0.,0.], 'release_xy_mm':[0.,0.], 'grasp_z_offset_mm':3.,
     'finger_offset_mm':19., 'hover_height_mm':70., 'lift_height_mm':100.,
@@ -239,7 +241,7 @@ def preview(image,plan,geometry):
     return result
 
 
-def image_correction(scene,direction,step_mm=4.,*,target='ball'):
+def image_correction(scene,direction,step_mm=8.,*,target='ball'):
     shifts={'image_left':(1,0),'image_right':(-1,0),'image_up':(0,1),'image_down':(0,-1)}
     if direction not in shifts:return [0.,0.]
     g={k:np.asarray(v) for k,v in scene['camera_geometry'].items()}
@@ -251,9 +253,9 @@ def image_correction(scene,direction,step_mm=4.,*,target='ball'):
 
 def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,step_override_mm=None):
     result={k:list(v) if isinstance(v,list) else v for k,v in parameters.items()};change=[]
-    step_mm={'small':2.,'medium':4.,'large':6.,'unknown':4.}.get(magnitude,4.)
+    step_mm=XY_STEPS_MM.get(magnitude,8.)
     if step_override_mm is not None:
-        if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or not 1<=step_override_mm<=8:
+        if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or not 1<=step_override_mm<=MAX_XY_STEP_MM:
             raise ValueError('学习试验步长无效')
         step_mm=step_override_mm
     if outcome=='placed':return result,['本轮成功，保留参数；下一轮换一个球位置验证。']

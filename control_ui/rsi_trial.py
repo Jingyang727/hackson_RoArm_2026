@@ -32,6 +32,7 @@ from evoarm_rsi.rsi_journal import append_event, archive_trial
 from evoarm_rsi.rsi_learning import LearningLoop, LEARNING_DECLARATION,error_info
 from evoarm_rsi.rsi_recovery import recover as recover_trial
 from evoarm_rsi.rsi_events import stream_events
+from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -52,6 +53,13 @@ class Run(PlanID):
     declaration:str
 
 
+class ComparisonReview(Empty):
+    reference_plan_id:str|None=Field(pattern=r'^[a-f0-9]{32}$')
+    effect:str=Field(pattern=r'^(improved|worsened|overshot|unchanged|unknown|not_comparable|not_compared)$')
+    movement:str=Field(pattern=r'^(as_expected|opposite|no_visible_motion|unknown)$')
+    note:str=Field(max_length=2000)
+
+
 class Review(PlanID):
     outcome:str=Field(pattern=r'^(placed|grasp_missed|pushed_away|slipped|placement_missed|bounced_out|execution_failed|unknown)$')
     direction:str=Field(default='none',pattern=r'^(none|image_left|image_right|image_up|image_down|too_high|too_low)$')
@@ -61,6 +69,7 @@ class Review(PlanID):
     ball_state:str|None=Field(default=None,pattern=r'^(table|gripper|funnel|unknown)$')
     magnitude:str=Field(default='medium',pattern=r'^(small|medium|large|unknown)$')
     adjustment:str=Field(default='unknown',pattern=r'^(keep|pickup_xy|grasp_height|grip_tighten|transport_slower|release_xy|release_height|unknown)$')
+    comparison:ComparisonReview|None=None
 
 
 class Learn(Empty):
@@ -110,6 +119,11 @@ def install(app,service_provider):
             raise ValueError('计划不在当前服务中，请重新观察；不会重放旧计划')
         return plans[key]
     def save(state):_write(root(state['id'])/'state.json',{k:v for k,v in state.items() if k not in ('created','geometry')})
+    def compare(current,pol):
+        prior=pol['reviews'][-1] if pol['reviews'] else None
+        try:previous=known(prior['plan_id'],historical=True) if prior else None
+        except ValueError:previous=None
+        return build_comparison(current,previous,prior,bench_ui.experiment_root())
     def archive(state):
         save(state)
         path=archive_trial(root(state['id']))
@@ -150,7 +164,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':5,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':6,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -316,13 +330,16 @@ def install(app,service_provider):
                 if existing:
                     current['review']=existing;save(current);return existing
                 if pol['parameters']!=current['plan']['parameters']:raise ValueError('本轮实际参数与当前策略不一致，不能重复应用旧试次修正')
+                comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
                 parameters,changes,proposal=propose(pol['parameters'],current['plan']['scene'],req.outcome,req.direction,
-                    req.magnitude,req.adjustment,history=pol['reviews'])
+                    req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment)
                 entry={'plan_id':req.plan_id,'outcome':req.outcome,'direction':req.direction,'source':req.source,
                        'note':req.note,'before_version':pol['version'],'after_version':pol['version']+1,
-                       'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time()}
+                       'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
+                       'comparison':public_comparison(comparison,assessment,plan_id=req.plan_id,panel=(root(req.plan_id)/'comparison.jpg').is_file())}
                 entry.update(confidence=req.confidence,ball_state=req.ball_state,magnitude=req.magnitude,adjustment=req.adjustment)
                 entry.update(ball_xyz_mm=current['plan']['scene']['ball']['center_robot_mm'],
+                             grasp_pitch_deg=current['plan']['grasp_pitch_deg'],
                              funnel_xyz_mm=current['plan']['scene']['funnel']['mouth_center_robot_mm'])
                 pol.update(version=entry['after_version'],parameters=parameters);pol['reviews'].append(entry)
                 pol['statistics']={'reviewed_trials':len(pol['reviews']),
@@ -349,6 +366,7 @@ def install(app,service_provider):
                 compact={k:result.get(k) for k in ('motion_completed','grasp_attempted','placement_attempted','physical_elapsed_s','within_10s',
                                                   'recording_covers_motion','motion_error','camera_error','events','dispatches')}
                 return {'plan_id':plan_id,'plan':current['plan'],'result':compact,'review':current.get('review'),
+                    'comparison':compare(current,pol),
                     'recent_reviews':[{k:r.get(k) for k in ('plan_id','outcome','direction','source','changes','after_version','note','confidence','magnitude','proposal','ball_xyz_mm','funnel_xyz_mm')} for r in pol['reviews'][-5:]],
                     'current_policy':{'version':pol['version'],'parameters':pol['parameters'],'statistics':pol.get('statistics'),
                                       'successful_policy':pol.get('successful_policy')},
@@ -379,7 +397,7 @@ def install(app,service_provider):
     @router.get('/plans/{plan_id}/{kind}')
     def asset(plan_id:str,kind:str):
         if len(plan_id)!=32 or any(c not in '0123456789abcdef' for c in plan_id):raise HTTPException(status_code=404)
-        if kind in ('preview','depth'):path=root(plan_id)/f'{kind}.jpg';media='image/jpeg'
+        if kind in ('preview','depth','comparison'):path=root(plan_id)/f'{kind}.jpg';media='image/jpeg'
         elif kind=='archive':path=Path.home()/'.evoarm/rsi/backups'/f'{plan_id}.zip';media='application/zip'
         elif kind in ('video','raw-video','keyframes'):
             try:trial=known(plan_id,historical=True).get('result',{}).get('capture_trial_id')

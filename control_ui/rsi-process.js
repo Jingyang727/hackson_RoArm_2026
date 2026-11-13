@@ -6,8 +6,10 @@
   const adjustments={keep:'保留当前策略',pickup_xy:'调整抓取平面偏移',grasp_height:'调整抓取高度',grip_tighten:'增加夹持预紧',transport_slower:'降低运输速度',release_xy:'调整投放平面偏移',release_height:'调整投放高度',unknown:'没有明确调整类别'};
   const ballStates={table:'桌面上',gripper:'夹爪中',funnel:'漏斗中',unknown:'无法确认'};
   const magnitudes={small:'小',medium:'中',large:'大',unknown:'不确定'};
+  const effects={improved:'偏差缩小',worsened:'偏差变大',overshot:'越过目标',unchanged:'偏差没有明显变化',unknown:'看不清效果',not_comparable:'两轮不可直接比较',not_compared:'本轮没有可比前轮'};
+  const movements={as_expected:'向预期方向移动',opposite:'与预期方向相反',no_visible_motion:'没有可见的相应移动',unknown:'移动方向无法确认'};
   const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动10秒录像',raise_current:'起步抬升',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
-  let session=null,started=0,sequence=-1,rows=[],output=null,source=null;
+  let session=null,started=0,sequence=-1,rows=[],output=null,source=null,paired=null;
   function verdict(value){
     if(!value)return '';
     if(typeof value.ready==='boolean')return `场景检查：${value.ready?'已确认球与漏斗':'暂不能确认'}\n${value.note||''}`;
@@ -15,6 +17,8 @@
     if(value.ball_state)lines.push(`球的位置：${ballStates[value.ball_state]||value.ball_state}`);
     if(value.direction)lines.push(`${directions[value.direction]||value.direction}${value.magnitude?'；粗略偏差：'+(magnitudes[value.magnitude]||value.magnitude):''}`);
     if(value.adjustment)lines.push(`Grok建议：${adjustments[value.adjustment]||value.adjustment}`);
+    const comparison=value.comparison?.assessment||value.comparison;
+    if(comparison?.effect)lines.push(`前后对照：${effects[comparison.effect]||comparison.effect}；${movements[comparison.movement]||comparison.movement}\n${comparison.note||''}`);
     if(typeof value.confidence==='number')lines.push(`模型自报置信度：${Math.round(value.confidence*100)}%`);
     if(value.note)lines.push(`画面依据：${value.note}`);
     return lines.join('\n');
@@ -26,6 +30,7 @@
     if(row.kind==='grok_validated')return verdict(row.verdict);
     if(row.kind==='grok_failed'||row.kind==='grok_stopped')return row.error||'Grok回复未完成';
     if(row.kind==='policy')return '程序采用的修正：\n'+(row.changes||[]).join('\n');
+    if(row.kind==='comparison')return row.comparison.available?'已提供前后两轮对应动作的实帧和参数变化':'本轮对照：'+row.comparison.reason;
     if(row.kind==='recovery')return row.status==='completed'?'官方初始姿态已确认':'官方复位未确认';
     return '';
   }
@@ -45,6 +50,7 @@
       text.textContent=message;item.append(meta,text);list.append(item);
     }
     el('processEmpty').hidden=Boolean(list.childElementCount);if(nearBottom)list.scrollTop=list.scrollHeight;
+    showComparison(paired);
     el('grokLive').hidden=!output;
     if(output){
       const status=output.status,mode=output.mode;
@@ -54,6 +60,20 @@
       el('grokRawText').textContent=output.text||'';
     }
   }
+  function showComparison(value){
+    paired=value||null;el('effectComparison').hidden=!paired;if(!paired)return;
+    const assessment=paired.assessment,feedback=paired.feedback||{};
+    el('comparisonSummary').textContent=paired.available?`前轮 ${paired.reference_plan_id?.slice(0,10)} → 本轮 ${paired.plan_id?.slice(0,10)}；${assessment?effects[assessment.effect]+'；'+movements[assessment.movement]:'Grok正在对照两轮实帧。'}`:paired.reason||'本轮没有可比前轮。';
+    const lines=(paired.parameter_changes||[]).map(row=>`${row.name}：${JSON.stringify(row.before)} → ${JSON.stringify(row.after)}`);
+    const vector=v=>v.map(n=>Number(n).toFixed(2)).join(', ');
+    if(paired.requested_xy_delta_mm)lines.push(`要求改变的 XY 补偿：[${vector(paired.requested_xy_delta_mm)}] mm`);
+    if(paired.expected_image_delta_px)lines.push(`标定预测的画面位移：[${vector(paired.expected_image_delta_px)}] px（计算值）`);
+    if(feedback.available)lines.push(`固件报告的 XY 补偿变化：[${vector(feedback.reported_xy_delta_mm)}] mm（已扣除目标位置变化；不是图像实测）`);
+    else lines.push('对应动作的固件位移反馈不足，不把命令当成已经发生的移动。');
+    if(assessment?.note)lines.push(`视频对照依据：${assessment.note}`);
+    el('comparisonFacts').textContent=lines.join('\n');
+    const image=el('comparisonFrame');image.hidden=!paired.panel_url;if(paired.panel_url&&image.getAttribute('src')!==paired.panel_url)image.src=paired.panel_url;
+  }
   function snapshot(data){
     if(!data)return;
     const next=Number(data.cursor?.split(':').pop());
@@ -61,6 +81,8 @@
     if(data.session_id!==session&&(data.started_at_unix||0)<started)return;
     session=data.session_id;started=data.started_at_unix||0;sequence=next;
     rows=data.events||[];output=data.model_output||null;
+    const last=[...rows].reverse().find(r=>r.kind==='comparison'||r.kind==='policy'&&r.review?.comparison);
+    paired=last?(last.kind==='comparison'?last.comparison:last.review.comparison):null;
     el('processStorageError').textContent=data.persistence_error||'';render();
   }
   function event(row){
@@ -71,6 +93,8 @@
       if(row.kind==='grok_mode')output.mode=row.mode;
       if(['grok_validated','grok_failed','grok_stopped'].includes(row.kind)){output.status=row.kind.slice(5);output.verdict=row.verdict;}
     }
+    if(row.kind==='comparison')paired=row.comparison;
+    if(row.kind==='policy'&&row.review?.comparison)paired=row.review.comparison;
     if(row.kind!=='grok_delta'){rows.push(row);if(rows.length>512)rows.shift();}render();
   }
   function connect(){
@@ -85,5 +109,5 @@
   function close(){const current=source;source=null;current?.close();}
   document.addEventListener('visibilitychange',()=>{if(document.hidden)close();else connect();});
   window.addEventListener('pagehide',close);
-  window.RSIProcess={snapshot,connect,close,verdict};connect();
+  window.RSIProcess={snapshot,connect,close,verdict,showComparison};connect();
 })();

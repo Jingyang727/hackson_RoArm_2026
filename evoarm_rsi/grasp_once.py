@@ -31,6 +31,14 @@ def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sa
     wanted.extend(("sample",int(stamps[i])) for i in
                   np.linspace(0,len(stamps)-1,sample_count,dtype=int))
     wanted.append(("last",int(stamps[-1])))
+    # These events mark the start of the NEXT motion, after the previous stage
+    # settled. Retain the last actual frame before lifting/transporting.
+    for label,prior_stage,next_stages in (('close_review','close',('lift',)),('lift_review','lift',('transport','transit_arc')),('release_review','release',('finish',))):
+        prior=next((e for e in events if e['stage']==prior_stage),None)
+        event=next((e for e in events if prior and e['stage'] in next_stages and e['host_monotonic_ns']>prior['host_monotonic_ns']),None)
+        if event:
+            index=int(np.searchsorted(stamps,event['host_monotonic_ns'],side='left'))-1
+            if index>=0 and stamps[index]>=prior['host_monotonic_ns']:wanted.append((label,int(stamps[index])))
     # Preserve event labels when a uniform sample selects the same frame.
     selected={}
     for label,stamp in wanted:

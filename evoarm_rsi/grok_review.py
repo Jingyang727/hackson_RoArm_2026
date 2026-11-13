@@ -5,9 +5,11 @@ import json
 import base64
 from pathlib import Path
 import time
+import cv2
 
 from .task_agent import _write
 from .company_api import configuration,complete_content
+from .rsi_comparison import validate_assessment,camera_view,target_crop,comparison_panel,public_comparison
 
 OUTCOMES = {'placed', 'grasp_missed', 'pushed_away', 'slipped', 'placement_missed',
             'bounced_out', 'execution_failed', 'unknown'}
@@ -23,6 +25,16 @@ SYSTEM = (
     'Image u increases RIGHT; image v increases DOWN. Camera and robot face each other. '
     'NEVER infer robot XYZ signs from screen directions or from a mirrored coordinate diagram. '
     'For example gripper image-right of ball => direction=image_right; the controller computes the opposite correction. '
+    'Use the printed CAMERA LEFT/RIGHT/UP/DOWN axes, never your imagined robot viewpoint. '
+    'When comparison.available=true, PREVIOUS images are the reference trial and CURRENT images are this trial. '
+    'Matched contact images are cropped around the target for detail; other current images retain the full scene. '
+    'Cropping preserves camera directions. Pixel coordinates in metadata refer to the original raw image. '
+    'Compare gripper alignment relative to the ball (or funnel for release), not absolute image displacement. '
+    'Judge whether the prior correction improved, worsened, overshot or left the error unchanged; use unknown/not_comparable if obscured or incomparable. '
+    'movement describes the gripper shift relative to the target versus the expected_image_delta_px arrow: as_expected, opposite, no_visible_motion or unknown. '
+    'Do not treat expected arrows, commands or encoder coordinates as visible movement. '
+    'Use magnitude=small only when the closing opening substantially overlaps the ball; an obvious gap is medium, '
+    'and a miss around a ball diameter or larger is large. These are qualitative categories, not millimeter measurements. '
     'Use the close/descend frames for pickup alignment, not an arbitrary transport frame. '
     'If obscured or ambiguous use unknown/none. First give 1-2 short Chinese sentences stating visible evidence '
     'and a qualitative adjustment suggestion, then the following single result JSON. Write note in Chinese too. Do not invent numeric corrections. '
@@ -30,7 +42,12 @@ SYSTEM = (
     '"direction":"none|image_left|image_right|image_up|image_down|too_high|too_low",'
     '"ball_state":"table|gripper|funnel|unknown","magnitude":"small|medium|large|unknown",'
     '"adjustment":"keep|pickup_xy|grasp_height|grip_tighten|transport_slower|release_xy|release_height|unknown",'
-    '"confidence":0.0,"note":"short visible evidence"}.'
+    '"confidence":0.0,"note":"short visible evidence",'
+    '"comparison":{"reference_plan_id":null,'
+    '"effect":"improved|worsened|overshot|unchanged|unknown|not_comparable|not_compared",'
+    '"movement":"as_expected|opposite|no_visible_motion|unknown","note":"Chinese evidence comparing the two trials"}}. '
+    'With an available pair copy comparison.reference_plan_id exactly as a JSON string. '
+    'With no available comparison use reference_plan_id=null, effect=not_compared, movement=unknown.'
 )
 SCENE_SYSTEM = (
     'Inspect the attached current robot workspace. The raw observation, when supplied, is the same frame as the marked preview. '
@@ -46,7 +63,7 @@ SCENE_SYSTEM = (
 
 def validate_verdict(value):
     required={'outcome','direction','ball_state','magnitude','confidence','note'}
-    if not isinstance(value, dict) or not required<=set(value) or set(value)-required-{'adjustment'}:
+    if not isinstance(value, dict) or not required<=set(value) or set(value)-required-{'adjustment','comparison'}:
         raise ValueError('Grok复核格式不符，未调整参数')
     if value['outcome'] not in OUTCOMES or value['direction'] not in DIRECTIONS:
         raise ValueError('Grok复核类别无效')
@@ -62,6 +79,7 @@ def validate_verdict(value):
     if not isinstance(value['note'], str) or len(value['note']) > 2000:
         raise ValueError('Grok证据说明无效')
     value = dict(value)
+    if 'comparison' in value:value['comparison']=validate_assessment(value['comparison'])
     # Keep self-reported confidence as evidence, not an uncalibrated motion gate.
     # Grok explicitly returns unknown when the actual images are inconclusive.
     if value['outcome'] == 'placed' and value['ball_state'] != 'funnel':
@@ -100,7 +118,7 @@ def select_frames(index,limit=8):
     """Retain close/lift evidence before filling with uniform time samples."""
     if len(index)<=limit:return index
     selected=set()
-    for label in ('before','close','lift','release','fault','last','descend','transport'):
+    for label in ('close_review','lift_review','release_review','before','release','fault','last','close','lift','descend','transport'):
         matches=[i for i,row in enumerate(index) if label in row.get('labels',row['label'].split('/'))]
         if matches and len(selected)<limit:selected.add(matches[-1] if label!='before' else matches[0])
     for i in [round(n*(len(index)-1)/(limit-1)) for n in range(limit)]+list(range(len(index))):
@@ -117,13 +135,14 @@ def review(context, root, stop, *, timeout_s=120, preflight=False,on_update=None
         raise RuntimeError(config['reason'])
     root = Path(root)
     frames = []
+    paired=context.get('comparison',{})
     video = context.get('video_path')
     if video:
         folder = Path(video).parent
         index = json.loads((folder / 'keyframes.json').read_text())['frames']
-        index=select_frames(index)
+        index=select_frames(index,limit=6 if paired.get('available') and not preflight else 8)
         frames = [{'path': str(folder / row['file']), 'elapsed_s': row['elapsed_s'],
-                   'label': row['label'],'frame_index':row.get('frame_index')} for row in index]
+                   'label': row['label'],'frame_index':row.get('frame_index'),'role':'current','plan_id':context.get('plan_id')} for row in index]
     if preflight:
         frames = [{'path': str(root / 'preview.jpg'), 'elapsed_s': 0, 'label': 'current_scene_preview'}]
         if (root/'observation.jpg').is_file():
@@ -132,18 +151,42 @@ def review(context, root, stop, *, timeout_s=120, preflight=False,on_update=None
         frames.extend(context['additional_frames'])
     if not frames:
         raise RuntimeError('本轮缺少可用视频关键帧，不能自动宣称结果')
+    if not preflight:
+        panel=comparison_panel(paired,root)
+        public=public_comparison(paired,plan_id=context.get('plan_id'),panel=bool(panel))
+        if on_update:on_update({'type':'comparison','comparison':public})
+        if paired.get('available'):
+            references=[paired['previous_frame']]
+            if paired.get('previous_lift_frame') and paired['previous_lift_frame']['path']!=references[0]['path']:
+                references.append(paired['previous_lift_frame'])
+            frames=references+frames
     system = SCENE_SYSTEM if preflight else SYSTEM
     recovery=context.get('review_phase')=='recovery'
-    _write(root / ('grok-scene-request.json' if preflight else 'grok-recovery-request.json' if recovery else 'grok-request.json'), {'backend': config['backend'], 'model': config['model'],
-                                      'system':system,'context': context, 'reviewed_frames': frames})
     content=[{'type':'text','text':json.dumps({**context,'reviewed_frames':frames},ensure_ascii=False)}]
-    for frame in frames:
+    model_frames=root/'model-frames';model_frames.mkdir(exist_ok=True)
+    for index,frame in enumerate(frames):
         path = Path(frame['path'])
         if not path.is_file() or path.is_symlink():
             raise ValueError('复核关键帧不存在')
-        image=base64.b64encode(path.read_bytes()).decode('ascii')
-        content.extend([{'type':'text','text':f"{frame['label']} / frame={frame.get('frame_index')} / {frame['elapsed_s']:.2f}s / raw RGB: u RIGHT, v DOWN"},
+        source=model_frames/f'raw-{"scene" if preflight else "review"}-{index:02d}.jpg'
+        source.write_bytes(path.read_bytes());frame['source_copy_path']=str(source)
+        raw=cv2.imread(str(source))
+        if raw is None:raise ValueError('复核关键帧不能解码')
+        role=frame.get('role');contact=paired.get(str(role)+'_frame')
+        if paired.get('available') and not preflight and contact and frame.get('plan_id')==contact['plan_id'] and frame.get('frame_index')==contact['frame_index']:
+            raw,roi=target_crop(raw,paired[role+'_target_pixel'],paired.get(role+'_target_radius_px',20.))
+            frame.update(view='target_crop',raw_crop_roi_px=roi)
+        title=f"{frame.get('role','CURRENT').upper()} {str(frame.get('plan_id') or '')[:10]} | {frame['label']} | frame {frame.get('frame_index')} | {frame['elapsed_s']:.2f}s"
+        if frame.get('view')=='target_crop':title+=' | TARGET DETAIL'
+        target=model_frames/f'{"scene" if preflight else "review"}-{index:02d}.jpg'
+        expected=paired.get('expected_image_delta_px') if frame.get('role')=='current' and paired.get('available') and not preflight else None
+        if not cv2.imwrite(str(target),camera_view(raw,title,expected)):raise ValueError('带方向轴的复核帧保存失败')
+        image=base64.b64encode(target.read_bytes()).decode('ascii')
+        frame['model_image_path']=str(target)
+        content.extend([{'type':'text','text':title+' / RAW CAMERA AXES, NOT ROBOT VIEW'},
                         {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+image}}])
+    _write(root / ('grok-scene-request.json' if preflight else 'grok-recovery-request.json' if recovery else 'grok-request.json'),
+           {'backend':config['backend'],'model':config['model'],'system':system,'context':context,'reviewed_frames':frames})
     output=[];pending=[];last_flush=0.
     def flush():
         nonlocal last_flush
@@ -160,6 +203,13 @@ def review(context, root, stop, *, timeout_s=120, preflight=False,on_update=None
         flush()
         if stop.is_set():raise RuntimeError('用户停止了模型分析，未应用回复')
         verdict=_final_json(final,preflight=preflight)
+        if not preflight:
+            comparison=verdict.get('comparison')
+            if paired.get('available'):
+                if not comparison or comparison['reference_plan_id']!=paired['reference_plan_id'] or comparison['effect']=='not_compared':
+                    raise ValueError('Grok没有对照提供的前轮实帧，未应用本轮修正')
+            elif comparison and comparison['reference_plan_id'] is not None:
+                raise ValueError('Grok引用了未提供的前轮证据，未应用修正')
         if on_update:on_update({'type':'validated','verdict':verdict})
     except Exception:
         flush()

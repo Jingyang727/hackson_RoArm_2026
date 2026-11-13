@@ -98,7 +98,7 @@ class PickPlace(unittest.TestCase):
     def test_direction_uses_camera_transform_and_one_review_changes_one_parameter(self):
         folder,_,_=scene(self.home,self.session);world,_,_,_=observe_scene(folder,self.session)
         p=copy.deepcopy(DEFAULT_PARAMETERS);new,changes=adapt(p,world,'grasp_missed','image_left')
-        self.assertAlmostEqual(math.hypot(*new['pickup_xy_mm']),4.)
+        self.assertAlmostEqual(math.hypot(*new['pickup_xy_mm']),8.)
         self.assertEqual(new['release_xy_mm'],[0.,0.]);self.assertEqual(p['pickup_xy_mm'],[0.,0.])
         changed=[key for key in p if p[key]!=new[key]];self.assertEqual(changed,['pickup_xy_mm'])
         opposite=image_correction(world,'image_right');np.testing.assert_allclose(opposite,-np.asarray(new['pickup_xy_mm']),atol=.01)

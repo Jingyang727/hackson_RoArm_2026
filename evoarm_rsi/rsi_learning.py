@@ -134,6 +134,8 @@ class LearningLoop:
     def _review(self,key,*,preflight=False):
         def update(value):
             if self.stop_event.is_set() and value['type'] not in ('failed','stopped'):return
+            if value['type']=='comparison':
+                self.events.emit('comparison',attempt=self.value.get('attempt',0),plan_id=key,comparison=value['comparison']);return
             self.events.model(value,attempt=self.value.get('attempt',0),plan_id=key)
         return grok_review.review(self.context(key),Path.home()/'.evoarm/rsi/pick_place_runs'/key,
                                   self.stop_event,preflight=preflight,on_update=update)

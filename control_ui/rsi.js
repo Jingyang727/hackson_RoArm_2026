@@ -39,7 +39,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':grok.reason||'正在检查公司Grok API配置。';
-  const compatible=state?.api_version===5;
+  const compatible=state?.api_version===6;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
@@ -57,7 +57,7 @@ function render(){
   const proposal=review?.proposal;$('changeDetails').hidden=!proposal;
   if(proposal){
     const changes=(proposal.parameters_changed||[]).map(key=>`${parameterNames[key]||key}：${JSON.stringify(proposal.before[key])} → ${JSON.stringify(proposal.after[key])}`);
-    if(proposal.robot_delta_mm)changes.push(`本次机械臂 XY 增量：${xyz(proposal.robot_delta_mm)} mm；经标定换算，不能按画面左右直接解读正负号。`);
+    if(proposal.robot_delta_mm)changes.push(`本次保存的 XY 补偿变化：${xyz(proposal.robot_delta_mm)} mm；这是下一轮参数，不是已测得的实物位移。`);
     if(proposal.predicted_pixel_delta)changes.push(`相机模型预测的像素增量：${xyz(proposal.predicted_pixel_delta)} px；实际改善待下一轮录像验证。`);
     $('changeFacts').textContent=changes.join('\n')||'没有应用新的参数。';
   }
@@ -124,6 +124,7 @@ async function loadHistory(){
       summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'Grok：')+(outcomes[trial.review.outcome]||trial.review.outcome):'未分析'}；${timing}`;
       row.append(title,summary);
       if(trial.review){const details=document.createElement('details'),label=document.createElement('summary'),text=document.createElement('p');label.textContent='查看本轮判断与修正';text.className='quiet';text.textContent=(window.RSIProcess?.verdict(trial.review)||trial.review.note||'')+'\n'+(trial.review.changes||[]).join('\n');details.append(label,text);row.append(details);}
+      if(trial.review?.comparison?.panel_url){const link=document.createElement('a');link.href=trial.review.comparison.panel_url;link.textContent='查看前后实帧对照';link.target='_blank';link.rel='noopener';row.append(link);}
       if(trial.backup_url){const link=document.createElement('a');link.href=trial.backup_url;link.textContent='下载本轮备份';link.setAttribute('download','');row.append(link);}$('trials').append(row);}
   }catch(error){showError(error);}
 }

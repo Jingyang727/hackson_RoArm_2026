@@ -20,6 +20,7 @@
     .process-events li{padding:8px 8px 8px 4px;border-bottom:1px solid var(--line)}.process-events p{margin:5px 0;white-space:pre-line;line-height:1.8}
     .process-time{font-size:12px;color:var(--muted)}.grok-live{border-top:1px solid var(--line);padding-top:14px;margin-top:18px}
     .grok-public{white-space:pre-wrap;line-height:1.9;overflow-wrap:anywhere}.grok-raw{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+    .comparison-image{display:block;width:100%;max-width:1120px;border-radius:8px;margin:12px 0}
     [hidden]{display:none!important}@media(max-width:850px){.learning-grid{grid-template-columns:1fr}}
   </style>
 </head>
@@ -64,6 +65,11 @@
     <p id="processEmpty" class="quiet">启动后，这里会显示每轮动作、Grok判断、程序修正与下一轮尝试。</p>
     <ol id="processEvents" class="process-events" aria-label="逐轮RSI过程"></ol>
     <p id="processStorageError" class="quiet"></p>
+    <div id="effectComparison" class="grok-live" hidden>
+      <strong>前后动作实帧与修正效果</strong><p id="comparisonSummary" class="quiet"></p>
+      <img id="comparisonFrame" class="comparison-image" alt="前轮与本轮对应动作的实际相机画面对照，保持相机方向" hidden/>
+      <p id="comparisonFacts" class="facts"></p>
+    </div>
     <div id="grokLive" class="grok-live" hidden>
       <strong id="grokLiveTitle">Grok公开回复</strong><p id="grokReplyStatus" class="quiet" role="status"></p>
       <p id="grokLiveText" class="grok-public"></p>

@@ -75,7 +75,7 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(state['learning']['attempt'], 2)
         self.assertEqual(model.call_count, 3); self.assertEqual(recovery.call_count, 1)
         self.assertEqual(len(self.policies), 2)
-        self.assertAlmostEqual(math.hypot(*self.policies[1]['pickup_xy_mm']), 6.)
+        self.assertAlmostEqual(math.hypot(*self.policies[1]['pickup_xy_mm']), 12.)
         self.assertIsNone(self.fixture.service.automation_owner)
         pol = next((self.fixture.home / '.evoarm/rsi/pick_place_policies').glob('*/*.json'))
         saved = json.loads(pol.read_text())
@@ -89,7 +89,69 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(response['status'], 409); self.assertEqual(self.fixture.arm.commands, [])
         self.assertEqual(self.policies, [])
 
-    def test_repeated_small_error_uses_larger_new_plan_and_saves_application_receipt(self):
+    def paired_run(self,*,opposite):
+        original=self.fixture.execute_mock.side_effect;captured=[];contexts=[]
+        def execute(service,plan,root,stop,publish,**kwargs):
+            result=original(service,plan,root,stop,publish,**kwargs)
+            key=f'{len(captured)+100:032x}';folder=self.fixture.home/'.evoarm/rsi/experiments'/key;folder.mkdir(parents=True)
+            image=self.fixture.image.copy();rows=[]
+            for index,label in enumerate(('before','close_review','lift_review','release')):
+                name=f'evidence-{index:02d}.jpg';cv2.imwrite(str(folder/name),image)
+                rows.append({'file':name,'label':label,'frame_index':index,'elapsed_s':float(index)})
+            (folder/'keyframes.json').write_text(json.dumps({'frames':rows}))
+            measured=np.asarray(plan['grasp_tip_xyz_mm']).copy()
+            if captured and opposite:
+                measured[:2]-=2*(np.asarray(plan['parameters']['pickup_xy_mm'])-captured[-1]['parameters']['pickup_xy_mm'])
+            captured.append(copy.deepcopy(plan))
+            result.update(capture_trial_id=key,feedback=[{'stage':'close','status':dict(zip('xyz',measured.tolist()))}])
+            return result
+        def model(system,content,stop,**options):
+            context=json.loads(content[0]['text']);contexts.append(context)
+            if system==grok_review.SCENE_SYSTEM:answer={'ready':True,'note':'synthetic scene'}
+            else:
+                pair=context['comparison'];first=len(captured)==1
+                answer=verdict('grasp_missed' if first or opposite or len(captured)==2 else 'placed','image_right',
+                               'medium' if first else 'small')
+                answer['comparison']={'reference_plan_id':pair['reference_plan_id'] if pair['available'] else None,
+                    'effect':'not_compared' if first else 'worsened' if opposite else 'improved',
+                    'movement':'unknown' if first else 'opposite' if opposite else 'as_expected','note':'synthetic paired evidence'}
+            return json.dumps(answer)
+        self.fixture.execute_mock.side_effect=execute
+        with (patch.object(grok_review,'configuration',return_value={'configured':True,'model':'grok-test','backend':'company_api'}),
+              patch.object(grok_review,'complete_content',side_effect=model),
+              patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'}) as recovery):
+            self.start()
+        _,state=self.request('state',method='GET')
+        return state,contexts,recovery.call_count
+
+    def test_real_review_pipeline_compares_trials_and_rolls_back_wrong_way_instead_of_third_attempt(self):
+        state,contexts,resets=self.paired_run(opposite=True)
+        self.assertEqual(len(self.policies),2);self.assertEqual(resets,2)
+        self.assertEqual(state['learning']['status'],'failed',state['learning'].get('error'))
+        entry=state['plan']['review'];self.assertEqual(entry['proposal']['comparison'],'direction_disproved')
+        self.assertEqual(entry['after'],DEFAULT_PARAMETERS)
+        self.assertEqual(entry['comparison']['feedback']['status'],'opposite')
+        self.assertEqual(entry['comparison']['assessment']['movement'],'opposite')
+        self.assertTrue(entry['comparison']['panel_url'])
+        self.assertTrue(contexts[-1]['comparison']['available'])
+        self.assertTrue(any(row['kind']=='comparison' for row in state['process']['events']))
+        response,image=asyncio.run(loop_fixtures.api_request(entry['comparison']['panel_url'],{},method='GET',decode_json=False))
+        self.assertEqual(response['status'],200);self.assertGreater(len(image),1000)
+        import zipfile
+        with zipfile.ZipFile(self.fixture.home/'.evoarm/rsi/backups'/f"{state['plan']['plan_id']}.zip") as archive:
+            self.assertIn('trial/comparison.jpg',archive.namelist())
+            self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(contexts[-1]['comparison']['previous_frame']['path']).read_bytes())
+
+    def test_real_review_pipeline_uses_improvement_to_shrink_and_remembers_successful_actual_policy(self):
+        state,contexts,_=self.paired_run(opposite=False)
+        self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
+        self.assertEqual(len(self.policies),3)
+        self.assertAlmostEqual(math.dist(self.policies[0]['pickup_xy_mm'],self.policies[1]['pickup_xy_mm']),8.)
+        self.assertAlmostEqual(math.dist(self.policies[1]['pickup_xy_mm'],self.policies[2]['pickup_xy_mm']),4.)
+        self.assertEqual(state['plan']['review']['proposal']['decision'],'keep')
+        self.assertEqual(state['plan']['review']['after'],self.policies[-1])
+
+    def test_missing_paired_evidence_does_not_escalate_step_but_application_is_saved(self):
         miss=verdict('grasp_missed','image_right','small')
         with (patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},miss,miss,verdict()]),
               patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'})):
@@ -97,7 +159,7 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(len(self.policies),3)
         first=np.asarray(self.policies[1]['pickup_xy_mm'])-self.policies[0]['pickup_xy_mm']
         second=np.asarray(self.policies[2]['pickup_xy_mm'])-self.policies[1]['pickup_xy_mm']
-        self.assertAlmostEqual(float(np.linalg.norm(first)),2.)
+        self.assertAlmostEqual(float(np.linalg.norm(first)),4.)
         self.assertAlmostEqual(float(np.linalg.norm(second)),4.)
         _,state=self.request('state',method='GET')
         self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
@@ -313,6 +375,23 @@ class EvidenceAndTracking(unittest.TestCase):
             frames=json.loads((folder/'keyframes.json').read_text())['frames']
             self.assertEqual(len(frames),4);self.assertIn('close',frames[1]['labels'])
             self.assertIn('sample',frames[1]['labels'])
+
+    def test_contact_evidence_is_before_next_motion_and_no_release_is_invented(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp);writer=cv2.VideoWriter(str(folder/'rgb.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),1,(160,90))
+            for index in range(6):writer.write(np.full((90,160,3),130+index*15,np.uint8))
+            writer.release();stamps=[(i+1)*1_000_000_000 for i in range(6)]
+            (folder/'frames.jsonl').write_text('\n'.join(json.dumps({'host_monotonic_ns':s}) for s in stamps))
+            events=[{'stage':stage,'host_monotonic_ns':int(t*1e9)} for stage,t in
+                    [('close',2.1),('lift',4.1),('transport',5.1),('release',5.4),('finish',6.1)]]
+            export_keyframes(folder,events,sample_count=6)
+            rows=json.loads((folder/'keyframes.json').read_text())['frames']
+            by_label={label:row['frame_index'] for row in rows for label in row['labels']}
+            self.assertEqual(by_label['close_review'],3);self.assertEqual(by_label['lift_review'],4)
+            self.assertEqual(by_label['release_review'],5)
+            export_keyframes(folder,[e for e in events if e['stage'] not in ('release','transport')])
+            rows=json.loads((folder/'keyframes.json').read_text())['frames']
+            self.assertFalse(any('release_review' in row['labels'] for row in rows))
 
     def test_backup_hashes_and_langfuse_contract_preserve_raw_evidence(self):
         import zipfile

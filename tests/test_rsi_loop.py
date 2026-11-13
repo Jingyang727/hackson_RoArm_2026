@@ -111,7 +111,7 @@ class RSIApi(unittest.TestCase):
         body={'plan_id':key,'outcome':'grasp_missed','direction':'image_left','source':'human'}
         response,review=self.request('review',body);self.assertEqual(response['status'],200,review)
         self.assertEqual(review['after_version'],2)
-        self.assertAlmostEqual(math.hypot(*review['after']['pickup_xy_mm']),4.)
+        self.assertAlmostEqual(math.hypot(*review['after']['pickup_xy_mm']),8.)
         self.assertEqual(self.request('review',body)[1]['after_version'],2)
         self.prepare();_,state=self.request('state',method='GET')
         self.assertEqual(state['plan']['policy_version'],2)
