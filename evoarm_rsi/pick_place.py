@@ -24,7 +24,7 @@ DEFAULT_PARAMETERS = {
     'pickup_xy_mm':[0.,0.], 'release_xy_mm':[0.,0.], 'grasp_z_offset_mm':3.,
     'finger_offset_mm':19., 'hover_height_mm':70., 'lift_height_mm':100.,
     'release_clearance_mm':18., 'open_deg':110., 'close_deg':180.,
-    'travel_speed':.65, 'approach_speed':.30, 'gripper_speed':1000, 'gripper_acc':20,
+    'travel_speed':.65, 'approach_speed':.30, 'gripper_speed':1000, 'gripper_acc':20,'squeeze_deg':2.,
 }
 
 
@@ -140,6 +140,7 @@ def build_plan(session,status,scene,parameters):
     if any(len(p[k])!=2 or max(map(abs,p[k]))>30 for k in ('pickup_xy_mm','release_xy_mm')):raise ValueError('本轮学习偏移超出±30mm参数搜索域')
     if not .05<=p['approach_speed']<=1 or not .05<=p['travel_speed']<=1:raise ValueError('RSI速度参数需在0.05～1内')
     if not 1<=p['gripper_speed']<=4095 or not 1<=p['gripper_acc']<=254:raise ValueError('夹爪速度或加速度参数无效')
+    if not 0<=p['squeeze_deg']<=5:raise ValueError('接触后夹角预紧参数需在0～5度内')
     if not math.degrees(1.08)<=p['open_deg']<p['close_deg']<=180:raise ValueError('夹爪开合参数超出官方范围或顺序无效')
     if not 0<=p['finger_offset_mm']<=50 or not -10<=p['grasp_z_offset_mm']<=15 or not 5<=p['release_clearance_mm']<=45:
         raise ValueError('本轮高度或指尖偏移超出实验参数搜索域')
@@ -198,6 +199,13 @@ def build_plan(session,status,scene,parameters):
                     move('transit_arc',waypoint,pitch,p['travel_speed'])
                 move('transport',release,pitch,p['travel_speed'])
             hand('release',opening)
+            # T104 interpolates g together with XYZ. Open while approaching,
+            # then keep the measured grasp angle during lift/transport.
+            for i,step in enumerate(steps):
+                if step['stage']=='open' and i+1<len(steps) and steps[i+1]['stage'] in ('align','approach_ball'):
+                    steps[i+1].update(gripper_rad=step['gripper_rad'],open_while_moving=True)
+                    del steps[i]
+                    break
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
                     'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,
                     'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':release.tolist(),
@@ -237,24 +245,32 @@ def image_correction(scene,direction,step_mm=4.,*,target='ball'):
     delta=end[:2]-start[:2];return (delta/max(np.linalg.norm(delta),1e-8)*step_mm).tolist()
 
 
-def adapt(parameters,scene,outcome,direction):
+def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown'):
     result={k:list(v) if isinstance(v,list) else v for k,v in parameters.items()};change=[]
+    step_mm={'small':2.,'medium':4.,'large':6.,'unknown':4.}.get(magnitude,4.)
     if outcome=='placed':return result,['本轮成功，保留参数；下一轮换一个球位置验证。']
     if outcome in ('grasp_missed','placement_missed') and direction.startswith('image_'):
         key='pickup_xy_mm' if outcome=='grasp_missed' else 'release_xy_mm'
-        delta=image_correction(scene,direction,target='ball' if outcome=='grasp_missed' else 'funnel')
+        delta=image_correction(scene,direction,step_mm,target='ball' if outcome=='grasp_missed' else 'funnel')
         result[key]=[max(-30.,min(30.,v+d)) for v,d in zip(result[key],delta)]
-        change.append(f'{key}按相机到机械臂变换调整4mm，Grok不需要给毫米误差。')
+        change.append(f'{key}按Grok判断的方向和幅度调整{step_mm:g}mm；数值是试验步长，不是Grok测得的绝对误差。')
     elif outcome=='grasp_missed' and direction in ('too_high','too_low'):
         delta=-2 if direction=='too_high' else 2
         result['grasp_z_offset_mm']=max(-10.,min(15.,result['grasp_z_offset_mm']+delta))
         change.append(f'下一轮抓取高度调整{delta:+d}mm。')
+    elif outcome=='grasp_missed' and direction=='none':
+        result['grasp_z_offset_mm']=max(-10.,result['grasp_z_offset_mm']-2)
+        change.append('Grok确认抓空但方向不清，下一轮只探索降低抓取高度2mm；不把探索步长当作测量误差。')
     elif outcome=='pushed_away':
         result['grasp_z_offset_mm']=min(15.,result['grasp_z_offset_mm']+2)
         change.append('下降时推走了球，下一轮先提高抓取高度2mm，再用录像验证。')
     elif outcome=='slipped':
-        result['travel_speed']=max(.2,round(result['travel_speed']*.85,3))
-        change.append('发生滑落，下一轮快速移动速度降低15%，先隔离运动造成的滑落。')
+        if adjustment=='grip_tighten' and result['squeeze_deg']<5:
+            result['squeeze_deg']=min(5.,result['squeeze_deg']+1)
+            change.append('Grok建议加强夹持，下一轮接触后角度预紧增加1°；这是位置控制试验，不是测得的夹持力。')
+        else:
+            result['travel_speed']=max(.2,round(result['travel_speed']*.85,3))
+            change.append('发生滑落，下一轮快速移动速度降低15%，先隔离运动造成的滑落。')
     elif outcome=='bounced_out':
         result['release_clearance_mm']=max(5.,result['release_clearance_mm']-4)
         change.append('下一轮降低投放高度4mm，保留漏斗口上方间隙。')

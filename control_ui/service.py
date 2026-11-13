@@ -58,6 +58,7 @@ class ArmService:
         self.teach_active = False
         self.last_torque_status = None
         self.last_torque_result = None
+        self.automation_owner = None
 
     @property
     def teach_enabled(self):
@@ -125,6 +126,8 @@ class ArmService:
 
     def connect(self, port):
         with self.lock:
+            if self.automation_owner and (self.arm is None or self.port != port):
+                raise UnsafeMotion('自动任务进行中，不能切换串口')
             if self.arm is not None and self.port == port:
                 # Opening the same port again would reset the ESP32 and could
                 # disrupt an in-flight motion or a released-torque teach pose.
@@ -381,11 +384,13 @@ class ArmService:
                 "pending": self.pending,
                 "fault": self.fault,
                 "last_command": self.last_command,
+                "automation_owner": self.automation_owner,
             }
 
-    def unlock_once(self, declaration):
+    def unlock_once(self, declaration, *, automation_id=None):
         # API name kept for backward compatibility; unlock lasts 30 minutes (manual, never auto-renewed).
         with self.lock:
+            self._check_automation_owner(automation_id)
             self.armed_until = 0
             if not self.motion_enabled:
                 raise UnsafeMotion("只读模式：需要显式设置 EVOARM_ENABLE_MOTION=1")
@@ -408,6 +413,7 @@ class ArmService:
         succeeded. Retrying status reads is safe; replaying T=210 is not.
         """
         with self.lock:
+            self._check_automation_owner(None)
             if type(enabled) is not bool:
                 raise UnsafeMotion("扭矩模式无效")
             if not self.teach_enabled:
@@ -536,6 +542,7 @@ class ArmService:
     def recover_fault(self, declaration):
         """Operator-confirmed stable feedback recovery; NEVER send movement here."""
         with self.lock:
+            self._check_automation_owner(None)
             if not self.fault:
                 raise UnsafeMotion("没有需要恢复的动作异常")
             # Fail closed on EVERY recovery attempt, including a rejected one.
@@ -620,7 +627,14 @@ class ArmService:
                 "message":"已自动清除本次RSI锁存异常；未重新授权运动或补发目标",
             }
 
-    def _preflight(self, joint, *, minimum_gap_s=None):
+    def _check_automation_owner(self, automation_id):
+        if automation_id is not None and self.automation_owner != automation_id:
+            raise UnsafeMotion('RSI自动任务授权已撤销')
+        if self.automation_owner and self.automation_owner != automation_id:
+            raise UnsafeMotion('RSI自动任务正在占用机械臂，请先停止任务')
+
+    def _preflight(self, joint, *, minimum_gap_s=None, automation_id=None):
+        self._check_automation_owner(automation_id)
         if self.teach_active:
             raise UnsafeMotion("当前为释放扭矩的示教模式，禁止下发运动指令")
         if self.arm is None or not self.motion_enabled:
@@ -725,6 +739,7 @@ class ArmService:
         """One confirmed reset; no extra torque command, retry or new owner."""
         from evoarm_rsi.task_agent import _write
         with self.lock:
+            self._check_automation_owner(None)
             self.armed_until = 0
             if len(request_id) != 32 or any(c not in '0123456789abcdef' for c in request_id):
                 raise UnsafeMotion('复位请求编号无效')
@@ -767,7 +782,7 @@ class ArmService:
             finally:
                 self.armed_until = 0
 
-    def factory_reset(self, before_send=None):
+    def factory_reset(self, before_send=None, *, automation_id=None):
         """Explicit firmware T=100 reset, never a silent automatic command.
 
         This moves all joints, potentially along an unsafe trajectory. Requires the
@@ -775,6 +790,7 @@ class ArmService:
         confirmed by the operator in the UI, and no other in-flight command.
         """
         with self.lock:
+            self._check_automation_owner(automation_id)
             if not self.motion_enabled or self.arm is None:
                 raise UnsafeMotion("机械臂未连接或运动模式未开启")
             if self.teach_active:

@@ -19,7 +19,7 @@ from .real_probe import _base_url, _controller_get, _controller_post
 from .task_agent import _write
 
 
-def export_keyframes(folder,events,*,stages=('close','lift','finish','fault')):
+def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sample_count=0):
     import cv2
     import numpy as np
     folder=Path(folder)
@@ -28,8 +28,11 @@ def export_keyframes(folder,events,*,stages=('close','lift','finish','fault')):
     stamps=np.array([r["host_monotonic_ns"] for r in rows],dtype=np.int64)
     wanted=[("before",int(stamps[0]))]
     wanted.extend((e["stage"],e["host_monotonic_ns"]) for e in events if e["stage"] in stages)
+    wanted.extend(("sample",int(stamps[i])) for i in
+                  np.linspace(0,len(stamps)-1,sample_count,dtype=int))
     wanted.append(("last",int(stamps[-1])))
-    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];used=set()
+    wanted.sort(key=lambda item:item[1])
+    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];used=set();evidence=[]
     try:
         for label,stamp in wanted:
             index=int(np.argmin(np.abs(stamps-stamp)))
@@ -40,12 +43,16 @@ def export_keyframes(folder,events,*,stages=('close','lift','finish','fault')):
             cv2.putText(tile,f"{label}: {(int(stamps[index])-int(stamps[0]))/1e9:.2f}s",(10,25),
                         cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,240),2)
             cv2.imwrite(str(folder/f"evidence-{len(tiles):02d}.jpg"),frame)
+            evidence.append({'label':label,'frame_index':index,
+                             'elapsed_s':(int(stamps[index])-int(stamps[0]))/1e9,
+                             'file':f'evidence-{len(tiles):02d}.jpg'})
             tiles.append(tile)
     finally:cap.release()
     if not tiles:return None
-    while len(tiles)%2:tiles.append(np.zeros_like(tiles[0]))
-    sheet=np.vstack([np.hstack(tiles[i:i+2]) for i in range(0,len(tiles),2)])
+    # A chronological strip contains only actual frames: never pad with black.
+    sheet=np.vstack(tiles)
     output=folder/"grasp-keyframes.jpg";cv2.imwrite(str(output),sheet)
+    _write(folder/'keyframes.json',{'frames':evidence,'padding_frames':0})
     return str(output)
 
 

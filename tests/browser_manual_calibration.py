@@ -159,7 +159,7 @@ def check(url, output):
         model['trials']=[{'id':'a'*32,'status':'completed','policy_version':1,'review':None,
                          'result':{'motion_completed':True,'physical_elapsed_s':8.1}}]
         page.reload();page.get_by_text('试次 aaaaaaaaaa · 参数 v1',exact=True).wait_for()
-        page.get_by_text('等待复核；动作 8.1 秒；状态 completed',exact=True).wait_for()
+        page.get_by_text('等待Grok分析；动作 8.1 秒',exact=True).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         for source,target in (('/teach','/calibration'),('/pick','/experiments'),('/','/calibration')):
             page.goto(url+source);assert page.url.endswith(target)

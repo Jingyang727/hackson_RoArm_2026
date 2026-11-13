@@ -1,22 +1,66 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>EvoArm · RSI抓放试验</title><link rel="stylesheet" href="/assets/workspace.css"/>
-<style>
-.rsi-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,1fr);gap:22px;align-items:start}.rsi-grid>*{min-width:0}.rsi-image{width:100%;border-radius:9px;background:#f4f7f8}.rsi-actions>button{width:100%;margin:10px 0}.rsi-actions .check-row{margin:16px 0}.rsi-facts{font-size:12px;line-height:1.9;white-space:pre-line;color:var(--muted)}.rsi-result{margin-top:16px;line-height:1.8}.rsi-review{margin-top:22px}.review-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.review-fields label{font-size:12px;color:var(--muted)}.review-fields select{display:block;width:100%;min-width:0;margin-top:6px}.rsi-review textarea{display:block;width:100%;min-height:70px;margin:12px 0}.rsi-review button{margin:5px 8px 5px 0}.rsi-video{width:100%;max-height:420px;margin-top:12px;border-radius:8px}.rsi-warnings{font-size:12px;color:#8b562f;white-space:pre-line}.rsi-message{white-space:pre-line;line-height:1.8;margin:12px 0}.rsi-review [hidden],.rsi-grid [hidden]{display:none!important}.rsi-history{margin-top:22px}.rsi-depth{margin-top:12px}.rsi-depth img{max-height:320px;object-fit:contain}.grok-data{font:12px ui-monospace,monospace;min-height:180px!important}
-@media(max-width:850px){.rsi-grid{grid-template-columns:1fr}.review-fields{grid-template-columns:1fr}}
-</style></head><body>
-<header><a class="brand" href="/coordinates"><span class="brand-mark">e</span>EvoArm<span class="brand-sub">/ 机械臂工作区</span></a><nav aria-label="主导航"><a href="/coordinates">坐标验证</a><a href="/calibration">手动标定</a><a href="/experiments" aria-current="page">抓取试验</a></nav><span id="connection" class="status-chip">正在读取状态</span></header>
-<main><div class="page-heading"><div><div class="eyebrow">RSI / 完整抓放</div><h1>抓黄球，放漏斗，再调整。</h1><p>RGB-D定位 → 一次完整抓放与10秒录像 → 人工或Grok复核 → 下一轮参数。</p></div><span id="setupBadge" class="setup-badge"></span></div>
-<div id="error" class="alert" role="alert" hidden></div>
-<section class="rsi-grid"><div class="card"><div class="card-heading"><h2>黄球、漏斗与本轮路径</h2><span id="viewBadge" class="mini-badge">尚未观察</span></div>
-<div id="graspEmpty" class="empty-trials"><p>先观察当前黄球与黑色漏斗。使用已完成的标定，棋盘可以撤走。</p></div><img id="graspFrame" class="rsi-image" alt="当前黄球、漏斗与完整抓放路径" hidden/><p id="imageCaption" class="small-note"></p><p id="streamNotice" class="rsi-warnings" hidden></p><p id="sceneFacts" class="rsi-facts"></p>
-<details id="depthPanel" class="rsi-depth" hidden><summary>查看本轮深度图</summary><img id="depthFrame" class="rsi-image" alt="毫米深度伪彩图，黑色为深度空洞"/><p class="small-note">球面深度用于球心拟合；漏斗开口使用已知45.4mm高度，洞内桌面深度不作为开口高度。</p></details>
-<video id="trialVideo" class="rsi-video" controls preload="none" hidden></video></div>
-<div class="card rsi-actions"><div class="card-heading"><h2>执行一轮完整抓放</h2><span id="motionBadge" class="mini-badge">读取状态</span></div><p id="readiness" class="inline-note">正在读取状态。</p><button id="connect" class="secondary" hidden>连接机械臂</button><a id="recoveryLink" href="/coordinates" class="text-button" hidden>到坐标页复核异常或恢复官方姿态</a>
-<button id="prepare" class="secondary" disabled>1 · 观察并规划抓放</button><p id="observationWarnings" class="rsi-warnings" hidden></p><p id="planFacts" class="rsi-facts"></p><details><summary>本轮速度参数</summary><p id="speedFacts" class="rsi-facts">快速起始配置：运输spd=0.65，接近spd=0.30；夹爪spd=1000步/秒、acc=20。T104使用spd，夹爪T106使用spd和acc。</p></details>
-<label class="check-row"><input id="confirmed" type="checkbox" disabled/><span>已核对黄球、漏斗和完整路径，现场有人看护，双手离开运动范围。</span></label><button id="run" class="primary" disabled>2 · 执行一次抓放并录像</button><button id="stop" class="secondary" hidden>停止后续动作</button><p id="phase" class="rsi-message" role="status" aria-live="polite">尚未开始。</p><p id="planExpiry" class="small-note"></p><div id="runResult" class="rsi-result" hidden><strong id="resultTitle"></strong><p id="resultText"></p><a id="keyframesLink" target="_blank" rel="noopener" class="text-button">查看关键帧</a> · <a id="rawVideoLink" target="_blank" rel="noopener" class="text-button" download>下载原录像</a></div><p class="small-note">目标为10秒内完整抓放；实际耗时单独记录。停止只阻止后续指令，已发动作可能继续。</p></div></section>
-<section id="reviewPanel" class="card rsi-review" hidden><div class="card-heading"><h2>复核这一轮，调整下一轮</h2><span id="policyVersion" class="mini-badge"></span></div><p class="small-note">不用测量毫米误差。方向指原始RGB画面里夹爪相对黄球或漏斗偏在哪边；Grok和人工都填写同一套定性结果。</p>
-<div class="review-fields"><label>实际结果<select id="outcome"><option value="unknown">暂时看不清／无法确认</option><option value="placed">抓起并进入漏斗</option><option value="grasp_missed">抓空／没夹住</option><option value="pushed_away">下降时推走了球</option><option value="slipped">提起或运输中滑落</option><option value="placement_missed">抓住了，但投偏了</option><option value="bounced_out">落入后又弹出</option><option value="execution_failed">控制或录像未完成</option></select></label><label>偏差方向<select id="direction"><option value="none">方向不明确</option><option value="image_left">夹爪在画面中偏左</option><option value="image_right">夹爪在画面中偏右</option><option value="image_up">夹爪在画面中偏上</option><option value="image_down">夹爪在画面中偏下</option><option value="too_high">末端位置太高</option><option value="too_low">末端位置太低</option></select></label></div>
-<textarea id="reviewNote" aria-label="复核备注" placeholder="记录看见的情况，例如球被推走、闭爪后未离桌、运输中掉落。"></textarea><button id="saveReview" class="primary">保存结果，更新下一轮参数</button><button id="grokContext" class="secondary">生成Grok复核资料</button><p id="reviewResult" class="rsi-message" role="status"></p><textarea id="grokPrompt" class="grok-data" aria-label="交给本地OpenCode/Grok的复核资料" readonly hidden></textarea><p class="small-note">保存复核只更新参数，不移动机械臂。下一轮需重新观察并预览；Grok由你本地公司OpenCode读取录像，不要求另配模型网关。</p></section>
-<section class="card rsi-history"><div class="card-heading"><h2>当前布置的RSI试次</h2><span id="count" class="mini-badge">0 次</span></div><p id="emptyTrials" class="small-note">还没有本分支的完整抓放试次。</p><div id="trials"></div></section></main>
-<footer>数值到位、抓起成功和进入漏斗分别记录；每轮录像、深度、轨迹和参数版本保留。</footer><script src="/assets/rsi.js"></script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>EvoArm · 自动抓放与学习</title>
+  <link rel="stylesheet" href="/assets/workspace.css"/>
+  <style>
+    .learning-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:22px;align-items:start}
+    .learning-grid>*{min-width:0}.workspace-frame{display:block;width:100%;border-radius:10px;background:#edf2f1;aspect-ratio:16/9;object-fit:contain}
+    .learning-controls>button{width:100%;margin:12px 0}.learning-controls .check-row{margin:20px 0}
+    .phase-line{font-size:18px;line-height:1.7;white-space:pre-line}.quiet{color:var(--muted);font-size:13px;line-height:1.8;white-space:pre-line}
+    .verdict{border-top:1px solid var(--line);margin-top:18px;padding-top:18px;line-height:1.9;white-space:pre-line}
+    .recordings,.history-card{margin-top:22px}.recordings video{display:block;width:100%;max-height:480px;margin:12px 0}
+    .recordings details{margin-top:18px}.depth-image{display:block;max-width:100%;max-height:360px;margin-top:10px}
+    .facts{font-size:12px;line-height:1.9;white-space:pre-line;color:var(--muted)}.trial-row p{margin:8px 0}
+    .media-links{display:flex;gap:18px;flex-wrap:wrap}.limits-note{font-size:12px;line-height:1.8;color:var(--muted)}
+    [hidden]{display:none!important}@media(max-width:850px){.learning-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/coordinates"><span class="brand-mark">e</span>EvoArm<span class="brand-sub">/ 机械臂工作区</span></a>
+  <nav aria-label="主导航"><a href="/coordinates">坐标验证</a><a href="/calibration">手动标定</a><a href="/experiments" aria-current="page">抓取试验</a></nav>
+  <span id="connection" class="status-chip">正在读取状态</span>
+</header>
+<main>
+  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制10秒，Grok分析结果；失败后自动恢复并重试，成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
+  <p id="error" class="error-banner" role="alert" hidden></p>
+  <section class="learning-grid">
+    <div class="card">
+      <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
+      <div id="frameEmpty" class="empty-trials"><p>正在读取相机画面。球和黑色漏斗应同时可见。</p></div>
+      <img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/>
+      <p id="imageCaption" class="quiet"></p>
+      <p id="streamNotice" class="quiet" hidden></p>
+    </div>
+    <div class="card learning-controls">
+      <div class="card-heading"><h2>自动学习</h2><span id="attemptBadge" class="mini-badge">尚未开始</span></div>
+      <p id="readiness" class="inline-note">正在检查机械臂和Grok。</p>
+      <p id="grokStatus" class="quiet"></p>
+      <button id="connect" class="secondary" hidden>连接机械臂</button>
+      <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
+      <button id="start" class="primary" disabled>开始自动抓放</button>
+      <button id="stop" class="secondary" hidden>停止自动任务</button>
+      <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
+      <p id="nextChange" class="quiet"></p>
+      <div id="grokVerdict" class="verdict" hidden></div>
+      <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
+      <p class="limits-note">抓放目标为10秒，分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
+    </div>
+  </section>
+  <section id="recordings" class="card recordings" hidden>
+    <div class="card-heading"><h2>本轮录像与记录</h2><span id="policyVersion" class="mini-badge"></span></div>
+    <p id="resultText" class="quiet"></p>
+    <video id="trialVideo" controls preload="none" hidden></video>
+    <div class="media-links"><a id="rawVideoLink" class="text-button" download>下载原录像</a><a id="keyframesLink" class="text-button" target="_blank" rel="noopener">查看实际关键帧</a><a id="archiveLink" class="text-button" download hidden>下载完整试次备份</a></div>
+    <p id="backupStatus" class="quiet"></p>
+    <details id="diagnostics"><summary>定位与深度诊断（可选）</summary><p id="sceneFacts" class="facts"></p><img id="depthFrame" class="depth-image" alt="到相机距离的深度伪彩图"/><p id="depthLegend" class="quiet"></p><p class="quiet">深度参与球心定位，无需人工解读此图。黑色区域表示未测到深度，不表示黑色物体。</p><p id="planFacts" class="facts"></p></details>
+  </section>
+  <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
+</main>
+<footer>录像、RGB-D、指令、反馈、Grok判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
+<script src="/assets/rsi.js"></script>
+</body>
+</html>
