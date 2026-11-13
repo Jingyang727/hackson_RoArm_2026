@@ -4,7 +4,8 @@ let state=null,plan=null,busy=false,polling=false,revision=0,depth=null,verified
 let selectionMode='point',targetInitialized=false;
 let factoryResetRequestID=null;
 const factoryResetDeclaration='已确认机械臂静止、阻挡已解除、整臂回位空间已清空且双手离开运动范围';
-const view={yaw:.8,pitch:.6,zoom:1};
+const view={yaw:.8,pitch:.6,zoom:1,mirrored:false};
+try{view.mirrored=localStorage.getItem('evoarm-coordinate-mirror')==='true';}catch{}
 const canvas=$('scene'),ctx=canvas.getContext('2d');
 const number = value => typeof value==='number' && Number.isFinite(value) ? value.toFixed(1) : '—';
 const target = () => ['x','y','z'].map(id => $(id).value.trim()==='' ? NaN : Number($(id).value));
@@ -194,6 +195,7 @@ $('disarm').onclick=async()=>{try{await api('/api/disarm','POST',{});$('summary'
 $('saveCheck').onclick=()=>action(async()=>{await api('/api/coordinates/verify','POST',{plan_id:state.result.plan_id,result:document.querySelector('input[name=verified]:checked').value,note:$('note').value});});
 // Draw a rotatable orthographic 3D schematic directly, with no CDN or SDK.
 function draw(){
+  $('viewMirror').setAttribute('aria-pressed',String(view.mirrored));
   const rect=canvas.getBoundingClientRect(),w=rect.width,h=rect.height,dpr=devicePixelRatio||1;
   if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
@@ -227,13 +229,14 @@ function pickTablePoint(event){
   applyHeight(point[0],point[1]);$('selectionHint').textContent=`已选桌面位置 X=${number(point[0])}、Y=${number(point[1])} mm；拖动滑块选高度，再预览路径。`;
 }
 canvas.onpointerdown=e=>{if(e.button!==0)return;drag=[e.clientX,e.clientY,view.yaw,view.pitch,false];canvas.setPointerCapture(e.pointerId);};
-canvas.onpointermove=e=>{if(!drag)return;if(Math.hypot(e.clientX-drag[0],e.clientY-drag[1])>4)drag[4]=true;if(!drag[4])return;view.yaw=drag[2]+(e.clientX-drag[0])*.008;view.pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.008));draw();};
+canvas.onpointermove=e=>{if(!drag)return;if(Math.hypot(e.clientX-drag[0],e.clientY-drag[1])>4)drag[4]=true;if(!drag[4])return;view.yaw=drag[2]+(e.clientX-drag[0])*.008*(view.mirrored?-1:1);view.pitch=Math.max(-1.5,Math.min(1.5,drag[3]+(e.clientY-drag[1])*.008));draw();};
 canvas.onpointerup=e=>{const click=drag&&!drag[4];drag=null;if(click)pickTablePoint(e);};
 canvas.onpointercancel=()=>{drag=null;};
 canvas.addEventListener('wheel',e=>{e.preventDefault();view.zoom=Math.max(.5,Math.min(2.5,view.zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
 $('view3d').onclick=()=>{Object.assign(view,{yaw:.8,pitch:.6,zoom:1});draw();};
 $('viewTop').onclick=()=>{Object.assign(view,{yaw:0,pitch:Math.PI/2,zoom:1});draw();};
 $('viewFront').onclick=()=>{Object.assign(view,{yaw:0,pitch:0,zoom:1});draw();};
+$('viewMirror').onclick=()=>{view.mirrored=!view.mirrored;try{localStorage.setItem('evoarm-coordinate-mirror',String(view.mirrored));}catch{}draw();};
 new ResizeObserver(draw).observe(canvas);
 $('readDepth').onclick=async()=>{
   $('readDepth').disabled=true;

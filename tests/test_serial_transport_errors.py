@@ -15,16 +15,23 @@ async def api_request(path, value, *, method="POST", query_string=b"", decode_js
     body = json.dumps(value).encode()
     messages = []
     received = False
+    response_finished = asyncio.Event()
 
     async def receive():
         nonlocal received
         if not received:
             received = True
             return {"type": "http.request", "body": body, "more_body": False}
+        # Keep this synthetic client connected until the response is complete.
+        # An immediate disconnect races StreamingResponse's file/body writer
+        # on newer Starlette/AnyIO, producing an empty HTTP 200 in CI.
+        await response_finished.wait()
         return {"type": "http.disconnect"}
 
     async def send(message):
         messages.append(message)
+        if message['type']=='http.response.body' and not message.get('more_body',False):
+            response_finished.set()
 
     await main.app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
         "method": method, "scheme": "http", "path": path, "root_path": "",

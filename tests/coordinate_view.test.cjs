@@ -32,3 +32,16 @@ test('numeric and boolean torque replies agree, while missing replies stay unkno
   for(const value of [0,false])assert.equal(torqueState(value),'reported_zero');
   for(const value of [undefined,null,'1','0',2,NaN])assert.equal(torqueState(value),'unknown');
 });
+
+test('mirrored views reflect pixels while preserving selected robot coordinates',()=>{
+  const length=Math.hypot(.03,-.02,1),plane={normal_up:[.03/length,-.02/length,1/length],d_mm:117};
+  for(const [width,height] of [[760,480],[315,370]])for(const [yaw,pitch,zoom] of [[.8,.6,1],[0,Math.PI/2,1],[1.8,.9,1.5]]){
+    const normal={width,height,yaw,pitch,zoom},mirrored={...normal,mirrored:true};
+    for(const xy of [[350,30],[150,-100],[400,50]]){
+      const point=atHeight(...xy,0,plane),pixel=project(point,normal),reflected=project(point,mirrored);
+      close(reflected,[width-pixel[0],pixel[1]]);
+      close(tablePoint(reflected,plane,mirrored),point);
+      close(project(point,{...mirrored,mirrored:false}),pixel);
+    }
+  }
+});

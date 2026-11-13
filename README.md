@@ -6,6 +6,8 @@
 
 [坐标验证预览](docs/images/coordinates-preview.png) · [手动标定预览](docs/images/manual-calibration-preview.png) · [抓取页面预览](docs/images/grasp-ui-preview.png)（均为模拟画面与反馈）
 
+[移动控制 checkpoint 与 RSI 接口约定](docs/rsi-control-checkpoint.md)：后续RSI复用当前已验收的XYZ/T104执行链、T1051反馈与人工T100复位入口。坐标图支持“左右镜像”，只影响显示和选点映射。
+
 ## 当前状态
 
 - [XYZ坐标验证](docs/coordinate-validation.md)：在三维图上选XY、拖动高度生成XYZ（也可手填），按官方关节范围预览后发送一次T104。自动模式优先保持当前俯仰，必要时计算其他俯仰并明确显示起点→终点；也可选择保持俯仰。已移除旧训练范围、选点网格截断、固定25mm门槛和额外收腕流程，保留真实几何、桌面与路径检查。保持旋转与合法夹爪开度，保留原始反馈，显示逐轴误差并保存独立的实物验收。预览不要求锁定扭矩，执行前仍确认六关节锁定；页面显示原始状态和禁用原因。另可查看已录制深度图并将表面点转换到机械臂坐标。

@@ -9,13 +9,15 @@
   const dot=(a,b)=>a.reduce((sum,value,i)=>sum+value*b[i],0);
   function project(point,view){
     const b=basis(view),relative=point.map((v,i)=>v-b.center[i]);
-    return [b.origin[0]+dot(relative,b.right)*b.scale,b.origin[1]+dot(relative,b.down)*b.scale];
+    const x=b.origin[0]+dot(relative,b.right)*b.scale;
+    return [view.mirrored?view.width-x:x,b.origin[1]+dot(relative,b.down)*b.scale];
   }
   function tablePoint(pixel,plane,view){
     if(!plane)return null;
     const b=basis(view),denominator=dot(plane.normal_up,b.ray);
     if(!Number.isFinite(denominator)||Math.abs(denominator)<.08||b.scale<=0)return null;
-    const u=(pixel[0]-b.origin[0])/b.scale,v=(pixel[1]-b.origin[1])/b.scale;
+    const x=view.mirrored?view.width-pixel[0]:pixel[0];
+    const u=(x-b.origin[0])/b.scale,v=(pixel[1]-b.origin[1])/b.scale;
     const start=b.center.map((n,i)=>n+u*b.right[i]+v*b.down[i]);
     const distance=-(dot(plane.normal_up,start)+plane.d_mm)/denominator;
     const point=start.map((n,i)=>n+distance*b.ray[i]);

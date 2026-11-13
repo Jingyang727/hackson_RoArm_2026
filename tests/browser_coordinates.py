@@ -84,6 +84,18 @@ def check(url,output):
         page.locator('#selectionHint').filter(has_text='无法确定桌面位置').wait_for()
         page.locator('#viewTop').click()
         box=page.locator('#scene').bounding_box();scale=min(box['width']/700,box['height']/620)
+        assert page.locator('#viewMirror').get_attribute('aria-pressed')=='false'
+        page.locator('#viewMirror').click()
+        assert page.locator('#viewMirror').get_attribute('aria-pressed')=='true'
+        page.locator('#scene').click(position={'x':box['width']-(box['width']*.48+140*scale),'y':box['height']*.48-25*scale})
+        assert abs(float(page.locator('#x').input_value())-310)<.2
+        assert abs(float(page.locator('#y').input_value())+25)<.2
+        assert not any(c[0]=='POST' for c in calls)
+        page.reload();page.locator('#actualX').filter(has_text='340.0').wait_for()
+        assert page.locator('#viewMirror').get_attribute('aria-pressed')=='true'
+        assert not any(c[0]=='POST' for c in calls)
+        page.locator('#viewMirror').click();page.locator('#viewTop').click()
+        box=page.locator('#scene').bounding_box();scale=min(box['width']/700,box['height']/620)
         page.locator('#scene').click(position={'x':box['width']*.48+350*scale,'y':box['height']*.48+30*scale})
         assert abs(float(page.locator('#x').input_value())-520)<.2  # No old 480mm display-grid clipping.
         page.locator('#scene').click(position={'x':box['width']*.48+180*scale,'y':box['height']*.48+30*scale})
@@ -111,6 +123,14 @@ def check(url,output):
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
         assert '尚未勾选现场确认' in page.locator('#moveReason').inner_text()
         page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
+        selected_before_mirror=[page.locator('#'+axis).input_value() for axis in ('x','y','z')]
+        posts_before_mirror=len([c for c in calls if c[0]=='POST'])
+        page.locator('#view3d').click();page.locator('#viewMirror').click()
+        assert page.locator('#move').is_enabled();assert page.locator('#confirmed').is_checked()
+        assert [page.locator('#'+axis).input_value() for axis in ('x','y','z')]==selected_before_mirror
+        assert len([c for c in calls if c[0]=='POST'])==posts_before_mirror
+        page.screenshot(path=str(output/'coordinates-mirrored.png'),full_page=True)
+        page.locator('#viewMirror').click()
         model['canonical_torque']=True  # Also exercise the new backend snapshot, not only the legacy fallback.
         # The health cache stays 'locked'; only this current reply changes.
         # A released or unreported joint cannot be silently treated as locked.
@@ -207,6 +227,7 @@ def check(url,output):
         'boolean torque flags display locked','zero or unknown current torque blocks movement but allows preview',
         'disabled button reasons visible','height below 25mm selectable','no motion on load, preview or depth clicks',
         'official ranges published; no display-grid clipping; pitch changes invalidate preview',
+        'mirror preserves robot XYZ and prepared motion; mirrored picking and reload preference work without POST',
         'structured path errors show joint angle and progress and leave move disabled',
         'official reset preview/cancel never moves; explicit confirmation sends once',
         'pending motion blocks reset; reset progress survives reload without replay',
