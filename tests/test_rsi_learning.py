@@ -290,6 +290,15 @@ class AutomaticRecovery(unittest.TestCase):
 
 
 class GrokAdapter(unittest.TestCase):
+    def test_wrapped_final_json_is_accepted_but_two_answers_are_rejected(self):
+        value=verdict()
+        def event(text):return json.dumps({'type':'text','part':{'text':text}})
+        self.assertEqual(grok_review._final_json(event('Analysis complete.\n'+json.dumps(value))),value)
+        with self.assertRaises(ValueError):
+            grok_review._final_json(event(json.dumps(value)+'\n'+json.dumps(value)))
+        with self.assertRaises(ValueError):
+            grok_review._final_json(event(json.dumps({'result':value,'motor_command':{'T':100}})))
+
     def test_stop_before_review_does_not_launch_model_process(self):
         stopped=threading.Event();stopped.set()
         with patch('evoarm_rsi.grok_review.subprocess.Popen') as process,self.assertRaises(RuntimeError):

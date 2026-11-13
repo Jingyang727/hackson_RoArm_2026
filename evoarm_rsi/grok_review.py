@@ -112,7 +112,19 @@ def _final_json(output, *, preflight=False):
     text = ''.join(parts).strip()
     if text.startswith('```json') and text.endswith('```'):
         text = text[7:-3].strip()
-    return (_scene_verdict if preflight else validate_verdict)(json.loads(text))
+    try:
+        value=json.loads(text)
+    except json.JSONDecodeError:
+        decoder=json.JSONDecoder();candidates=[];cursor=0
+        while cursor<len(text):
+            if text[cursor]!='{':cursor+=1;continue
+            try:value,end=decoder.raw_decode(text[cursor:])
+            except json.JSONDecodeError:cursor+=1;continue
+            candidates.append(value);cursor+=end
+        if len(candidates)!=1:
+            raise ValueError('Grok最终回复需包含唯一、完整的结果JSON')
+        value=candidates[0]
+    return (_scene_verdict if preflight else validate_verdict)(value)
 
 
 def review(context, root, stop, *, timeout_s=120, preflight=False):
