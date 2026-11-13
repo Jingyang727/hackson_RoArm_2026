@@ -74,18 +74,16 @@ class LiftGeometry(unittest.TestCase):
         self.assertFalse(plan["motion_required"])
         self.assertFalse(plan["full_pick_place_ready"])
 
-    def test_high_vertical_pose_gets_inward_wrist_recovery_without_lowering_limits(self):
-        from control_ui.safety import JOINTS, plan_to_angle, UnsafeMotion
+    def test_high_vertical_pose_does_not_need_the_old_60_degree_wrist_recovery(self):
+        from control_ui.safety import JOINTS
         status = high_pose(self.status)
         plan = start.plan_start(self.session, status)
-        self.assertEqual(plan["start_mode"], "high_wrist_recovery")
-        self.assertEqual(plan["target_deg"], 55.)
-        self.assertTrue(all(p["height_mm"] >= 100 for p in plan["predicted_path"]))
-        self.assertEqual(JOINTS[4][2:], (-60.,60.))
-        with self.assertRaises(UnsafeMotion): plan_to_angle(status,4,55.)
+        self.assertEqual(plan['start_mode'],'already_clear')
+        self.assertFalse(plan['motion_required']);self.assertEqual(plan['predicted_path'],[])
+        self.assertEqual(JOINTS[4][2:],(-90.,90.))
 
     def test_recovery_rejects_other_outside_joints_and_vendor_limit_violations(self):
-        for status in (high_pose(self.status,95), {**high_pose(self.status),"b":math.radians(80)}):
+        for status in (high_pose(self.status,95), {**high_pose(self.status),"b":math.radians(190)}):
             pose=forward(status);status.update(zip("xyz",pose["xyz_mm"]));status["tit"]=pose["pitch_rad"]
             with self.assertRaises(ValueError): start.plan_start(self.session,status)
 
@@ -127,13 +125,9 @@ class LiftLifecycle(unittest.TestCase):
         if endpoint == "/api/disarm":
             self.armed = False; return {"armed": False}
         self.assertTrue(self.warming.is_set(), "motion must follow this camera's start")
-        if endpoint == "/api/step":
-            self.assertEqual(payload, {"joint": 3, "delta": -5})
-            field="e";target=self.status[field]-math.radians(5)
-        else:
-            self.assertEqual(endpoint,"/api/bench/motion/start-once")
-            self.assertEqual(payload["camera_request_id"],self.request_id)
-            self.last_joint=4;field="t";target=math.radians(55)
+        self.assertEqual(endpoint,'/api/step')
+        self.assertEqual(payload, {"joint": 3, "delta": -5})
+        field="e";target=self.status[field]-math.radians(5)
         self.command = True
         if self.fail_command:
             self.done.set()
@@ -239,21 +233,21 @@ class LiftLifecycle(unittest.TestCase):
         self.assertEqual(self.calls,[])
         self.assertFalse(self.warming.is_set())
 
-    def test_high_wrist_recovery_records_and_verifies_j4_not_another_lift(self):
+    def test_high_wrist_does_not_trigger_recovery_motion_or_recording(self):
         self.status=high_pose(self.status)
         report=self.run_lift()
-        self.assertEqual(report["start_mode"],"high_wrist_recovery")
-        self.assertTrue(report["motion_feedback_verified"],report)
+        self.assertEqual(report["start_mode"],"already_clear")
+        self.assertFalse(report["motion_required"])
+        self.assertFalse(report["motion_feedback_verified"],report)
         self.assertTrue(report["start_clearance_ready"],report)
-        self.assertLessEqual(math.degrees(report["final_status"]["t"]),60.)
-        self.assertEqual([c[0] for c in self.calls],["/api/bench/motion/start-once","/api/disarm"])
+        self.assertEqual(self.calls,[]);self.assertFalse(self.warming.is_set())
 
 
 class EndToEndSimulatedLift(unittest.TestCase):
     def test_existing_armservice_and_real_camera_http_recording_contract(self):
         self._exercise()
 
-    def test_high_wrist_recovery_through_guarded_api_and_ten_second_recording(self):
+    def test_high_wrist_skips_unnecessary_action_and_camera_through_real_api(self):
         self._exercise(recovery=True)
 
     def _exercise(self, recovery=False):
@@ -300,6 +294,12 @@ class EndToEndSimulatedLift(unittest.TestCase):
                       patch.object(start,"_controller_post",side_effect=post),
                       patch("evoarm_rsi.camera_service.socket_path",return_value=home/"camera.sock")):
                     report=start.run(setup_id="bench-layout-v2",home=home,execute=True)
+                if recovery:
+                    self.assertEqual(report['start_mode'],'already_clear')
+                    self.assertFalse(report['motion_required']);self.assertFalse(report['robot_moved'])
+                    self.assertEqual(service.arm.commands,[])
+                    self.assertNotIn('capture_trial_id',report)
+                    return
                 self.assertTrue(report["motion_feedback_verified"],report)
                 self.assertEqual(report["start_mode"],"high_wrist_recovery" if recovery else "low_pose_lift")
                 if recovery:self.assertTrue(report["start_clearance_ready"],report)

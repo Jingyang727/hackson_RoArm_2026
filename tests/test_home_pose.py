@@ -34,8 +34,8 @@ class HomePoseTests(unittest.TestCase):
                 with self.assertRaises(UnsafeMotion):
                     load_pose()
 
-    def test_cannot_save_pose_outside_training_range(self):
-        status = {"T": 1051, "b": math.radians(150), "s": 0, "e": math.pi / 2,
+    def test_cannot_save_pose_outside_vendor_range(self):
+        status = {"T": 1051, "b": math.radians(190), "s": 0, "e": math.pi / 2,
                   "t": 0, "r": 0, "g": math.pi}
         with self.assertRaises(UnsafeMotion):
             checked_home_pose(status)

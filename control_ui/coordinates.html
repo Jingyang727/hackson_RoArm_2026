@@ -11,6 +11,7 @@
 .coordinate-controls>button{width:100%;margin-top:12px}.coordinate-controls .check-row{margin:15px 0 0}.coordinate-controls h3{font-size:13px;margin:20px 0 10px}.coordinate-controls textarea{width:100%;min-height:55px;border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit}.verify-row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;font-size:12px}.coordinate-controls [hidden]{display:none!important}
 .target-mode{display:flex;gap:8px;margin:12px 0}.target-mode button{flex:1;background:white;color:var(--muted)}.target-mode button[aria-pressed=true]{background:var(--soft);border-color:#bfded3;color:var(--green)}.height-control{display:block;margin:16px 0;color:var(--muted);font-size:12px}.height-control strong{float:right;color:var(--green);font:600 17px ui-monospace,monospace}.height-control input{display:block;width:100%;margin:14px 0 6px;accent-color:var(--green)}.xyz-inputs input[readonly]{background:#f5f8f8;color:#567267}
 .torque-feedback{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0;font-size:11px}.torque-feedback span{padding:7px;border-radius:6px;background:#f2f4f5;color:#697986}.torque-feedback .locked{background:#eaf5f0;color:#137965}.torque-feedback .reported_zero{background:#fff1e8;color:#96521f}.torque-raw{font-size:11px;margin:8px 0 12px;color:var(--muted)}.torque-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px}.button-reason{font-size:11px;color:#8b562f;line-height:1.7;margin:5px 0}
+.coordinate-controls select{display:block;width:100%;min-width:0;margin:6px 0}
 #summary{white-space:pre-line;font-size:13px;line-height:1.9;margin-top:15px}#depthPanel{margin-top:22px}.depth-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.depth-grid img{width:100%;border-radius:8px;cursor:crosshair}.depth-grid figure{margin:0}.depth-grid figcaption{font-size:12px;color:var(--muted);margin:6px 0}#depthPoint{white-space:pre-line}.depth-actions{display:flex;gap:10px;align-items:center;margin:15px 0}.depth-grid [hidden]{display:none}
 @media(max-width:850px){.coordinate-grid{grid-template-columns:1fr}#scene{height:370px}.depth-grid{grid-template-columns:1fr}nav{margin-left:12px;gap:1px}nav a{padding:8px 9px}}
 </style></head>
@@ -30,11 +31,13 @@
 <p id="torqueReviewNote" class="small-note" hidden></p>
 <details class="torque-raw"><summary>查看原始扭矩反馈</summary><pre id="torqueRaw"></pre></details>
 <a id="torqueControls" class="text-button" href="/calibration" hidden>在标定页查看扭矩控制</a>
+<details class="torque-raw"><summary>关节范围与路径检查</summary><p>使用官方接口范围，显示网格不代表可达边界。路径需满足逆运动学、关节范围与桌面检查；保留上游连杆端点离桌30mm的项目间隙。</p><pre id="jointLimits"></pre><a href="https://www.waveshare.net/wiki/RoArm-M3" target="_blank" rel="noopener">查看官方文档</a></details>
 <div class="target-mode"><button id="pointMode" aria-pressed="true">图上选点</button><button id="numericMode" aria-pressed="false">XYZ输入</button></div>
 <p id="selectionHint" class="small-note" role="status">点左侧桌面网格选择位置，再拖动滑块设置离桌高度；点图不会移动机械臂。</p>
 <label id="heightControl" class="height-control">目标离桌高度<strong id="heightValue">— mm</strong><input id="heightRange" type="range" min="0" max="400" step="1" value="150" aria-label="目标离桌高度"/></label>
 <div class="xyz-inputs"><label>X · mm<input id="x" type="number" step="1" inputmode="decimal" readonly/></label><label>Y · mm<input id="y" type="number" step="1" inputmode="decimal" readonly/></label><label>Z · mm<input id="z" type="number" step="1" inputmode="decimal" readonly/></label></div>
-<button id="useCurrent" class="subtle">填入当前 XYZ</button><p id="targetHeight" class="small-note">先从当前位置附近、离桌较高的点开始验证。</p>
+<button id="useCurrent" class="subtle">填入当前 XYZ</button><p id="targetHeight" class="small-note">选择目标后预览路径。</p>
+<label class="small-note" for="pitchMode">末端俯仰</label><select id="pitchMode" aria-label="末端俯仰规划"><option value="auto">自动选择可达俯仰（优先保持当前）</option><option value="hold">保持当前俯仰</option></select><p id="orientationHint" class="small-note"></p>
 <button id="prepare" class="secondary" disabled>1 · 预览目标和路径</button><p id="previewReason" class="button-reason"></p><p id="planNote" class="small-note"></p>
 <label class="check-row"><input id="confirmed" type="checkbox" disabled/><span>已核对目标和路径，现场有人看护，双手离开运动范围。</span></label>
 <button id="move" class="primary" disabled>2 · 移动到这个点</button><p id="moveReason" class="button-reason"></p><button id="disarm" class="secondary" hidden>撤销后续运动授权</button>

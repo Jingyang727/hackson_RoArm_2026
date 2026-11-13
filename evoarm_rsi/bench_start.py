@@ -16,7 +16,7 @@ from pathlib import Path
 import time
 import uuid
 
-from control_ui.safety import plan_single_step, current_degrees, JOINTS
+from control_ui.safety import plan_single_step, current_degrees, JOINTS, validate_angle_range
 from .bench_calibration import load_session, fit_points
 from .camera_service import client_request
 from .gateway import CompanyModelGateway
@@ -47,7 +47,7 @@ def _geometry(session, status):
         raise ValueError("firmware pitch and joint feedback disagree")
     # Closed tool only: opening a finger against the paper is a different,
     # unchecked swept volume. Do not open or restore a saved gripper target.
-    if not math.radians(175) <= status["g"] <= math.pi+.02:
+    if not math.radians(175) <= status["g"] <= math.pi+math.radians(2):
         raise ValueError("gripper is not closed; do not open/close it against the board")
     if any(status.get("torswitch"+key) != 1 for key in "BSETRG"):
         raise ValueError("all six real torque flags must equal 1")
@@ -98,19 +98,15 @@ def plan_lift(session, status):
 
 
 def plan_start(session, status):
-    """Choose a measured low-pose lift, high wrist recovery, or no action.
-
-    A high pose need not reproduce the calibration pitch. Recovery is ONLY
-    for a wrist within the vendor +/-90 degrees but outside our +/-60
-    training interval, with all other joints inside training limits.
-    """
+    """Choose a measured low-pose lift or no action under vendor ranges."""
     plane, xyz, model, height = _geometry(session, status)
     if height < 100:
         return {**plan_lift(session, status), "start_mode": "low_pose_lift", "motion_required": True,
                 "endpoint": "/api/step", "request": {"joint": 3, "delta": -5},
                 "moving_field": "e", "max_xy_error_mm": 6.}
     angles = current_degrees(status)
-    outside = [j for j, value in angles.items() if not JOINTS[j][2] <= value <= JOINTS[j][3]]
+    validate_angle_range(status,6,min(math.degrees(status['g']),math.degrees(3.14)))
+    outside = [j for j, value in angles.items() if j!=6 and not JOINTS[j][2] <= value <= JOINTS[j][3]]
     common = {"setup_id": session["setup_id"], "calibration_session_id": session["session_id"],
               "reference_sha256": session["reference_sha256"], "initial_status": status,
               "table_plane": plane, "initial_height_mm": height,
@@ -120,32 +116,8 @@ def plan_start(session, status):
         return {**common, "kind": "bench_start_plan_v2", "start_mode": "already_clear",
                 "motion_required": False, "predicted_path": [], "predicted_lift_mm": 0.,
                 "reason": "measured tip is already at least 100mm above the board; no extra lift needed"}
-    if outside != [4] or abs(angles[4]) > 90:
-        raise ValueError("high pose has unsupported out-of-range joints: "+str(outside))
-    # Prefer 5 degrees inside the training boundary, allowing normal settling
-    # tolerance, while retaining the existing 30 degree maximum displacement.
-    target = math.copysign(max(55., abs(angles[4])-30), angles[4])
-    if abs(target-angles[4]) > 30:
-        raise ValueError("wrist recovery exceeds one bounded 30 degree command")
-    path = []
-    for step in range(61):
-        t = status["t"]+(math.radians(target)-status["t"])*step/60
-        pose = forward({**status, "t": t})
-        clearance = height_above_plane(pose["xyz_mm"], plane)
-        if clearance < 100 or clearance < height-1 or math.dist(xyz[:2], pose["xyz_mm"][:2]) > 90:
-            raise ValueError("wrist recovery does not remain in the high upward corridor")
-        if any(height_above_plane(p, plane) < 30 for p in pose["joints_xyz_mm"][1:3]):
-            raise ValueError("an upstream link is too close to the table")
-        path.append({"xyz_mm": pose["xyz_mm"], "height_mm": clearance})
-    return {**common, "kind": "bench_start_plan_v2", "start_mode": "high_wrist_recovery",
-            "motion_required": True, "joint": 4, "moving_field": "t", "target_deg": target,
-            "endpoint": "/api/bench/motion/start-once",
-            "request": {"reference_sha256": session["reference_sha256"],
-                        "expected_joint_rad": [status[k] for k in "bsetrg"]},
-            "predicted_path": path, "predicted_lift_mm": path[-1]["height_mm"]-height,
-            "max_xy_error_mm": 10., "training_limit_deg": [-60., 60.],
-            "vendor_wrist_limit_deg": [-90., 90.],
-            "reason": "recover the high, closed wrist toward the unchanged training interval"}
+    raise ValueError("起始姿态超出官方接口范围："+','.join(
+        f'J{j} {JOINTS[j][0]}={angles[j]:.1f}°' for j in outside))
 
 
 def _ready(health):
@@ -227,10 +199,6 @@ def run(*, setup_id, controller="http://127.0.0.1:8765", execute=False, home=Non
                     "next_stage": "no extra lift; proceed to current-scene approach and grasp planning"}
         if health.get("motion_enabled") is not True or health.get("armed") is not True:
             raise RuntimeError("enable motion and explicitly unlock the existing controller before execution")
-        if plan["start_mode"] == "high_wrist_recovery":
-            capability = _controller_get(base, "/api/bench/motion/capabilities")
-            if capability.get("high_wrist_recovery") is not True:
-                raise RuntimeError("restart the updated web controller before high-pose recovery")
         receipt = folder/"lift-attempt.json"
         if receipt.exists():
             raise RuntimeError("this preparation already has an attempt receipt; inspect it, never blindly repeat")
@@ -279,8 +247,6 @@ def run(*, setup_id, controller="http://127.0.0.1:8765", execute=False, home=Non
                 report["command_start_monotonic_ns"] = time.monotonic_ns()
                 _write(receipt, report)  # persistent no-replay boundary BEFORE HTTP write
                 payload = fresh_plan["request"]
-                if plan["start_mode"] == "high_wrist_recovery":
-                    payload = {**payload, "camera_request_id": request_id}
                 report["ack"] = _controller_post(base, plan["endpoint"], payload)
                 report["command_acknowledged"] = True
                 deadline = capture_start/1e9+9
@@ -299,15 +265,12 @@ def run(*, setup_id, controller="http://127.0.0.1:8765", execute=False, home=Non
                         other_fields = "bsetrg".replace(field, "")
                         expected = plan["predicted_path"][-1]["xyz_mm"]
                         degrees = current_degrees(feedback)
-                        recovery = plan["start_mode"] == "high_wrist_recovery"
-                        geometry_ok = (actual >= 100 and gain >= -1 and
-                            all(JOINTS[j][2] <= a <= JOINTS[j][3] for j, a in degrees.items())) if recovery else 6 <= gain <= 30
+                        geometry_ok = 6 <= gain <= 30
                         if (last.get("status") != "feedback_confirmed" or last.get("joint") != plan["joint"]
                                 or abs(last.get("to_deg", 999)-plan["target_deg"]) > .7
                                 or abs(math.degrees(feedback[field])-plan["target_deg"]) > 2
                                 or not geometry_ok
                                 or math.dist([feedback[k] for k in "xy"], expected[:2]) > plan["max_xy_error_mm"]
-                                or (recovery and last.get("bench_camera_request_id") != request_id)
                                 or any(abs(feedback[k]-fresh[k]) > math.radians(1.) for k in other_fields)):
                             raise RuntimeError("the recorded feedback did not verify the bounded start action")
                         report.update(motion_feedback_verified=True, robot_moved=True, measured_lift_mm=gain,

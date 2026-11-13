@@ -8,6 +8,13 @@ from __future__ import annotations
 import math
 
 
+class MotionConstraintError(ValueError):
+    """A preview/preflight rejection with actionable, serializable evidence."""
+    def __init__(self, message, **details):
+        super().__init__(message)
+        self.detail = {'message': message, **details}
+
+
 def forward(status):
     if status.get("T") != 1051:
         raise ValueError("T1051 feedback required")
@@ -51,8 +58,13 @@ def inverse(xyz, pitch, roll, gripper):
     wr=math.hypot(x,y)-le*math.cos(pitch+ae)
     wz=z+le*math.sin(pitch+ae)
     length=math.hypot(wr,wz)
-    if wr<=0 or not abs(l2-l3)+.01<=length<=l2+l3-.01:
-        raise ValueError("pose is outside the nonsingular vendor IK branch")
+    if wr<=1e-6 or not abs(l2-l3)+.01<=length<=l2+l3-.01:
+        reason = ('工具长度使腕部落入固件会截断的径向区域' if wr<=1e-6 else
+                  f'腕部所需连杆距离{length:.1f}mm，几何可达区间约{abs(l2-l3):.1f}～{l2+l3:.1f}mm')
+        raise MotionConstraintError(f'俯仰{math.degrees(pitch):.1f}°时逆运动学无可执行解：{reason}',
+                                    code='ik_workspace',xyz_mm=list(xyz),pitch_deg=math.degrees(pitch),
+                                    wrist_radius_mm=wr if math.isfinite(wr) else None,
+                                    wrist_distance_mm=length if math.isfinite(length) else None)
     psi=math.acos(max(-1.,min(1.,(l2*l2+length*length-l3*l3)/(2*l2*length))))+a2
     shoulder=math.pi/2-math.atan2(wz,wr)-psi
     omega=math.acos(max(-1.,min(1.,(l3*l3+length*length-l2*l2)/(2*l3*length))))

@@ -1,12 +1,14 @@
 """Chromium XYZ/depth acceptance with every device API intercepted."""
 import argparse
 import json
+import math
 from pathlib import Path
 
 import cv2
 from playwright.sync_api import sync_playwright
 from tests.test_ball_trial import SimulatedArm, scene
-from evoarm_rsi.roarm_geometry import forward
+from evoarm_rsi.roarm_geometry import forward, inverse
+from evoarm.limits import joint_limits_info
 
 
 def check(url,output):
@@ -15,7 +17,8 @@ def check(url,output):
     raw.update({'torswitch'+j:True for j in 'BSETRG'})
     plane={'normal_up':[0,0,1.],'d_mm':115.}
     h={'connected':True,'motion_enabled':True,'torque_status':[True]*6,'pending':None,'fault':None}
-    model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None}
+    model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None,
+           'coordinate_api_version':4,'joint_limits':joint_limits_info()}
     calls=[];errors=[];key='a'*32
     image,_=scene();_,jpeg=cv2.imencode('.jpg',image)
     def route(handler):
@@ -29,10 +32,15 @@ def check(url,output):
                 data['torque_feedback']={'source':'current_T1051_reply','fresh':True,
                     'joints':[{'joint':i+1,'field':'torswitch'+j,'raw':model['robot'].get('torswitch'+j)} for i,j in enumerate('BSETRG')]}
         elif path=='/coordinates/prepare':
+            if model.get('reject_prepare'):
+                return handler.fulfill(status=409,content_type='application/json',body=json.dumps({'detail':{
+                    'message':'路径60.0%处：J3 肘部上下需要185.0°，官方接口范围为0.0°～180.0°',
+                    'code':'joint_limit','joint':3,'required_deg':185.}}))
             target=body['xyz_mm'];model['result']={'plan_id':key,'status':'prepared','target_xyz_mm':target,'physical_accuracy':'not_checked'}
             data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,
+                  'orientation':{'mode':body['pitch_mode'],'initial_pitch_deg':22.,'target_pitch_deg':40.,'changed':True},
                   'gripper_hold':{'normalized':True,'feedback_deg':180.8,'command_deg':179.90874767},
-                  'predicted_joints_xyz_mm':model['model']['joints_xyz_mm']}}
+                  'predicted_joints_xyz_mm':forward(inverse(target,math.radians(40),raw['r'],3.14))['joints_xyz_mm']}}
         elif path=='/coordinates/move':
             assert body['plan_id']==key
             assert body['declaration']=='已核对XYZ目标和路径，现场有人看护且双手离开运动范围'
@@ -59,11 +67,15 @@ def check(url,output):
         assert page.locator('#torqueFeedback .locked').count()==6
         assert '请先预览当前目标' in page.locator('#moveReason').inner_text()
         assert '扭矩' not in page.locator('#moveReason').inner_text()
+        assert '0.0° ～ 180.0°' in page.locator('#jointLimits').text_content()
+        assert page.locator('#pitchMode').input_value()=='auto'
         assert page.locator('#x').get_attribute('readonly') is not None
         page.locator('#viewFront').click();page.locator('#scene').click(position={'x':200,'y':200})
         page.locator('#selectionHint').filter(has_text='无法确定桌面位置').wait_for()
         page.locator('#viewTop').click()
         box=page.locator('#scene').bounding_box();scale=min(box['width']/700,box['height']/620)
+        page.locator('#scene').click(position={'x':box['width']*.48+350*scale,'y':box['height']*.48+30*scale})
+        assert abs(float(page.locator('#x').input_value())-520)<.2  # No old 480mm display-grid clipping.
         page.locator('#scene').click(position={'x':box['width']*.48+180*scale,'y':box['height']*.48+30*scale})
         assert abs(float(page.locator('#x').input_value())-350)<.2
         assert abs(float(page.locator('#y').input_value())-30)<.2
@@ -75,6 +87,17 @@ def check(url,output):
         page.locator('#heightRange').evaluate("e=>{e.value='150';e.dispatchEvent(new Event('input',{bubbles:true}));}")
         assert abs(float(page.locator('#z').input_value())-35)<.02
         assert not any(c[0]=='POST' for c in calls)  # Picking and slider movement cannot actuate.
+        page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        assert '22.0° → 40.0°' in page.locator('#planNote').inner_text()
+        page.locator('#pitchMode').select_option('hold')
+        assert page.locator('#move').is_disabled();assert page.locator('#confirmed').is_disabled()
+        assert not any(c[1]=='/coordinates/move' for c in calls)
+        model['reject_prepare']=True
+        page.locator('#prepare').click();page.locator('#error').filter(has_text='J3 肘部上下需要185.0°').wait_for()
+        assert '路径60.0%' in page.locator('#error').inner_text()
+        assert page.locator('#move').is_disabled();assert page.locator('#confirmed').is_disabled()
+        model['reject_prepare']=False
+        page.locator('#pitchMode').select_option('auto');assert page.locator('#error').is_hidden()
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
         assert '尚未勾选现场确认' in page.locator('#moveReason').inner_text()
         page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
@@ -144,6 +167,8 @@ def check(url,output):
         '3D robot/table/frame and target drawn','raw 180.8 feedback and legal 179.9 hold both visible',
         'boolean torque flags display locked','zero or unknown current torque blocks movement but allows preview',
         'disabled button reasons visible','height below 25mm selectable','no motion on load, preview or depth clicks',
+        'official ranges published; no display-grid clipping; pitch changes invalidate preview',
+        'structured path errors show joint angle and progress and leave move disabled',
         'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
         '390px layout','no page errors']}

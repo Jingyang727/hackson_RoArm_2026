@@ -14,7 +14,7 @@ from control_ui import main
 from control_ui.coordinates import DECLARATION, observe_pending
 from control_ui.service import ArmService
 from evoarm_rsi.coordinate_test import plan_point, check_coordinate_segment
-from evoarm_rsi.roarm_geometry import inverse
+from evoarm_rsi.roarm_geometry import inverse, forward
 from tests import test_ball_trial as fixtures
 from tests.test_serial_transport_errors import api_request
 
@@ -28,8 +28,8 @@ class Coordinates(unittest.TestCase):
             p.start();self.addCleanup(p.stop)
     def request(self,path,body=None,method='POST',image=False):
         return asyncio.run(api_request('/api/coordinates/'+path,body or {},method=method,decode_json=not image))
-    def prepare(self,target=(350.,0.,145.)):
-        response,data=self.request('prepare',{'xyz_mm':list(target)})
+    def prepare(self,target=(350.,0.,145.),pitch_mode='auto'):
+        response,data=self.request('prepare',{'xyz_mm':list(target),'pitch_mode':pitch_mode})
         self.assertEqual(response['status'],200,data);return data
     def move(self,prepared):return self.request('move',{'plan_id':prepared['plan_id'],'declaration':DECLARATION})
     def settle(self,now=None):
@@ -128,16 +128,76 @@ class Coordinates(unittest.TestCase):
         self.assertIn('超出允许偏差',detail['detail'])
         self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
 
-    def test_legal_hold_does_not_expand_active_gripper_or_other_joint_limits(self):
+    def test_legal_hold_still_rejects_active_gripper_or_vendor_joint_overflow(self):
         prepared=self.prepare();stage=dict(prepared['plan']['stage']);stage['gripper_rad']=math.radians(181)
         with self.assertRaisesRegex(ValueError,'目标角度'):
             check_coordinate_segment(self.arm.status(),stage,prepared['plan']['table_plane'])
         self.arm.raw['g']=math.radians(180.8)
-        target=[340*math.cos(math.radians(80)),340*math.sin(math.radians(80)),145.]
-        response,detail=self.request('prepare',{'xyz_mm':target})
-        self.assertEqual(response['status'],409,detail)
-        self.assertIn('joint 1 training range',detail['detail'])
+        stage['gripper_rad']=3.14;stage['roll_rad']=math.radians(181)
+        with self.assertRaisesRegex(ValueError,'J5.*181.0.*180.0'):
+            check_coordinate_segment(self.arm.status(),stage,prepared['plan']['table_plane'])
         self.assertEqual(self.arm.commands,[])
+
+    def test_screenshot_target_gets_a_real_plan_beyond_old_elbow_limit(self):
+        self.arm.raw=inverse([340.,0.,148.33],math.radians(22.5),0.,math.radians(180.8))
+        target=[153.6,12.8,-25.76]
+        response,detail=self.request('prepare',{'xyz_mm':target,'pitch_mode':'hold'})
+        self.assertEqual(response['status'],409)
+        self.assertEqual(detail['detail']['code'],'ik_workspace')
+        self.assertEqual(detail['detail']['progress'],1.)
+        self.assertIn('目标点',detail['detail']['message'])
+        self.assertEqual(self.arm.commands,[])
+        plan=self.prepare(target);geometry=plan['plan'];orientation=geometry['orientation']
+        self.assertTrue(orientation['changed']);self.assertEqual(orientation['mode'],'auto')
+        self.assertAlmostEqual(orientation['target_pitch_deg'],40)
+        predicted=inverse(target,geometry['command']['t'],0.,3.14)
+        self.assertGreater(math.degrees(predicted['e']),145.)
+        self.assertLess(math.degrees(predicted['e']),180.)
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+        response,result=self.move(plan)
+        self.assertEqual(response['status'],200,result)
+        self.assertEqual(len(self.arm.commands),1);self.assertEqual(self.arm.commands[0],geometry['command'])
+        self.assertEqual(self.arm.commands[0]['g'],3.14)
+        self.assertEqual(self.move(plan)[0]['status'],409)
+
+    def test_base_outside_old_75_degree_limit_can_move_when_path_is_valid(self):
+        self.arm.raw=inverse([340*math.cos(math.radians(70)),340*math.sin(math.radians(70)),145.],math.radians(22),0,3.14)
+        target=[340*math.cos(math.radians(80)),340*math.sin(math.radians(80)),145.]
+        plan=self.prepare(target,'hold')
+        self.assertAlmostEqual(plan['plan']['orientation']['target_pitch_deg'],22.)
+        self.assertEqual(self.move(plan)[0]['status'],200)
+        self.assertEqual(len(self.arm.commands),1)
+
+    def test_reachable_shoulder_elbow_wrist_and_roll_outside_old_limits_preview(self):
+        cases=[((65,60,-15),(70,60,-20),0),((0,160,-50),(0,170,-60),0),
+               ((0,90,80),(0,95,75),0),((0,90,20),(0,95,15),120)]
+        def status(angles,roll):
+            raw={'T':1051,'b':0.,**dict(zip('set',map(math.radians,angles))),
+                 'r':math.radians(roll),'g':3.14}
+            model=forward(raw);return {**raw,**dict(zip('xyz',model['xyz_mm'])),'tit':model['pitch_rad']}
+        for before,after,roll in cases:
+            with self.subTest(before=before,after=after,roll=roll):
+                self.arm.raw=status(before,roll);goal=status(after,roll)
+                plan=self.prepare([goal[k] for k in 'xyz'],'hold')['plan']
+                self.assertAlmostEqual(plan['command']['t'],self.arm.raw['tit'])
+                self.assertAlmostEqual(plan['command']['r'],self.arm.raw['r'])
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
+
+    def test_state_and_plans_publish_the_same_vendor_ranges(self):
+        _,state=self.request('state',method='GET');plan=self.prepare()['plan']
+        self.assertEqual(state['coordinate_api_version'],4)
+        self.assertEqual(state['joint_limits'],plan['joint_limits'])
+        self.assertEqual([(j['min_deg'],j['max_deg']) for j in state['joint_limits']['joints'][:5]],
+                         [(-180,180),(-90,90),(0,180),(-90,90),(-180,180)])
+
+    def test_failed_orientation_search_cannot_authorize_or_send(self):
+        for target in ([1e12,0,100],[1.7e308]*3):
+            response,detail=self.request('prepare',{'xyz_mm':target})
+            self.assertEqual(response['status'],409)
+            self.assertEqual(detail['detail']['code'],'no_cartesian_path')
+            self.assertIn('直线路径',detail['detail']['message'])
+            self.assertTrue(detail['detail']['attempts'])
+        self.assertEqual(self.arm.commands,[]);self.assertEqual(self.service.armed_until,0)
 
     def test_move_sends_exactly_once_records_per_axis_and_manual_verification(self):
         prepared=self.prepare();response,data=self.move(prepared)

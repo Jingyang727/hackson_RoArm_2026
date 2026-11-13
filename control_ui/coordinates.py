@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
 from .safety import JOINTS, TORQUE_FIELDS
+from evoarm.limits import joint_limits_info
 from evoarm_rsi.bench_calibration import load_session
 from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point, errors, check_coordinate_segment
 from evoarm_rsi.roarm_geometry import forward, height_above_plane
@@ -48,6 +49,7 @@ def torque_feedback(raw):
 class Target(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
     xyz_mm:list[float]=Field(min_length=3,max_length=3)
+    pitch_mode:str=Field(default='auto',pattern=r'^(auto|hold)$')
 
 
 class PlanID(BaseModel):
@@ -119,7 +121,7 @@ def install(app, service_provider):
         if key not in plans:raise ValueError('目标计划不存在或控制服务已重启，请重新预览')
         return plans[key]
     def persist(report):_write(Path(report['report_file']),report)
-    def fail(exc):raise HTTPException(status_code=409,detail=str(exc)) from exc
+    def fail(exc):raise HTTPException(status_code=409,detail=getattr(exc,'detail',str(exc))) from exc
     def result_view(report):
         return {k:v for k,v in report.items() if k not in ('feedback','plan','created_monotonic')}
 
@@ -145,7 +147,7 @@ def install(app, service_provider):
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
-                'coordinate_api_version':3,
+                'coordinate_api_version':4,'joint_limits':joint_limits_info(),
                 'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
@@ -159,7 +161,7 @@ def install(app, service_provider):
         try:
             with service.lock,lock:
                 if service.pending:raise ValueError('当前动作尚未结束，请先核对反馈')
-                raw=service.status();saved=session();plan=plan_point(saved,raw,req.xyz_mm)
+                raw=service.status();saved=session();plan=plan_point(saved,raw,req.xyz_mm,req.pitch_mode)
                 for key in list(plans):
                     if key!=latest and time.monotonic()-plans[key]['created_monotonic']>180:plans.pop(key)
                 if len(plans)>=128:raise ValueError('本次服务的点位记录已满，请保留记录后重启网页服务')

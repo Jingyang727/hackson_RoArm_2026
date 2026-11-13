@@ -63,9 +63,9 @@ class FastTeachingTests(unittest.TestCase):
             for delta in (-30,-3,0,3,30):
                 with self.assertRaises(UnsafeMotion):
                     svc.teach_move_relative(1,delta)
-            svc.arm.raw["b"]=math.radians(73)
+            svc.arm.raw["b"]=math.radians(178)
             with self.assertRaises(UnsafeMotion):
-                svc.teach_move_relative(1,5)  # outside training limit
+                svc.teach_move_relative(1,5)  # outside vendor range
             self.assertEqual(svc.arm.commands,[])
 
     def test_excessive_delta_and_joint_limit_send_nothing(self):

@@ -47,9 +47,15 @@ class SafetyTests(unittest.TestCase):
         with self.assertRaises(UnsafeMotion):
             plan_single_step(feedback(), 100, 1)
 
-    def test_refuses_outside_training_range(self):
+    def test_refuses_outside_vendor_range(self):
         with self.assertRaises(UnsafeMotion):
-            plan_single_step(feedback(b=math.radians(74)), 1, 10)
+            plan_single_step(feedback(b=math.radians(174)), 1, 10)
+
+    def test_old_training_envelope_is_not_a_joint_limit(self):
+        for joint,current,delta in ((1,74,10),(2,49,10),(3,144,10),(4,59,10),(5,89,10)):
+            field=JOINTS[joint][1]
+            plan=plan_single_step(feedback(**{field:math.radians(current)}),joint,delta)
+            self.assertAlmostEqual(plan.target_deg,current+delta)
 
     def test_refuses_torque_off(self):
         with self.assertRaises(UnsafeMotion):
@@ -96,10 +102,11 @@ class SafetyTests(unittest.TestCase):
             plan_gripper_step(feedback(g=math.radians(190)), -5)
 
     def test_gripper_small_lower_boundary_recovery(self):
-        plan = plan_gripper_step(feedback(g=math.radians(64.2)), 5)
-        self.assertAlmostEqual(plan.target_deg, 69.2, places=1)
+        low=JOINTS[6][2];current=low-.8
+        plan = plan_gripper_step(feedback(g=math.radians(current)), 5)
+        self.assertAlmostEqual(plan.target_deg, current+5, places=1)
         with self.assertRaises(UnsafeMotion):
-            plan_gripper_step(feedback(g=math.radians(64.2)), -5)
+            plan_gripper_step(feedback(g=math.radians(current)), -5)
 
     def test_gripper_target_never_exceeds_3_14_radians(self):
         plan = plan_gripper_step(feedback(g=math.radians(175)), 5)

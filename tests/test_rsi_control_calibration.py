@@ -53,7 +53,8 @@ class CalibrationTests(unittest.TestCase):
             run_control_experiments(degrees=1)
         with self.assertRaisesRegex(ValueError,"5° or 10°"):
             run_control_experiments(degrees=3)
-        self.assertEqual(_direction(74.0,1,10,1),-1)
+        self.assertEqual(_direction(174.0,1,10,1),-1)
+        self.assertEqual(_direction(74.0,1,10,1),1)
 
     def test_preview_does_not_send_motor_commands(self):
         robot=VirtualController()

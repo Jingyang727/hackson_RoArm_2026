@@ -13,7 +13,9 @@ import json
 import cv2
 import numpy as np
 
-from control_ui.safety import JOINTS, current_degrees
+from control_ui.safety import JOINTS, current_degrees, validate_angle_range
+from evoarm.limits import GRIPPER_MIN_RAD, GRIPPER_MAX_RAD
+from .roarm_geometry import MotionConstraintError
 from control_ui.vision import find_yellow_ball, yellow_ball_mask
 from .bench_calibration import fit_points
 from .roarm_geometry import forward, inverse, height_above_plane
@@ -207,19 +209,41 @@ def check_segment(initial, step, plane):
     """Validate the actual T104 XYZ/Pitch interpolation and stock link endpoints."""
     if step["kind"]!="cartesian":return
     start=[initial[k] for k in "xyz"];goal=step["xyz_mm"]
-    count=max(40,math.ceil(math.dist(start,goal)/3),math.ceil(abs(step["pitch_rad"]-initial["tit"])/math.radians(1)))
-    for i in range(count+1):
-        a=i/count;point=[x+(y-x)*a for x,y in zip(start,goal)]
-        pitch=initial["tit"]+(step["pitch_rad"]-initial["tit"])*a
-        pose=inverse(point,pitch,step["roll_rad"],step["gripper_rad"])
+    def checked(point,pitch,a):
+        where='目标点' if a==1 else f'路径{a*100:.1f}%处'
+        evidence={'stage':step['stage'],'progress':a,'xyz_mm':list(point),'pitch_deg':math.degrees(pitch)}
+        try:pose=inverse(point,pitch,step['roll_rad'],step['gripper_rad'])
+        except ValueError as exc:
+            evidence={**getattr(exc,'detail',{}),**evidence}
+            evidence.pop('message',None)
+            raise MotionConstraintError(f'{where}：{exc}',**evidence) from exc
         for j,angle in current_degrees(pose).items():
             if not JOINTS[j][2]<=angle<=JOINTS[j][3]:
-                raise ValueError(f"{step['stage']} exceeds joint {j} training range")
+                name,_,low,high=JOINTS[j]
+                raise MotionConstraintError(f'{where}：J{j} {name}需要{angle:.1f}°，官方接口范围为{low:.1f}°～{high:.1f}°',
+                                            code='joint_limit',joint=j,required_deg=angle,min_deg=low,max_deg=high,**evidence)
         model=forward(pose)
         if height_above_plane(point,plane)<step["minimum_tip_height_mm"]-.5:
-            raise ValueError("tip path violates measured table clearance")
-        if any(height_above_plane(p,plane)<30 for p in model["joints_xyz_mm"][1:3]):
-            raise ValueError("an upstream link is too close to the table")
+            raise MotionConstraintError(f'{where}：指尖低于本段要求的离桌高度{step["minimum_tip_height_mm"]:.1f}mm',
+                                        code='tip_clearance',**evidence)
+        for index,p in enumerate(model['joints_xyz_mm'][1:3],1):
+            height=height_above_plane(p,plane)
+            if height<30:
+                raise MotionConstraintError(f'{where}：上游连杆端点{index}离桌{height:.1f}mm，低于项目保留的30mm连杆间隙',
+                                            code='link_clearance',height_mm=height,minimum_mm=30,**evidence)
+        return pose
+    # Reject an impossible endpoint before allocating or sampling its path.
+    checked(goal,step['pitch_rad'],1.)
+    count=max(40,math.ceil(math.dist(start,goal)/3),math.ceil(abs(step["pitch_rad"]-initial["tit"])/math.radians(1)))
+    previous=None
+    for i in range(count+1):
+        a=i/count;point=[x+(y-x)*a for x,y in zip(start,goal)]
+        pitch=initial['tit']+(step['pitch_rad']-initial['tit'])*a
+        pose=checked(point,pitch,a)
+        if previous and abs(pose['b']-previous['b'])>math.pi:
+            raise MotionConstraintError(f'路径{a*100:.1f}%处跨越底座角度分支，不能作为连续直线动作执行',
+                                        code='base_branch_jump',progress=a,xyz_mm=point)
+        previous=pose
 
 
 def build_plan(session,status,ball,geometry):
@@ -228,13 +252,13 @@ def build_plan(session,status,ball,geometry):
         raise ValueError("live firmware pose does not match stock-tool geometry")
     if height_above_plane(model["xyz_mm"],geometry["plane"])<100:
         raise ValueError("first grasp needs an already clear start; inspect measured start plan")
-    if not math.radians(65)<=status["g"]<=math.pi+.02:
-        raise ValueError("stock gripper feedback is outside its training range")
+    validate_angle_range(status,6,math.degrees(min(max(status['g'],GRIPPER_MIN_RAD),GRIPPER_MAX_RAD)))
     reference=session["records"]["P1"]["tool_pose_rad"]
     if abs(status["r"]-reference["roll"])>math.radians(5):
         raise ValueError("stock gripper roll differs from the calibrated contact configuration")
     for j,angle in current_degrees(status).items():
-        if not JOINTS[j][2]<=angle<=JOINTS[j][3]:raise ValueError(f"start joint {j} outside training range")
+        if j!=6 and not JOINTS[j][2]<=angle<=JOINTS[j][3]:
+            raise ValueError(f'起始J{j} {JOINTS[j][0]}角度{angle:.1f}°超出官方接口范围')
     center=np.asarray(ball["center_robot_mm"])
     normal=np.asarray(geometry["plane"]["normal_up"])
     base=math.atan2(center[1],center[0]);roll=status["r"]
