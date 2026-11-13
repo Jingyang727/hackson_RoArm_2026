@@ -59,6 +59,8 @@ function render(){
     $('resultText').textContent=`闭爪尝试：${r.grasp_attempted?'已执行':'未执行'}；松爪投放：${r.placement_attempted?'已执行':'未执行'}。动作耗时 ${number(r.physical_elapsed_s)} 秒；10秒内：${r.within_10s===true?'是':r.within_10s===false?'否':'未知'}。视觉成功仍需复核。`;
     const available=Boolean(r.capture_trial_id);$('keyframesLink').hidden=!available;
     $('keyframesLink').href=`${prefix}/plans/${j.plan_id}/keyframes`;
+    $('rawVideoLink').hidden=!available;
+    $('rawVideoLink').href=`${prefix}/plans/${j.plan_id}/raw-video`;
     $('trialVideo').hidden=!available;
     if(available&&$('trialVideo').dataset.planId!==j.plan_id){$('trialVideo').src=`${prefix}/plans/${j.plan_id}/video`;$('trialVideo').dataset.planId=j.plan_id;}
   }
@@ -94,6 +96,7 @@ $('confirmed').onchange=render;
 $('run').onclick=()=>{if($('run').disabled)return;const id=state.plan.plan_id;return action(async()=>{$('confirmed').checked=false;await api(prefix+'/run','POST',{plan_id:id,declaration});});};
 $('stop').onclick=async()=>{if($('stop').disabled)return;$('stop').disabled=true;try{await api(prefix+'/stop','POST',{plan_id:state.job.plan_id});await refresh();}catch(error){showError(error);}};
 $('outcome').onchange=()=>{if(!['grasp_missed','placement_missed'].includes($('outcome').value))$('direction').value='none';render();};
+$('trialVideo').onerror=()=>{showError(Error('浏览器回放暂不可用，可下载原录像或查看关键帧；请检查回放编码器依赖。'));};
 $('saveReview').onclick=()=>action(async()=>{
   const result=await api(prefix+'/review','POST',{plan_id:state.job.plan_id,outcome:$('outcome').value,direction:$('direction').value,source:'human',note:$('reviewNote').value});
   $('reviewResult').textContent=result.changes.join('\n');loadHistory();

@@ -20,6 +20,7 @@ from control_ui.rsi_trial import DECLARATION
 from control_ui.safety import UnsafeMotion
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS,observe_scene,build_plan
 from evoarm_rsi.rsi_execution import execute,reservation,observe_pending
+from evoarm_rsi.browser_video import browser_video
 from evoarm_rsi.roarm_geometry import inverse
 from tests.test_ball_trial import SimulatedArm,layout
 from tests.test_rsi_pick_place import scene
@@ -32,6 +33,22 @@ class InstantArm(SimulatedArm):
         if command['T']==104:self.raw=inverse([command[k] for k in 'xyz'],command['t'],command['r'],command['g'])
         elif command['T']==106:self.raw['g']=command['cmd']
         else:raise AssertionError('unexpected motor command')
+
+
+class BrowserPlayback(unittest.TestCase):
+    def test_h264_copy_is_cached_and_does_not_modify_raw_recording(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp);source=folder/'rgb.mp4'
+            writer=cv2.VideoWriter(str(source),cv2.VideoWriter_fourcc(*'mp4v'),10,(160,90))
+            for _ in range(10):writer.write(np.full((90,160,3),180,np.uint8))
+            writer.release();original=source.read_bytes()
+            output=browser_video(folder);self.assertNotEqual(output,source)
+            self.assertEqual(source.read_bytes(),original)
+            cap=cv2.VideoCapture(str(output))
+            try:self.assertEqual(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),10)
+            finally:cap.release()
+            with patch('evoarm_rsi.browser_video.subprocess.run',side_effect=AssertionError('cache should be used')):
+                self.assertEqual(browser_video(folder),output)
 
 
 class RSIApi(unittest.TestCase):

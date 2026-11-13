@@ -9,12 +9,18 @@ import numpy as np
 from playwright.sync_api import sync_playwright
 
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS
+from evoarm_rsi.browser_video import browser_video
 
 
 def check(url,output):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     image=np.full((720,1280,3),220,np.uint8);cv2.circle(image,(600,350),20,(0,210,230),-1);cv2.circle(image,(850,400),48,(15,15,15),-1)
     _,jpeg=cv2.imencode('.jpg',image)
+    video_folder=output/'video-fixture';video_folder.mkdir(exist_ok=True)
+    writer=cv2.VideoWriter(str(video_folder/'rgb.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),8,(160,90))
+    for _ in range(8):writer.write(cv2.resize(image,(160,90)))
+    writer.release()
+    playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     model={'api_version':1,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'plan':None}
     calls=[];errors=[];generation=0;history=[]
@@ -29,6 +35,7 @@ def check(url,output):
             after=int(request.url.split('after=')[1]);return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes(),
                 headers={'X-Frame-Sequence':str(after+1),'X-Frame-Age-Ms':'10','X-Frame-Width':'1280','X-Frame-Height':'720'})
         if path.startswith('/bench/rsi/plans/'):
+            if path.endswith('/video'):return handler.fulfill(status=200,content_type='video/mp4',body=playback)
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path=='/bench/rsi/state':data=model
         elif path=='/bench/rsi/history':data={'trials':history}
@@ -75,6 +82,9 @@ def check(url,output):
         history.append({'id':model['plan']['plan_id'],'status':'completed','policy_version':1,'result':result,'review':None})
         page.locator('#reviewPanel').wait_for(state='visible');page.locator('#resultText').filter(has_text='松爪投放：已执行').wait_for()
         assert page.locator('#trialVideo').is_visible();assert page.locator('#run').is_disabled()
+        page.locator('#trialVideo').evaluate('(video)=>video.load()')
+        page.wait_for_function("document.getElementById('trialVideo').readyState>=1")
+        assert page.locator('#rawVideoLink').is_visible()
         assert page.locator('#saveReview').is_enabled()
         page.locator('#grokContext').click();page.locator('#grokPrompt').wait_for(state='visible')
         assert 'video_path' in page.locator('#grokPrompt').input_value()
@@ -98,7 +108,7 @@ def check(url,output):
         assert not errors,errors;browser.close()
     report={'real_hardware_access':False,'browser':'Chromium','checks':['no motion on load or prepare','RGB-D ball and movable funnel shown',
         'full pick/place and speed profile visible','explicit confirmation and one run under double click','live image during capture',
-        'reload resumes without replay','video and keyframes ready for review','qualitative feedback updates next policy without motion',
+        'reload resumes without replay','H.264 video metadata loads in Chromium; raw download and keyframes available','qualitative feedback updates next policy without motion',
         'next observation resets feedback inputs','stop blocks following commands','fault recovery link','390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 

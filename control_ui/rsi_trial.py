@@ -21,6 +21,7 @@ from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS, observe_scene, build_plan, preview, detect_funnel, adapt
 from evoarm_rsi.rsi_execution import execute, reservation
+from evoarm_rsi.browser_video import browser_video
 from evoarm_rsi.task_agent import _write
 from evoarm_rsi.task_scene import load_rgbd
 
@@ -296,11 +297,16 @@ def install(app,service_provider):
     def asset(plan_id:str,kind:str):
         if len(plan_id)!=32 or any(c not in '0123456789abcdef' for c in plan_id):raise HTTPException(status_code=404)
         if kind in ('preview','depth'):path=root(plan_id)/f'{kind}.jpg';media='image/jpeg'
-        elif kind in ('video','keyframes'):
+        elif kind in ('video','raw-video','keyframes'):
             try:trial=known(plan_id,historical=True).get('result',{}).get('capture_trial_id')
             except ValueError:trial=None
             if not trial:raise HTTPException(status_code=404)
-            path=bench_ui.experiment_root()/trial/('rgb.mp4' if kind=='video' else 'grasp-keyframes.jpg');media='video/mp4' if kind=='video' else 'image/jpeg'
+            folder=bench_ui.experiment_root()/trial
+            if kind=='video':
+                try:path=browser_video(folder)
+                except (OSError,RuntimeError,ValueError) as exc:fail(exc)
+            else:path=folder/('rgb.mp4' if kind=='raw-video' else 'grasp-keyframes.jpg')
+            media='image/jpeg' if kind=='keyframes' else 'video/mp4'
         else:raise HTTPException(status_code=404)
         if not path.is_file() or path.is_symlink():raise HTTPException(status_code=404)
         return FileResponse(path,media_type=media,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
