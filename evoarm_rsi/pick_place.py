@@ -16,6 +16,7 @@ from .roarm_geometry import forward, inverse, height_above_plane
 from .task_scene import load_rgbd
 from control_ui.vision import yellow_ball_mask
 from evoarm.limits import GRIPPER_MAX_RAD
+from .image_directions import OPPOSITE,PIXEL_VECTOR
 
 BALL_RADIUS = 17.
 FUNNEL_RADIUS = 38.
@@ -139,7 +140,7 @@ def build_plan(session,status,scene,parameters):
     for key,value in p.items():
         values=value if isinstance(value,list) else [value]
         if any(type(v) not in (int,float) or not math.isfinite(v) for v in values):raise ValueError(f'RSI参数{key}不是有限数值')
-    if any(len(p[k])!=2 or max(map(abs,p[k]))>30 for k in ('pickup_xy_mm','release_xy_mm')):raise ValueError('本轮学习偏移超出±30mm参数搜索域')
+    if any(len(p[k])!=2 for k in ('pickup_xy_mm','release_xy_mm')):raise ValueError('XY补偿需为二维向量')
     if not .05<=p['approach_speed']<=1 or not .05<=p['travel_speed']<=1:raise ValueError('RSI速度参数需在0.05～1内')
     if not 1<=p['gripper_speed']<=4095 or not 1<=p['gripper_acc']<=254:raise ValueError('夹爪速度或加速度参数无效')
     if not 0<=p['squeeze_deg']<=5:raise ValueError('接触后夹角预紧参数需在0～5度内')
@@ -241,28 +242,36 @@ def preview(image,plan,geometry):
     return result
 
 
-def image_correction(scene,direction,step_mm=8.,*,target='ball'):
-    shifts={'image_left':(1,0),'image_right':(-1,0),'image_up':(0,1),'image_down':(0,-1)}
-    if direction not in shifts:return [0.,0.]
-    g={k:np.asarray(v) for k,v in scene['camera_geometry'].items()}
-    g['d_camera']=scene['d_camera'];pixel=scene[target]['pixel_center'];height=BALL_RADIUS if target=='ball' else FUNNEL_HEIGHT
-    start,_=pixel_at_height(pixel,height,g)
-    dx,dy=shifts[direction];end,_=pixel_at_height([pixel[0]+dx,pixel[1]+dy],height,g)
-    delta=end[:2]-start[:2];return (delta/max(np.linalg.norm(delta),1e-8)*step_mm).tolist()
+def image_correction(scene,direction,step_mm=8.,*,target='ball',center_robot_mm=None):
+    if direction not in PIXEL_VECTOR:return [0.,0.]
+    geometry=scene['camera_geometry'];R=np.asarray(geometry['R'],float);K=np.asarray(geometry['K'],float)
+    field='center_robot_mm' if target=='ball' else 'mouth_center_robot_mm'
+    center=np.asarray(center_robot_mm if center_robot_mm is not None else scene[target][field],float)
+    camera=R.T@(center-np.asarray(geometry['t'],float));uv=K@camera
+    if uv[2]<=0:raise ValueError('当前补偿参考点位于相机后方')
+    derivative=np.vstack([(K[i]*uv[2]-uv[i]*K[2])/uv[2]**2 for i in (0,1)])
+    jacobian=derivative@R.T[:,:2]
+    if not np.all(np.isfinite(jacobian)) or np.linalg.cond(jacobian)>1e8:raise ValueError('当前相机到机器人XY方向映射退化')
+    delta=np.linalg.solve(jacobian,np.asarray(PIXEL_VECTOR[OPPOSITE[direction]],float))
+    return (delta/np.linalg.norm(delta)*step_mm).tolist()
 
 
 def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,step_override_mm=None):
     result={k:list(v) if isinstance(v,list) else v for k,v in parameters.items()};change=[]
     step_mm=XY_STEPS_MM.get(magnitude,8.)
     if step_override_mm is not None:
-        if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or not 1<=step_override_mm<=MAX_XY_STEP_MM:
+        if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or step_override_mm<=0:
             raise ValueError('学习试验步长无效')
         step_mm=step_override_mm
     if outcome=='placed':return result,['本轮成功，保留参数；下一轮换一个球位置验证。']
     if outcome in ('grasp_missed','placement_missed') and direction.startswith('image_'):
         key='pickup_xy_mm' if outcome=='grasp_missed' else 'release_xy_mm'
-        delta=image_correction(scene,direction,step_mm,target='ball' if outcome=='grasp_missed' else 'funnel')
-        result[key]=[max(-30.,min(30.,v+d)) for v,d in zip(result[key],delta)]
+        target='ball' if outcome=='grasp_missed' else 'funnel'
+        center=np.asarray(scene[target]['center_robot_mm' if target=='ball' else 'mouth_center_robot_mm'],float).copy()
+        height=result['grasp_z_offset_mm'] if target=='ball' else BALL_RADIUS+result['release_clearance_mm']
+        center+=np.asarray(scene['table_plane']['normal_up'])*height;center[:2]+=result[key]
+        delta=image_correction(scene,direction,step_mm,target=target,center_robot_mm=center)
+        result[key]=[v+d for v,d in zip(result[key],delta)]
         change.append(f'{key}按Grok判断的方向和幅度调整{step_mm:g}mm；数值是试验步长，不是Grok测得的绝对误差。')
     elif outcome=='grasp_missed' and direction in ('too_high','too_low'):
         delta=-2 if direction=='too_high' else 2

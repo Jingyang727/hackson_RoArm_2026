@@ -128,7 +128,7 @@ class CameraRelativePolicy(unittest.TestCase):
         self.assertEqual(decision['step_mm'],8.);self.assertTrue(decision['allow_retry'])
         self.assertAlmostEqual(after['pickup_xy_mm'][1],10.)
 
-    def test_wrong_projection_and_exhausted_parameter_do_not_claim_a_new_correction(self):
+    def test_wrong_projection_is_rejected_and_old_thirty_mm_clip_is_removed(self):
         wrong=copy.deepcopy(self.parameters);wrong['pickup_xy_mm']=[0.,-4.]
         with patch('evoarm_rsi.rsi_policy.adapt',return_value=(wrong,['incorrect change'])):
             after,changes,decision=propose(self.parameters,self.scene,'grasp_missed','image_right')
@@ -137,7 +137,7 @@ class CameraRelativePolicy(unittest.TestCase):
         self.assertNotIn('incorrect change',' '.join(changes))
         at_limit=copy.deepcopy(self.parameters);at_limit['pickup_xy_mm']=[0.,30.]
         after,_,decision=propose(at_limit,self.scene,'grasp_missed','image_right')
-        self.assertEqual(after,at_limit);self.assertFalse(decision['allow_retry'])
+        self.assertEqual(after['pickup_xy_mm'],[0.,38.]);self.assertTrue(decision['allow_retry'])
 
     def test_funnel_in_image_right_can_have_robot_negative_y(self):
         audit=target_audit(self.scene,self.parameters)

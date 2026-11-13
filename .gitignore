@@ -5,3 +5,4 @@ __pycache__/
 .env
 *.db
 .DS_Store
+.evoarm-agent-evidence/

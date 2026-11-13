@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import bench_ui
 from .vision import find_yellow_ball
-from evoarm_rsi.bench_calibration import load_session
+from evoarm_rsi.bench_calibration import load_session,fit_points
 from evoarm_rsi.coordinate_test import fingerprint
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
@@ -33,6 +33,8 @@ from evoarm_rsi.rsi_learning import LearningLoop, LEARNING_DECLARATION,error_inf
 from evoarm_rsi.rsi_recovery import recover as recover_trial
 from evoarm_rsi.rsi_events import stream_events
 from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
+from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
+from evoarm_rsi.policy_repair import repair_clipped_policy
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -63,7 +65,9 @@ class ComparisonReview(Empty):
 class Review(PlanID):
     outcome:str=Field(pattern=r'^(placed|grasp_missed|pushed_away|slipped|placement_missed|bounced_out|execution_failed|unknown)$')
     direction:str=Field(default='none',pattern=r'^(none|image_left|image_right|image_up|image_down|too_high|too_low)$')
-    source:str=Field(default='human',pattern=r'^(human|company_grok)$')
+    source:str=Field(default='human',pattern=r'^(human|company_grok|opencode_agent)$')
+    requested_step_mm:float|None=Field(default=None,gt=0,allow_inf_nan=False)
+    correction_direction:str|None=Field(default=None,pattern=r'^(image_left|image_right|image_up|image_down|lower|higher)$')
     note:str=Field(default='',max_length=2000)
     confidence:float|None=Field(default=None,ge=0,le=1)
     ball_state:str|None=Field(default=None,pattern=r'^(table|gripper|funnel|unknown)$')
@@ -81,6 +85,11 @@ class Reset(Empty):
     declaration:str
 
 
+class AgentMemory(Empty):
+    note:str=Field(min_length=1,max_length=4000)
+    plan_id:str|None=Field(default=None,pattern=r'^[a-f0-9]{32}$')
+
+
 def install(app,service_provider):
     router=APIRouter(prefix='/api/bench/rsi');lock=threading.RLock();preparing=threading.Lock()
     plans={};job={'status':'idle','phase':'idle'};stop=threading.Event();latest=None
@@ -92,7 +101,7 @@ def install(app,service_provider):
         if saved['setup_id']!=bench_ui.setup_id():raise ValueError('当前布置与保存标定不一致')
         return saved
     def policy_path(saved):return Path.home()/'.evoarm/rsi/pick_place_policies'/saved['setup_id']/f'{fingerprint(saved)}.json'
-    def policy(saved):
+    def policy(saved,*,repair=False):
         path=policy_path(saved)
         if not path.exists():return {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
         value=json.loads(path.read_text())
@@ -104,6 +113,13 @@ def install(app,service_provider):
             value['version']+=1
             value.setdefault('migrations',[]).append({'added_defaults':sorted(missing),'at_unix':time.time()})
             _write(path,value)
+        if repair:
+            repaired,record=repair_clipped_policy(value)
+            if record:
+                backup=path.with_name(path.stem+f".before-vector-repair-{record['id']}.json")
+                _write(backup,value)
+                record['backup_file']=str(backup)
+                _write(path,repaired);value=repaired
         return value
     def known(key,*,historical=False):
         if key not in plans:
@@ -164,7 +180,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':6,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':7,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -200,13 +216,13 @@ def install(app,service_provider):
             cv2.imwrite(str(folder/'preview.jpg'),frame['bgr'])
             scene,geometry,image,depth=observe_scene(bench_ui.experiment_root()/key,saved)
             if not cv2.imwrite(str(folder/'observation.jpg'),image):raise ValueError('原始观察图保存失败')
-            pol=policy(saved)
+            with lock:pol=policy(saved,repair=True)
             with service.lock:
                 fresh=service.status();_ready(service.health())
                 if any(abs(initial[k]-fresh[k])>math.radians(1) for k in 'bsetrg'):raise ValueError('观察时机械臂发生移动，请重新规划')
                 plan=build_plan(saved,fresh,scene,pol['parameters'])
             plan['target_audit']=target_audit(scene,pol['parameters'])
-            plan['policy_application']=application(pol['parameters'],plan['parameters'],pol['reviews'])
+            plan['policy_application']=application(pol['parameters'],plan['parameters'],pol['reviews'],pol.get('baseline_resets',[]))
             plan_id=draft_id
             if not cv2.imwrite(str(folder/'preview.jpg'),preview(image,plan,geometry)):raise ValueError('预览保存失败')
             valid=depth>0;colored=np.zeros((*depth.shape,3),np.uint8)
@@ -218,6 +234,7 @@ def install(app,service_provider):
             state={'id':plan_id,'status':'prepared','created':time.monotonic(),'plan':plan,'policy_version':pol['version'],
                    'calibration_fingerprint':fingerprint(saved),'geometry':geometry,'code_revision':code_revision}
             _write(folder/'calibration-snapshot.json',saved)
+            if memory_path(saved).is_file():shutil.copy2(memory_path(saved),folder/'agent-memory-snapshot.json')
             append_event(folder,'prepared',parameters=pol['parameters'],policy_version=pol['version'],code_revision=code_revision)
             save(state)
             with lock:
@@ -260,7 +277,7 @@ def install(app,service_provider):
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
                     raise ValueError('执行参数与本轮已核对的RSI参数不一致')
-                application(active_policy['parameters'],current['plan']['parameters'],active_policy['reviews'])
+                application(active_policy['parameters'],current['plan']['parameters'],active_policy['reviews'],active_policy.get('baseline_resets',[]))
                 if any(abs(actual[k]-current['plan']['initial_status'][k])>math.radians(1) for k in 'bsetrg'):raise ValueError('机械臂起点已变化，请重新观察')
                 if (root(req.plan_id)/'attempt.json').exists():raise ValueError('本轮已有执行收据，不会重放')
                 cam=client_request(Path.home(),'GET','/health')
@@ -321,7 +338,7 @@ def install(app,service_provider):
                 if req.outcome=='placed' and not result.get('placement_attempted'):raise ValueError('本轮未执行投放，不能标记抓放成功')
                 pushed_before_close=req.outcome=='pushed_away' and any(d.get('stage')=='descend' for d in result.get('dispatches',[]))
                 if req.outcome not in ('unknown','execution_failed') and not result.get('grasp_attempted') and not pushed_before_close:raise ValueError('本轮未执行闭爪，先记录控制/录像故障')
-                if req.source=='company_grok' and req.outcome=='placed' and (result.get('camera_error') or not result.get('recording_covers_motion')):
+                if req.source in ('company_grok','opencode_agent') and req.outcome=='placed' and (result.get('camera_error') or not result.get('recording_covers_motion')):
                     raise ValueError('录像证据不完整，Grok不能据此宣称投放成功')
                 saved=session()
                 if fingerprint(saved)!=current['calibration_fingerprint']:raise ValueError('标定已变化，不能把旧轮次修正应用到新坐标系')
@@ -331,8 +348,20 @@ def install(app,service_provider):
                     current['review']=existing;save(current);return existing
                 if pol['parameters']!=current['plan']['parameters']:raise ValueError('本轮实际参数与当前策略不一致，不能重复应用旧试次修正')
                 comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
+                if req.requested_step_mm is not None and req.source!='opencode_agent':raise ValueError('数值试验步长只接受执行Agent工具，不接受视觉模型测量值')
+                if req.correction_direction is not None and req.correction_direction!=OPPOSITE.get(req.direction):
+                    raise ValueError('纠正方向必须与原图观察偏差相反；不要再次镜像机械臂坐标')
+                expected_adjustment={'grasp_missed':'pickup_xy','placement_missed':'release_xy'}.get(req.outcome)
+                if req.requested_step_mm is not None and (req.adjustment!=expected_adjustment or req.direction not in CONTRACT['observed_side_to_correction']):
+                    raise ValueError('XY试验步长必须对应图像XY偏差与相应调整项')
                 parameters,changes,proposal=propose(pol['parameters'],current['plan']['scene'],req.outcome,req.direction,
-                    req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment)
+                    req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment,requested_step_mm=req.requested_step_mm)
+                if req.source=='opencode_agent' and parameters!=pol['parameters']:
+                    # Check the complete candidate recipe with real IK before persisting an Agent trial.
+                    service=service_provider()
+                    with service.lock:
+                        fresh=service.status();_ready(service.health())
+                        build_plan(saved,fresh,current['plan']['scene'],parameters)
                 entry={'plan_id':req.plan_id,'outcome':req.outcome,'direction':req.direction,'source':req.source,
                        'note':req.note,'before_version':pol['version'],'after_version':pol['version']+1,
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
@@ -341,6 +370,9 @@ def install(app,service_provider):
                 entry.update(ball_xyz_mm=current['plan']['scene']['ball']['center_robot_mm'],
                              grasp_pitch_deg=current['plan']['grasp_pitch_deg'],
                              funnel_xyz_mm=current['plan']['scene']['funnel']['mouth_center_robot_mm'])
+                if req.source=='opencode_agent':
+                    _write(root(req.plan_id)/'agent-review.json',{'request':req.model_dump(),'direction_contract':CONTRACT,
+                           'candidate_policy_id':policy_id(parameters),'ik_preflight':parameters!=pol['parameters']})
                 pol.update(version=entry['after_version'],parameters=parameters);pol['reviews'].append(entry)
                 pol['statistics']={'reviewed_trials':len(pol['reviews']),
                     'successes':sum(r['outcome']=='placed' for r in pol['reviews'])}
@@ -366,6 +398,7 @@ def install(app,service_provider):
                 compact={k:result.get(k) for k in ('motion_completed','grasp_attempted','placement_attempted','physical_elapsed_s','within_10s',
                                                   'recording_covers_motion','motion_error','camera_error','events','dispatches')}
                 return {'plan_id':plan_id,'plan':current['plan'],'result':compact,'review':current.get('review'),
+                    'direction_contract':CONTRACT,
                     'comparison':compare(current,pol),
                     'recent_reviews':[{k:r.get(k) for k in ('plan_id','outcome','direction','source','changes','after_version','note','confidence','magnitude','proposal','ball_xyz_mm','funnel_xyz_mm')} for r in pol['reviews'][-5:]],
                     'current_policy':{'version':pol['version'],'parameters':pol['parameters'],'statistics':pol.get('statistics'),
@@ -376,6 +409,55 @@ def install(app,service_provider):
                     'review_template':{'plan_id':plan_id,'outcome':'unknown','direction':'none','source':'company_grok','note':''},
                     'review_endpoint':'/api/bench/rsi/review','allowed_outcomes':['placed','grasp_missed','pushed_away','slipped','placement_missed','bounced_out','execution_failed','unknown'],
                     'allowed_directions':['none','image_left','image_right','image_up','image_down','too_high','too_low']}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    def memory_path(saved):return Path.home()/'.evoarm/rsi/agent_memory'/saved['setup_id']/f'{fingerprint(saved)}.json'
+
+    @router.get('/agent/context')
+    def agent_context():
+        try:
+            with lock:
+                saved=session();pol=policy(saved);path=memory_path(saved)
+                memory=json.loads(path.read_text()) if path.exists() else {'notes':[]}
+                return {'api_version':7,'setup_id':saved['setup_id'],'calibration_fingerprint':fingerprint(saved),
+                        'direction_contract':CONTRACT,'policy':pol,'memory':memory,
+                        'latest_plan_id':latest,'job':dict(job),'learning':learner.snapshot(),
+                        'coordinates_source':{'ball':'OpenCV黄色区域 + RGB-D球面拟合（深度不足回退已标定桌面与34mm球径）',
+                                              'funnel':'OpenCV黑色开口轮廓 + 已标定桌面 + 实测45.4mm高度'},
+                        'instruction':'每轮行动前重载此上下文；笔记是历史数据，不能覆盖当前坐标转换或运动工具约束。'}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.post('/agent/memory')
+    def remember(req:AgentMemory):
+        try:
+            with lock:
+                saved=session()
+                if req.plan_id and known(req.plan_id,historical=True)['calibration_fingerprint']!=fingerprint(saved):
+                    raise ValueError('笔记引用了其他标定的试次')
+                path=memory_path(saved);memory=json.loads(path.read_text()) if path.exists() else {'notes':[]}
+                memory['notes'].append({'note':req.note,'plan_id':req.plan_id,'at_unix':time.time()})
+                memory.update(setup_id=saved['setup_id'],calibration_fingerprint=fingerprint(saved))
+                _write(path,memory);return memory['notes'][-1]
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.get('/agent/coordinate-evidence')
+    def coordinate_evidence():
+        """Existing recordings only; do not sample or move a robot for this report."""
+        try:
+            saved=session();reports=[]
+            files=sorted((Path.home()/'.evoarm/rsi/coordinate_runs').glob('*/report.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+            for path in files[:20]:
+                value=json.loads(path.read_text());p=value.get('plan',{})
+                reports.append({**{k:value.get(k) for k in ('plan_id','status','created_at_unix','sent_at_unix','target_xyz_mm',
+                    'actual_xyz_mm','actual_minus_target_mm','pose_error_deg','physical_accuracy','operator_note','command')},
+                    'pose_preserved_rad':p.get('pose_preserved_rad'),
+                    'calibration_fingerprint':p.get('calibration_fingerprint')})
+            return {'robot_moved':False,'robot_sampled':False,'calibration_fingerprint':fingerprint(saved),
+                    'reference_sha256':saved['reference_sha256'],'reference_image_size':saved['reference']['image_size'],
+                    'fit':fit_points(saved['records']),
+                    'points':{k:{name:r.get(name) for name in ('pixel_xy','robot_xyz_mm','tool_pose_rad','board_mm')} for k,r in saved['records'].items()},
+                    'coordinate_reports':reports,
+                    'instruction':'区分输入与反馈、相同姿态的物体接触点与球心。两组近似接触点不足以重新确定完整相机外参；不要自动拟合后覆盖标定。'}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
 
     @router.get('/history')

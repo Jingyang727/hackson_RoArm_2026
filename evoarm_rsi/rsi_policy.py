@@ -10,12 +10,10 @@ import numpy as np
 
 from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS,XY_STEPS_MM,MAX_XY_STEP_MM
 from .rsi_comparison import validate_assessment
+from .image_directions import OPPOSITE,PIXEL_VECTOR
 
-OPPOSITE={'image_left':'image_right','image_right':'image_left','image_up':'image_down','image_down':'image_up',
-          'too_high':'lower','too_low':'higher'}
 LABELS={'image_left':'画面左侧','image_right':'画面右侧','image_up':'画面上方','image_down':'画面下方',
         'lower':'降低','higher':'抬高','none':'方向未知'}
-PIXEL_VECTOR={'image_left':[-1,0],'image_right':[1,0],'image_up':[0,-1],'image_down':[0,1]}
 
 
 def policy_id(parameters):
@@ -50,7 +48,7 @@ def target_audit(scene,parameters):
             'note':'空中投放点因透视可能不与漏斗像素中心重合；原始目标圈标明实际识别区域'}
 
 
-def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,history=(),comparison=None,assessment=None):
+def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,history=(),comparison=None,assessment=None,requested_step_mm=None):
     before=copy.deepcopy(parameters);step=XY_STEPS_MM[magnitude]
     target='funnel' if outcome=='placement_missed' else 'ball'
     key='release_xy_mm' if target=='funnel' else 'pickup_xy_mm'
@@ -79,8 +77,13 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
             rollback=True;allow_retry=False;decision='undo'
             why.append('前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。')
         elif movement=='no_visible_motion' and effect=='unchanged' and previous_step and previous_step<8:
-            step=min(MAX_XY_STEP_MM,max(8.,step,previous_step+4));comparison_status='probe_too_small';decision='increase_step'
-            why.append('上一轮试探较小，画面无法确认变化；扩大到可见试验尺度，不把看不出变化当成方向已错。')
+            requested=previous.get('proposal',{}).get('step_mm') or previous_step
+            clipped=previous_step<requested*.9
+            step=min(MAX_XY_STEP_MM,max(8.,step,previous_step+4))
+            comparison_status='invalid_previous_vector' if clipped else 'probe_too_small'
+            decision='repair_step' if clipped else 'increase_step'
+            why.append('上一轮申请与保存向量不一致，重新生成完整修正，不再把裁剪当成小步探测。' if clipped else
+                       '上一轮试探较小，画面无法确认变化；扩大到可见试验尺度，不把看不出变化当成方向已错。')
         elif movement=='no_visible_motion' and effect=='unchanged':
             comparison_status='no_effective_motion';rollback=True;allow_retry=False;decision='undo'
             why.append('画面未显示相应变化，不把已修改的命令当成有效移动；撤销上一轮试验参数并回位。')
@@ -96,6 +99,11 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         else:
             comparison_status=effect
             why.append('前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。')
+    if requested_step_mm is not None and not rollback:
+        if type(requested_step_mm) not in (int,float) or not math.isfinite(requested_step_mm) or requested_step_mm<=0:
+            raise ValueError('Agent试验步长需为正的有限数值')
+        step=float(requested_step_mm);decision='agent_step'
+        why.append(f'本轮试验步长由执行Agent选择：{step:g}mm。')
     after,changes=adapt(before,scene,outcome,direction,magnitude,adjustment,step_override_mm=step)
     if rollback:
         after=copy.deepcopy(before)
@@ -106,15 +114,19 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
     proposal={'observed_direction':direction,'correction_direction':correction,'frame':'unmirrored_rgb',
               'step_mm':step if key in changed and not rollback else None,'parameters_changed':changed,'before':{k:before[k] for k in changed},
               'after':{k:after[k] for k in changed},'comparison':comparison_status,'allow_retry':allow_retry,'decision':decision,
-              'comparison_evidence_bound':verified,'effect_verified':verified and effect not in ('unknown','not_comparable','not_compared'),
+              'comparison_evidence_bound':verified,'effect_assessed':verified and effect not in ('unknown','not_comparable','not_compared'),
+              'effect_verified':verified and effect=='improved','improvement_confirmed':verified and effect=='improved',
               'previous_motion_visual_check':movement,
               'before_policy_id':policy_id(before),'after_policy_id':policy_id(after),'source_trial_id':previous.get('plan_id') if verified else None}
     if rollback:proposal['rejected_policy_id']=policy_id(before)
     if direction in PIXEL_VECTOR and outcome in ('grasp_missed','placement_missed') and not rollback:
         a=project(scene,center_target(scene,before,target));b=project(scene,center_target(scene,after,target))
         shift=[b[0]-a[0],b[1]-a[1]]
-        proposal.update(robot_delta_mm=[after[key][i]-before[key][i] for i in range(2)],predicted_pixel_delta=shift,
-                        projection_direction_verified=sum(v*w for v,w in zip(shift,PIXEL_VECTOR[correction]))>.05)
+        delta=[after[key][i]-before[key][i] for i in range(2)];length=math.hypot(*shift)
+        alignment=sum(v*w for v,w in zip(shift,PIXEL_VECTOR[correction]))/max(length,1e-12)
+        whole_step=math.isclose(math.hypot(*delta),step,rel_tol=.02,abs_tol=.02)
+        proposal.update(robot_delta_mm=delta,predicted_pixel_delta=shift,projection_direction_alignment=alignment,
+                        requested_step_preserved=whole_step,projection_direction_verified=length>1e-6 and alignment>=math.cos(math.radians(15)) and whole_step)
         proposal['saved_xy_step_mm']=math.hypot(*proposal['robot_delta_mm'])
         if not proposal['projection_direction_verified']:
             after=before;changed=[];allow_retry=False
@@ -126,7 +138,6 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         else:
             actual_step=proposal['saved_xy_step_mm']
             why.insert(0,f"观察到夹爪在目标的{LABELS[direction]}，下一轮向{LABELS[correction]}修正，保存的补偿变化{actual_step:.1f}mm。")
-            if abs(actual_step-step)>.1:why.append(f'原定试验步长{step:g}mm，受已有参数搜索域影响，实际保存变化为{actual_step:.1f}mm。')
     for record in history:
         old_location=record.get('funnel_xyz_mm' if target=='funnel' else 'ball_xyz_mm')
         old_pitch=record.get('grasp_pitch_deg');current_pitch=context.get('current_pitch_deg')
@@ -149,14 +160,18 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
     return after,why+changes,proposal
 
 
-def application(parameters,plan_parameters,reviews):
+def application(parameters,plan_parameters,reviews,baseline_resets=()):
     """Check the persisted decision actually reached this newly constructed plan."""
     if parameters!=plan_parameters:raise ValueError('本轮规划没有使用当前RSI参数')
     previous=reviews[-1] if reviews else None
     prior_after={**{'squeeze_deg':DEFAULT_PARAMETERS['squeeze_deg']},**previous.get('after',{})} if previous else None
-    if previous and prior_after!=parameters:
+    reset=baseline_resets[-1] if baseline_resets else None
+    repaired=bool(previous and reset and reset.get('source_trial_id')==previous['plan_id'] and
+                  reset.get('before')==prior_after and reset.get('after')==parameters)
+    if previous and prior_after!=parameters and not repaired:
         raise ValueError('当前策略与上一轮已保存的修正不一致')
     return {'policy_id':policy_id(parameters),'parameters_verified':True,
             'source_trial_id':previous['plan_id'] if previous else None,
-            'changed_parameters':previous.get('proposal',{}).get('parameters_changed',[]) if previous else [],
+            'baseline_reset_id':reset['id'] if repaired else None,
+            'changed_parameters':reset['parameters_reset'] if repaired else previous.get('proposal',{}).get('parameters_changed',[]) if previous else [],
             'note':'已核对新计划实际参数；方向投影检查只验证坐标计算，实际效果仍由下一轮录像判断。'}
