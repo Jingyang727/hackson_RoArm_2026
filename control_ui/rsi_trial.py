@@ -439,8 +439,8 @@ def install(app,service_provider):
                     if req.outcome in ('placed','unknown','execution_failed'):raise ValueError('本轮结果不支持抓放参数学习')
                     if proposal['status']=='rolled_back':raise ValueError('本轮先保留回滚，下一轮再选择新参数')
                     name=req.parameter_trial.parameter;value=req.parameter_trial.value
-                    allowed={'grasp_missed':{'grasp_z_offset_mm','finger_offset_mm','open_deg','close_deg'},
-                        'pushed_away':{'grasp_z_offset_mm','finger_offset_mm','open_deg'},
+                    allowed={'grasp_missed':{'grasp_z_offset_mm','finger_offset_mm','open_deg','close_deg','approach_speed'},
+                        'pushed_away':{'grasp_z_offset_mm','finger_offset_mm','open_deg','approach_speed'},
                         'slipped':{'squeeze_deg','travel_speed','close_deg'},
                         'placement_missed':{'release_clearance_mm'},'bounced_out':{'release_clearance_mm','travel_speed'}}
                     if name not in allowed.get(req.outcome,set()):raise ValueError('本轮观察结果与所选试验参数不对应')

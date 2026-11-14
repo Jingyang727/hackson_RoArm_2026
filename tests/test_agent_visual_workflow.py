@@ -73,6 +73,16 @@ class Workflow(unittest.TestCase):
         self.assertEqual(result['proposal']['parameters_changed'],['grasp_z_offset_mm'])
         self.assertEqual(result['after']['grasp_z_offset_mm'],0.);self.assertEqual(self.arm.commands,[])
 
+    def test_pushed_ball_supports_one_approach_speed_trial_without_changing_xy(self):
+        key=self.prepare();self.start_trial(key);packet=self.visual(key);visual=verdict()
+        visual.update(outcome='pushed_away',direction='none',adjustment='unknown')
+        body={**visual,'plan_id':key,'source':'opencode_agent','visual_review':visual,'vision_packet_id':packet['vision_packet_id'],
+              'parameter_trial':{'parameter':'approach_speed','value':.2},'note':'球被下探动作推走，降低接近速度试验'}
+        response,result=self.request('review',body);self.assertEqual(response['status'],200,result)
+        self.assertEqual(result['proposal']['parameters_changed'],['approach_speed'])
+        self.assertEqual(result['after']['pickup_xy_mm'],result['before']['pickup_xy_mm'])
+        self.assertEqual(result['after']['approach_speed'],.2);self.assertEqual(self.arm.commands,[])
+
 
 class DecisionTool(unittest.TestCase):
     def test_decision_derives_observation_from_visual_result_and_requires_reason(self):
