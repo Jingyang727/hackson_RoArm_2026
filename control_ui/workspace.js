@@ -6,7 +6,8 @@ let state = null,
   polling = false,
   imageMode = "reference",
   imageVersion = 0,
-  imageReady = false;
+  imageReady = false,
+  squareLoaded = false;
 const pointButtons = new Map();
 let toolMismatch = false;
 const live = { active: false, starting: false, generation: 0, sequence: 0,
@@ -100,9 +101,9 @@ async function nextLiveFrame(generation) {
 }
 function renderOverlay() {
   const overlay = $("pointOverlay"), size = state?.image_size;
-  // Reference PNG already contains its five labels. Raw images use the same
-  // frozen pixel coordinates: no redetection while the arm occludes the board.
-  overlay.hidden = !state?.session_exists || !size || imageMode === "reference" ||
+  // The PNG has all labels; add only the selected marker on top. Raw images
+  // use the same frozen pixels, without redetection during arm occlusion.
+  overlay.hidden = !state?.session_exists || !size ||
     (imageMode === "live" && !liveFresh()) || $("frame").hidden;
   // SVG does not reflect the HTML `hidden` property in every browser.
   overlay.toggleAttribute("hidden", overlay.hidden);
@@ -116,6 +117,7 @@ function renderOverlay() {
     return node;
   };
   for (const point of state.overlay_points || []) {
+    if(imageMode==='reference' && point.id!==selected)continue;
     const [x, y] = point.pixel_xy;
     const captured = state.points.find(p => p.id === point.id)?.captured;
     const group = svg("g", { "data-point": point.id,
@@ -189,6 +191,55 @@ async function action(fn) {
 function resetAlignment() {
   $("aligned").checked = false;
 }
+function selectPoint(id) {
+  selected=id;resetAlignment();render();
+}
+const precise = value => typeof value==="number" && Number.isFinite(value) ? value.toFixed(3) : "—";
+const vectorText = values => Array.isArray(values) ? values.map(precise).join(" / ") : "—";
+function renderDiagnostics(fit) {
+  const receipt=state?.last_capture;
+  $("captureReceipt").hidden=!receipt;
+  if(receipt){
+    const changes=receipt.xyz_change_mm;
+    const time=receipt.captured_at ? new Date(receipt.captured_at).toLocaleString() : "—";
+    $("captureReceipt").textContent=`最近保存 ${receipt.point_id} · ${time}\n采点编号 ${receipt.capture_id?.slice(0,12)||"旧记录"} · 第 ${receipt.capture_revision} 次\n本次 XYZ：${vectorText(receipt.xyz_mm)} mm`+
+      (changes ? `\n上次 XYZ：${vectorText(receipt.previous_xyz_mm)} mm\n本次−上次：${vectorText(changes)} mm；合计 ${precise(receipt.change_norm_mm)} mm` : "\n这是该点的首份记录。")+
+      (receipt.xyz_unchanged ? "\n本次查询的XYZ与上次完全相同。若实物位置已明显改变，请先核对反馈。" : "")+
+      (fit && receipt.previous_validation_error_mm!=null ? `\n独立验证误差：${precise(receipt.previous_validation_error_mm)} → ${precise(fit.validation_error_mm)} mm` : "");
+  }
+  $("pointErrors").replaceChildren();$("fitChecks").textContent="";$("fitHelp").textContent="";$("recheckPoint").hidden=true;
+  if(!fit)return;
+  const limits=fit.limits_mm;
+  if(limits)$("fitChecks").textContent=[['四点RMS','train_rms_mm'],['拟合点最大误差','train_max_mm'],['V1独立验证','validation_error_mm']]
+    .map(([label,key])=>`${label}：${precise(fit[key])} / ${limits[key]} mm · ${fit[key]<=limits[key]?"通过":"未通过"}`).join("\n")+
+    `\n本次记录单格：${precise(state.square_mm)} mm。验收阈值不改变机械臂移动范围。`;
+  const suggested=fit.suggested_recheck,rows=fit.point_diagnostics||[];
+  const recommendation=rows.find(point=>point.id===suggested);
+  if(recommendation){
+    const [col,row]=recommendation.grid;
+    let message=`优先复核 ${suggested}：从左上第一个内部角点数，第 ${row+1} 行、第 ${col+1} 列。`;
+    if(suggested==='V1')message+='四点拟合通过，先核对V1的圆圈和实际触点；这不能证明其他点完全正确。重采V1不会改变四点RMS。';
+    message+=`\n记录−预测 XYZ：${vectorText(recommendation.recorded_minus_predicted_mm)} mm。`;
+    message+=`\n沿棋盘列/行：${vectorText(recommendation.board_xy_error_mm)} mm；离平面 ${precise(recommendation.height_error_mm)} mm。`;
+    if(state.square_mm>0){
+      const grid= recommendation.board_xy_error_mm.map(value=>value/state.square_mm);
+      message+=`\n按当前拟合折算，列/行偏差约 ${grid.map(value=>value.toFixed(2)).join(' / ')} 格（仅供核对）。`;
+    }
+    $("fitHelp").textContent=message;
+    $("recheckPoint").hidden=false;$("recheckPoint").textContent=`在图中选中 ${suggested}（不运动）`;
+    $("recheckPoint").onclick=()=>selectPoint(suggested);
+  }
+  for(const point of rows){
+    const item=document.createElement('div');item.className='point-error-row';
+    const button=document.createElement('button');button.className='text-button';
+    button.textContent=`${point.id} · 第${point.grid[1]+1}行第${point.grid[0]+1}列 · 误差 ${precise(point.error_mm)} mm`;
+    button.onclick=()=>selectPoint(point.id);
+    const detail=document.createElement('p');detail.className='facts';
+    detail.textContent=`记录：${vectorText(point.recorded_xyz_mm)}\n预测：${vectorText(point.predicted_xyz_mm)}\n差值：${vectorText(point.recorded_minus_predicted_mm)} mm`+
+      (point.captured_at ? `\n记录时间：${new Date(point.captured_at).toLocaleString()}` : "");
+    item.append(button,detail);$("pointErrors").append(item);
+  }
+}
 function switchImage(mode) {
   if (mode === "live") { startLive(); return; }
   stopLive();
@@ -205,6 +256,10 @@ function render() {
     exists = state?.session_exists;
   $("setupBadge").textContent = state?.setup_id || "当前布置";
   $("prepare").hidden = false;
+  $("squareHint").textContent = typeof state?.square_mm==='number' ?
+    `本次标定已采用 ${state.square_mm} mm。`+(Number($("square").value)!==state.square_mm ?
+      ` 输入框的 ${$("square").value} mm 尚未应用；点击重新采集棋盘才会用于新标定，已有五点不会静默改变。` : " 修改输入框用于下一次重新采集，当前五点仍按已保存尺寸计算。") :
+    "填写本次实测尺寸，点击采集棋盘后应用。";
   $("connection").textContent = health.fault
     ? "反馈异常"
     : health.connected
@@ -283,7 +338,7 @@ function render() {
   const current = points.find((p) => p.id === selected) || points[0];
   $("targetName").textContent = selected;
   $("targetGrid").textContent =
-    `${selected === "V1" ? "独立验证" : "拟合点"} · 格点 (${current.grid.join(", ")})，从0计数`;
+    `${selected === "V1" ? "独立验证" : "拟合点"} · 第${current.grid[1]+1}行、第${current.grid[0]+1}列内部角点（格点 ${current.grid.join(", ")}，从0计数）`;
   $("progress").textContent = points.filter((p) => p.captured).length + " / 5";
   for (const point of points) {
     let button = pointButtons.get(point.id);
@@ -334,6 +389,7 @@ function render() {
       ? "平面对应关系已保存。下一步检验抓取几何，再进行首轮实物试验。"
       : "已有采点全部保留。检查触点是否一致，再选择需要修正的点重采。";
   }
+  renderDiagnostics(fit);
   $("sourceInfo").textContent = state?.reference_trial_id
     ? "参考录像：" + state.reference_trial_id
     : "";
@@ -341,6 +397,9 @@ function render() {
 }
 async function update() {
   state = await api("/api/bench/status");
+  if(!squareLoaded && typeof state.square_mm==='number'){
+    $("square").value=String(state.square_mm);squareLoaded=true;
+  }
   if (state.next_point && !pointButtons.size) selected = state.next_point;
   render();
   if (state.session_exists && !imageReady && imageMode !== "live") {
@@ -423,6 +482,7 @@ $("initialize").onclick = () =>
     await update();
   });
 $("source").onchange = render;
+$("square").oninput = render;
 $("recalibrate").onclick = () => action(async () => {
   stopLive();resetAlignment();selected="P1";imageReady=false;toolMismatch=false;imageMode="reference";
   $("supported").checked=false;$("frame").hidden=true;$("emptyImage").hidden=false;
@@ -489,9 +549,12 @@ $("capture").onclick = () =>
       point_id: selected,
       aligned_and_supported: $("aligned").checked,
       replace: point?.captured || false,
+      session_id: state.session_id || null,
     });
     resetAlignment();
     await update();
+    if(result.session_id && state.session_id && result.session_id!==state.session_id)
+      throw Error('标定会话已切换；本次记录属于其他会话，请核对当前布局。');
     if (result.next_point) selected = result.next_point;
     $("actionMessage").textContent =
       captured +

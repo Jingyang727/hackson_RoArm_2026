@@ -46,6 +46,7 @@
               step="0.1" /></label
           ><button id="recalibrate" class="primary">采集当前棋盘并重新标定</button>
         </div>
+        <p id="squareHint" class="small-note"></p>
         <p id="referenceMessage" class="small-note" role="status">只采集相机画面、检测角点，不移动机械臂。开始新标定后，旧记录保留，完成五点前暂停使用旧坐标关系。</p>
         <details><summary>使用已有空棋盘录像</summary>
           <label>空棋盘录像<select id="source"><option value="">正在查找录像…</option></select></label>
@@ -179,6 +180,7 @@
             <p id="captureHint" class="small-note">
               每次读取三组静止反馈。成功后自动保存。
             </p>
+            <p id="captureReceipt" class="facts" role="status" hidden></p>
           </section>
           <section id="resultCard" class="card result-card" hidden>
             <div class="card-heading">
@@ -192,6 +194,13 @@
               </div>
             </div>
             <p id="resultNote"></p>
+            <p id="fitChecks" class="facts"></p>
+            <p id="fitHelp" class="facts"></p>
+            <button id="recheckPoint" class="secondary" hidden>查看建议复核点</button>
+            <details><summary>五点误差、记录值与拟合值</summary>
+              <p class="small-note">偏差＝记录值−拟合预测值，仅用于排查，不是移动指令。V1独立验证，不参与四点拟合。</p>
+              <div id="pointErrors" class="point-errors"></div>
+            </details>
           </section>
         </aside>
       </div>

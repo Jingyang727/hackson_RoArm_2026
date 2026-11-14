@@ -13,6 +13,8 @@ import cv2
 import numpy as np
 
 from playwright.sync_api import sync_playwright
+from evoarm_rsi.bench_calibration import fit_points
+from tests.test_calibration_diagnostics import operator_records
 
 
 def check(url, output):
@@ -30,7 +32,8 @@ def check(url, output):
         if model.get('no_session'):
             return {'setup_id':'bench-layout-v2','session_exists':False,'health':health(),
                     'recalibration_required':True,'current_image_available':False}
-        return {"setup_id":"bench-layout-v2","session_exists":True,"points":points,"health":health(),
+        return {"setup_id":"bench-layout-v2","session_id":"browser-session","session_exists":True,"points":points,"health":health(),
+                'square_mm':model.get('square_mm',24.),'last_capture':model.get('last_capture'),
                 "next_point":next((p["id"] for p in points if not p["captured"]),None),
                 "current_image_available":False,"reference_trial_id":"simulated-browser-fixture",
                 "image_size":[900,500],"overlay_points":[{"id":p["id"],"grid":p["grid"],
@@ -70,7 +73,7 @@ def check(url, output):
         elif path=='/bench/live/start':data={'started':True,'robot_control':False}
         elif path=='/bench/recalibrate':
             assert request.post_data_json=={'square_mm':24}
-            model['no_session']=False;model.pop('fit',None)
+            model['no_session']=False;model.pop('fit',None);model.pop('last_capture',None)
             for point in points:point['captured']=False
             data={**state(),'corner_count':54,'message':'已检测到完整9×6、54个角点；新五点记录已建立，旧标定保留。'}
         elif path=='/bench/sources':data={"sources":[]}
@@ -85,7 +88,20 @@ def check(url, output):
             next(p for p in points if p['id']==request.post_data_json['point_id'])['captured']=True
             data=state()
             if data['next_point'] is None:
-                model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
+                if model.get('diagnostic'):
+                    assert request.post_data_json['replace'] is True
+                    assert request.post_data_json['session_id']=='browser-session'
+                    records=operator_records();old=fit_points(records)
+                    xyz=old['point_diagnostics'][-1]['predicted_xyz_mm'];records['V1']['robot_xyz_mm']=xyz
+                    model['fit']=fit_points(records)
+                    model['last_capture']={'point_id':'V1','capture_id':'f'*32,'capture_revision':6,
+                        'captured_at':'2026-11-14T06:52:53+00:00','xyz_mm':xyz,
+                        'previous_xyz_mm':old['point_diagnostics'][-1]['recorded_xyz_mm'],
+                        'xyz_change_mm':(-np.array(old['point_diagnostics'][-1]['recorded_minus_predicted_mm'])).tolist(),
+                        'change_norm_mm':old['validation_error_mm'],'xyz_unchanged':False,
+                        'previous_validation_error_mm':old['validation_error_mm']}
+                    data=state()
+                else:model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
         elif path=='/bench/rsi/history':data={"trials":model.get('trials',[])}
         elif path=='/bench/rsi/state':data={"api_version":7,"setup_id":"bench-layout-v2","health":health(),"plan":None,
@@ -162,6 +178,28 @@ def check(url, output):
         page.locator('#release').click();page.locator('#error').filter(has_text='HTTP 500').wait_for()
         assert 'Unexpected token' not in page.locator('#error').inner_text()
         model['error']=False
+        # An existing failed calibration explains its direction without any new capture.
+        model['diagnostic']=True;model['square_mm']=24.92;model['fit']=fit_points(operator_records())
+        page.reload();page.locator('#fitHelp').filter(has_text='第 3 行、第 5 列').wait_for()
+        assert page.locator('#square').input_value()=='24.92'
+        assert '24.92' in page.locator('#squareHint').inner_text()
+        assert '1.06' in page.locator('#fitHelp').inner_text()
+        assert '26.688' in page.locator('#fitChecks').inner_text()
+        posts=len([c for c in calls if c[0]=='POST'])
+        page.locator('#recheckPoint').click();assert page.locator('#targetName').inner_text()=='V1'
+        assert '第3行、第5列' in page.locator('#targetGrid').inner_text()
+        assert len([c for c in calls if c[0]=='POST'])==posts
+        page.locator('#resultCard summary').click();assert page.locator('#pointErrors .point-error-row').count()==5
+        page.set_viewport_size({'width':390,'height':844})
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.screenshot(path=str(output/'calibration-error-diagnostics-mobile.png'),full_page=True)
+        page.locator('#supported').check();page.locator('#release').click()
+        page.get_by_text('六关节已释放',exact=True).wait_for()
+        page.locator('#aligned').check();page.locator('#capture').click()
+        page.locator('#captureReceipt').filter(has_text='ffffffffffff').wait_for()
+        page.get_by_text('五点标定通过',exact=True).wait_for()
+        assert '26.688 → 0.000' in page.locator('#captureReceipt').inner_text()
+        model['diagnostic']=False;model['square_mm']=24.
         page.set_viewport_size({"width":390,"height":844});page.reload()
         page.locator('#frame').wait_for(state='visible')
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
@@ -197,6 +235,7 @@ def check(url, output):
                       "HTTP500 no JSON syntax error","live five-point overlay with selected/captured states",
                       "stale preview blocks alignment but allows torque restore","390px live overlay letterboxing",
                       "390px responsive layout","retired-page redirects","no page errors",
+                      "failed held-out residuals, grid row/column hint, restored measured size and replacement/refit receipt",
                       "raw live preview before reference; explicit fresh 54-corner calibration resets points without torque commands"]}
     (output/'report.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))

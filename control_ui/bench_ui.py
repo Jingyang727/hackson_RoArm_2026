@@ -42,6 +42,7 @@ class CaptureRequest(BaseModel):
     point_id: Literal["P1", "P2", "P3", "P4", "V1"]
     aligned_and_supported: bool
     replace: bool = False
+    session_id: str|None = Field(default=None,max_length=128)
 
 
 def _call(function, *args, **kwargs):
@@ -53,7 +54,7 @@ def _call(function, *args, **kwargs):
 
 def state(service):
     path = session_path()
-    result = {"bench_api_version":2,"setup_id": setup_id(), "session_exists": path.is_file(), "health": service.health(),
+    result = {"bench_api_version":3,"setup_id": setup_id(), "session_exists": path.is_file(), "health": service.health(),
               "recalibration_required":not path.is_file() and (calibration_root(Path.home(),setup_id())/'active-session.json').exists(),
               "current_image_available": path.is_file() and path.with_name("current.png").is_file()}
     if path.is_file():
@@ -150,10 +151,11 @@ def install(app, service_provider):
             raise HTTPException(status_code=409, detail="请持续支撑机械臂，确认触点对准角点且静止，再采点")
         service = service_provider()
         # Lock acquisition order is session -> serial, matching the CLI.
-        result = _call(bench.capture_point, session_path(), req.point_id, aligned=True,
-                       replace=req.replace, arm_service=service, allow_manual=True)
+        path=session_path()
+        result = _call(bench.capture_point, path, req.point_id, aligned=True,
+                       replace=req.replace, arm_service=service, allow_manual=True,expected_session_id=req.session_id)
         if result["next_point"] is None:
-            result = _call(bench.fit_session, session_path())
+            result = _call(bench.fit_session, path)
         return result
 
     @router.get("/frame")
