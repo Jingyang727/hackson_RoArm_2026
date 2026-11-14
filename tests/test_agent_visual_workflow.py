@@ -102,3 +102,31 @@ class DecisionTool(unittest.TestCase):
             result=invoke(parser().parse_args(['vision','a'*32]),api)
             self.assertTrue(Path(result['images'][0]['local_path']).is_file())
             self.assertNotIn('camera_geometry',result['vision_task'])
+            self.assertEqual(result['transport']['expected_visual_tool_calls'],0)
+            self.assertIn('@.evoarm-agent-evidence/',result['vision_task'])
+
+    def test_six_frames_are_attached_in_one_task_without_accidental_extra_file_mentions(self):
+        data=b'image-data';key='a'*32;packet_id='b'*16
+        rows=[{'url':f'/api/bench/rsi/plans/{key}/vision-{packet_id}-{i}',
+            'sha256':hashlib.sha256(data).hexdigest(),'role':'current','label':'sample @outside.env',
+            'elapsed_s':seconds} for i,seconds in enumerate((0.,4.004,5.606,7.474,9.743,10.011))]
+        api=Mock();api.request.side_effect=[{'plan_id':key,'vision_packet_id':packet_id,'phase':'result',
+            'instructions':'只看本轮','images':rows},*([data]*6)]
+        with tempfile.TemporaryDirectory(prefix='project with spaces ') as tmp,patch.object(Path,'cwd',return_value=Path(tmp)):
+            value=invoke(parser().parse_args(['vision',key]),api);task=value['vision_task']
+            mentions=[line for line in task.splitlines() if line.startswith('@')]
+            self.assertEqual(len(mentions),6)
+            self.assertTrue(all(' ' not in line and str(tmp) not in line for line in mentions))
+            self.assertNotIn('@outside.env',task)
+            self.assertIn('"elapsed_s": 10.011',task)
+            self.assertEqual(value['transport']['attachment_count'],6)
+            saved=Path(tmp)/'.evoarm-agent-evidence'/key/'vision'/packet_id/'vision-task.json'
+            self.assertEqual(json.loads(saved.read_text())['vision_task'],task)
+
+    def test_failed_image_hash_is_not_forwarded_as_an_attachment(self):
+        key='a'*32;packet_id='b'*16;api=Mock()
+        api.request.side_effect=[{'plan_id':key,'vision_packet_id':packet_id,'phase':'result','instructions':'只看图',
+            'images':[{'url':f'/api/bench/rsi/plans/{key}/vision-{packet_id}-0','sha256':'0'*64}]},b'incorrect bytes']
+        with tempfile.TemporaryDirectory() as tmp,patch.object(Path,'cwd',return_value=Path(tmp)):
+            with self.assertRaisesRegex(ValueError,'校验失败'):invoke(parser().parse_args(['vision',key]),api)
+            self.assertFalse(list(Path(tmp).rglob('vision-task.json')))

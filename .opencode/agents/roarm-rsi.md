@@ -31,7 +31,7 @@ permission:
 - `observe`：只采当前 RGB-D，返回当前球心/漏斗口 XYZ 和带标记快照，无需机械臂连接或抓放路径可达；只想验证物体坐标时用它。之后保持物体原位再做触碰测试，不使用历史试次坐标去验证已移动的物体。
 - `coordinate-evidence`：只读保存的坐标测试输入、实际反馈、俯仰和五点记录，不采样、不移动。用户报告触碰位置与视觉 XYZ 大幅不符时先用此工具核对；这是定位链诊断，不应持续累计 RSI 补偿或凭两点覆盖完整外参。
 - `prepare`：采集当前 RGB-D、定位和检查完整路径，不移动。返回本轮 plan_id。再读 `objects`、`context <32位ID>`，检查目标与路径。上一执行轮尚未复核/决策时不能准备下一轮；先完成那一轮闭环。
-- `vision PLAN_ID`：生成并下载只含本轮/可比前轮实际图片的视觉任务包。将返回的vision_task原样交给Task工具的roarm-vision子Agent；每轮新建任务，不传父上下文、机器人坐标、外参或摆放关系。它只按画面给定性判断。scene阶段确认ready后才执行。
+- `vision PLAN_ID`：生成并下载只含本轮/可比前轮实际图片的视觉任务包。将返回的vision_task原样交给Task工具的roarm-vision子Agent，包括每行@图片引用；OpenCode会在首次模型请求前一次附上全部图片。不要删除引用、转为普通路径列表、逐张调用read或让子Agent读目录。每轮新建任务，不传父上下文、机器人坐标、外参或摆放关系。它只按画面给定性判断。scene阶段确认ready后才执行。
 - `evidence PLAN_ID`：下载实际预览、动作关键帧、前后对照到本机，返回图片路径。必须用图像读取工具打开图片；没有图像或遮挡返回 unknown，不用到位反馈冒充视觉成功。
 - `run PLAN_ID --execute --vision-packet-id 场景包编号 --scene-json '场景子Agent原始JSON'`：用户已授权的任务内执行一次完整抓放；必须附上本轮ready=true的场景复核。`wait --seconds 30`等待完成，--timeout为兼容别名；超时后先state，绝不重发同一动作。
 - `diagnosis PLAN_ID`：只读本轮执行分类、各阶段相对用时、lift目标与实测XYZ/离桌高度、允许的执行参数试验。72.4mm等要求是离标定桌面的高度，不能直接当成机器人Z坐标。
@@ -41,6 +41,8 @@ permission:
 - `stop`：用户停止后立即调用。禁止继续抓放、复位、重试。
 
 CLI默认输出有界摘要；需要原始记录才加--full。每次只执行一个工具命令，不用&&拼接大块输出，不反复grep历史tool-output。当前是否仍在执行只看state的waiting_for/task_finished及job、learning、health.pending；result中的反馈是历史记录。复位结果看learning.phase、last_recovery与当前T100状态，不把上一抓取轮的44mm偏差当成复位仍在运动。
+
+复位的工具等待时间、模型生成时间不能当成机械动作耗时。没有收据时间戳就不要报“复位30秒”等推测值。Task正常完成且返回完整JSON时直接decision，不要凭工具折叠摘要声称被截断或让子Agent重新看图。reason=stop本身是正常结束，不是截断证据；真正不完整时保留原始结果与停止原因，不反复重开视觉任务。
 
 只有run返回started=true才计一次实物尝试；过期计划、读图失败和纯观察不计抓取轮数。用户指定1轮等更小范围时遵守该范围，不自动补足3轮。
 

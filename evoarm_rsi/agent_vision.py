@@ -39,9 +39,12 @@ def packet(current,comparison,root,capture_root):
             if Path(name).name!=name:raise ValueError('关键帧文件名无效')
             frames.append({'path':folder/name,'role':'current','label':row['label'],'elapsed_s':row['elapsed_s']})
         if comparison.get('available'):
+            references=[]
             for key in ('previous_frame','previous_lift_frame'):
                 row=comparison.get(key)
-                if row:frames.insert(0,{'path':Path(row['path']),'role':'previous','label':row.get('label',key),'elapsed_s':row.get('elapsed_s')})
+                if row and not any(r['path']==Path(row['path']) for r in references):
+                    references.append({'path':Path(row['path']),'role':'previous','label':row.get('label',key),'elapsed_s':row.get('elapsed_s')})
+            frames=sorted(references,key=lambda r:r['elapsed_s'] if r['elapsed_s'] is not None else -1)+frames
     if not frames:raise ValueError('缺少真实图片，不能进行视觉复核')
     source=[]
     for row in frames:
@@ -55,7 +58,7 @@ def packet(current,comparison,root,capture_root):
         axis=0 if abs(delta[0])>=abs(delta[1]) else 1
         comparison_info['expected_image_motion']=(('image_left' if delta[0]<0 else 'image_right') if axis==0 else
                                                    ('image_up' if delta[1]<0 else 'image_down'))
-    identity={'plan_id':current['id'],'phase':'scene' if scene else 'result','frames':source,'comparison':comparison_info}
+    identity={'version':2,'plan_id':current['id'],'phase':'scene' if scene else 'result','frames':source,'comparison':comparison_info}
     key=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:16]
     folder=root/'vision-evidence'/key;folder.mkdir(parents=True,exist_ok=True)
     images=[]
@@ -63,13 +66,14 @@ def packet(current,comparison,root,capture_root):
         image=cv2.imread(str(row['path']))
         if image is None:raise ValueError('视觉图片不能解码')
         path=folder/f'frame-{i:02d}.jpg'
-        if not cv2.imwrite(str(path),camera_view(image,f"{row['role'].upper()} / {row['label']}")):
+        elapsed=f" / t={row['elapsed_s']:.3f}s" if row.get('elapsed_s') is not None else ''
+        if not cv2.imwrite(str(path),camera_view(image,f"FRAME {i+1:02d} / {row['role'].upper()} / {row['label']}{elapsed}")):
             raise ValueError('视觉图片保存失败')
         images.append({**source[i],'url':f"/api/bench/rsi/plans/{current['id']}/vision-{key}-{i}",
                        'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
     instructions=('只读取本包实际图片，确认标记的是黄球与黑色漏斗开口、夹爪为空。路径叠加只是计划。'
                   '不猜机器人摆放或数值坐标，返回JSON {"ready":true或false,"note":"中文可见依据"}。') if scene else INSTRUCTIONS
-    value={'vision_packet_id':key,'plan_id':current['id'],'phase':identity['phase'],'frame':'unmirrored_rgb',
+    value={'vision_packet_version':2,'vision_packet_id':key,'plan_id':current['id'],'phase':identity['phase'],'frame':'unmirrored_rgb',
            'instructions':instructions,'comparison':comparison_info,'images':images,
            'execution':{'grasp_attempted':bool(result.get('grasp_attempted')),'placement_attempted':bool(result.get('placement_attempted')),
                         'motion_completed':bool(result.get('motion_completed'))}}

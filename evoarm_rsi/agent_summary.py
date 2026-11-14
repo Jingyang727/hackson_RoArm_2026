@@ -63,6 +63,6 @@ def summarize(command,value):
             'memory':{'notes':[{**pick(r,('plan_id','at_unix')),'note':r.get('note','')[:600]} for r in memory.get('notes',[])[-4:]]}}
     if command=='readiness':return {**{k:v for k,v in value.items() if k not in ('health','robot')},'health':health(value.get('health',{})),
         'robot':pick(value.get('robot') or {},('T','x','y','z','tit','r','g'))}
-    if command=='vision':return pick(value,('plan_id','vision_packet_id','phase','vision_task'))
+    if command=='vision':return pick(value,('plan_id','vision_packet_id','phase','transport','vision_task'))
     if command=='decision':return review(value)
     return value

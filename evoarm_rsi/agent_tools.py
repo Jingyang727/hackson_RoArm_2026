@@ -125,6 +125,7 @@ def invoke(args,controller):
         return {'context':context,'images':paths,'missing':missing,
                 'instruction':'用图片读取工具打开这些实际图片，再做复核；没有看到图像时返回unknown，不凭坐标宣称成功。'}
     if command=='vision':
+        started=time.monotonic()
         packet=controller.request('/vision-context/'+args.plan_id)
         folder=Path.cwd()/'.evoarm-agent-evidence'/args.plan_id/'vision'/packet['vision_packet_id'];folder.mkdir(parents=True,exist_ok=True)
         for i,row in enumerate(packet['images']):
@@ -134,7 +135,20 @@ def invoke(args,controller):
             path=folder/f'frame-{i:02d}.jpg';path.write_bytes(data);row['local_path']=str(path)
         # Only this packet is passed to the visual task: no main-agent context,
         # robot coordinates, extrinsics, policies or remembered view relationship.
-        packet['vision_task']=packet['instructions']+'\n'+json.dumps({k:v for k,v in packet.items() if k!='instructions'},ensure_ascii=False)
+        # Task.resolvePromptParts expands these @ references into image parts
+        # BEFORE the first visual model call in OpenCode 1.19. No model-driven
+        # read calls are necessary. Relative references also work in paths with spaces.
+        frames=[{**{k:row[k] for k in ('role','label','elapsed_s') if k in row},
+                 'frame_number':i+1,'filename':f'frame-{i:02d}.jpg'} for i,row in enumerate(packet['images'])]
+        metadata={k:packet[k] for k in ('plan_id','vision_packet_id','phase','comparison','execution') if k in packet}
+        metadata['frames']=frames
+        mentions=['@'+str(Path(row['local_path']).relative_to(Path.cwd())) for row in packet['images']]
+        packet['vision_task']=(packet['instructions']+'\n全部图片由本次Task一次附上，按图内序号和时间看时序；不要调用任何工具。'
+            '直接返回唯一完整JSON，不要Markdown、思考过程或长解释；note最多60字，comparison.note最多40字。\n'
+            +json.dumps(metadata,ensure_ascii=False).replace('@','\\u0040')+'\n'
+            +'以下图片引用必须原样保留，由OpenCode自动附图：\n'+'\n'.join(mentions))
+        packet['transport']={'mode':'opencode_task_attachments','attachment_count':len(mentions),'expected_visual_tool_calls':0,
+                             'prepared_at_unix':time.time(),'prepare_elapsed_s':round(time.monotonic()-started,3)}
         path=folder/'vision-task.json';path.write_text(json.dumps(packet,ensure_ascii=False,indent=2))
         return packet
     raise ValueError('未知工具')
