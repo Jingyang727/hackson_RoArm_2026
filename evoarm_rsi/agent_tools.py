@@ -10,6 +10,7 @@ import time
 from urllib.error import HTTPError,URLError
 from urllib.parse import urlsplit
 from urllib.request import Request,build_opener,ProxyHandler
+from .agent_summary import summarize
 
 PREFIX='/api/bench/rsi'
 RUN_DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
@@ -37,6 +38,7 @@ class Controller:
 
 
 def plan_id(value):
+    value=value.removeprefix('PLAN_ID=').removeprefix('plan_id=')
     if not re.fullmatch('[a-f0-9]{32}',value):raise argparse.ArgumentTypeError('需32位试次ID')
     return value
 
@@ -66,7 +68,10 @@ def invoke(args,controller):
     if command=='coordinate-evidence':return controller.request('/agent/coordinate-evidence')
     if command=='objects':return objects(controller.request('/state'))
     if command=='history':return controller.request('/history')
-    if command=='prepare':return controller.request('/prepare',{})
+    if command=='prepare':return controller.request('/prepare',{'source':'opencode_agent'})
+    if command=='diagnosis':
+        value=controller.request('/context/'+args.plan_id)
+        return summarize('context',value)['result']
     if command=='observe':return controller.request('/observe',{})
     if command=='remember':return controller.request('/agent/memory',{'note':args.note,'plan_id':args.plan_id})
     if command=='review':
@@ -105,7 +110,7 @@ def invoke(args,controller):
         end=time.monotonic()+args.seconds
         while True:
             state=controller.request('/state')
-            if state['learning']['status']!='running' and state['job'].get('status') not in ('running','preparing'):
+            if summarize('state',state)['task_finished']:
                 return state
             if time.monotonic()>=end:raise ValueError('等待超时；未自动重发动作。先读取state确认状态')
             time.sleep(.5)
@@ -141,21 +146,27 @@ def parser():
     for name in ('state','objects','history','coordinate-evidence','observe','prepare','stop','readiness'):sub.add_parser(name)
     context=sub.add_parser('context');context.add_argument('plan_id',type=plan_id,nargs='?')
     memory=sub.add_parser('remember');memory.add_argument('--note',required=True);memory.add_argument('--plan-id',type=plan_id)
+    diagnosis=sub.add_parser('diagnosis');diagnosis.add_argument('plan_id',type=plan_id)
     review=sub.add_parser('review');source=review.add_mutually_exclusive_group(required=True)
     source.add_argument('--file');source.add_argument('--json')
     decision=sub.add_parser('decision');decision.add_argument('--json',required=True)
     run=sub.add_parser('run');run.add_argument('plan_id',type=plan_id);run.add_argument('--execute',action='store_true')
     run.add_argument('--vision-packet-id');run.add_argument('--scene-json')
     reset=sub.add_parser('reset');reset.add_argument('--execute',action='store_true')
-    wait=sub.add_parser('wait');wait.add_argument('--seconds',type=float,default=60)
+    wait=sub.add_parser('wait');wait.add_argument('--seconds','--timeout',dest='seconds',type=float,default=60)
     evidence=sub.add_parser('evidence');evidence.add_argument('plan_id',type=plan_id)
     vision=sub.add_parser('vision');vision.add_argument('plan_id',type=plan_id)
+    for name in ('state','wait','context','readiness','vision','decision'):
+        sub.choices[name].add_argument('--full',action='store_true',help='输出完整原始数据；默认只输出Agent所需摘要')
     return result
 
 
 def main():
     args=parser().parse_args()
-    try:result=invoke(args,Controller(args.url));print(json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False))
+    try:
+        result=invoke(args,Controller(args.url))
+        if not getattr(args,'full',False):result=summarize(args.command,result)
+        print(json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False))
     except (OSError,ValueError,URLError) as exc:
         print(json.dumps({'error':str(exc),'action_reissued':False},ensure_ascii=False));raise SystemExit(1)
 

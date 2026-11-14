@@ -11,7 +11,7 @@ let state=null,busy=false,polling=false,revision=0,historyKey=null;
 const stream={active:false,sequence:0,generation:0,controller:null,timer:null,url:null};
 const number=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(1):'—';
 const xyz=v=>Array.isArray(v)?v.map(number).join(', '):'—';
-const parameterNames={pickup_xy_mm:'抓取 XY 补偿（mm）',release_xy_mm:'投放 XY 补偿（mm）',grasp_z_offset_mm:'抓取高度补偿（mm）',finger_offset_mm:'指尖偏移（mm）',squeeze_deg:'预紧角度（°）',travel_speed:'移动速度',release_clearance_mm:'投放间隙（mm）'};
+const parameterNames={pickup_xy_mm:'抓取 XY 补偿（mm）',release_xy_mm:'投放 XY 补偿（mm）',grasp_z_offset_mm:'抓取高度补偿（mm）',finger_offset_mm:'指尖偏移（mm）',squeeze_deg:'预紧角度（°）',travel_speed:'移动速度',release_clearance_mm:'投放间隙（mm）',lift_height_mm:'抬升目标离桌高度（mm）',approach_speed:'下探速度'};
 function targets(plan){
   const overlay=$('targetOverlay'),caption=$('targetCaption');overlay.replaceChildren();overlay.toggleAttribute('hidden',!plan);caption.hidden=!plan;
   if(!plan)return;
@@ -39,7 +39,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':(grok.reason||'正在检查公司Grok API配置。')+' 使用OpenCode /roarm-rsi时沿用已登录模型，无需本页API配置。';
-  const compatible=state?.api_version===9;
+  const compatible=state?.api_version===10;
   $('observeObjects').disabled=busy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
@@ -70,7 +70,7 @@ function render(){
     $('sceneFacts').textContent=`原始画面像素：黄球 (${xyz(ball.pixel_center)})；漏斗 (${xyz(funnel.pixel_center)})；u 向右、v 向下\n球心 XYZ：${xyz(ball.center_robot_mm)} mm\n${depth.depth_used?'使用球面深度拟合':'深度不足，使用保存桌面与34mm球径估计'}；深度样本 ${depth.valid_samples} 个\n漏斗口 XYZ：${xyz(funnel.mouth_center_robot_mm)} mm`;
     if($('depthFrame').getAttribute('src')!==p.depth_url)$('depthFrame').src=p.depth_url;
     const scale=p.scene.depth_scale;$('depthLegend').textContent=scale?`颜色范围：到相机 ${number(scale.near_mm)} ～ ${number(scale.far_mm)} mm；黑色表示深度缺失。`:'颜色表示表面到相机的距离，单位毫米。';
-    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version===3?'先竖直抬高→高处平移→竖直下探；实际反馈偏移时竖直段保持实测XY。':''}\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
+    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version===4?(p.route_policy.merged_high_approach?'先保证离桌间隙；高处合并接近与姿态调整，再竖直下探，抬升时切换运输姿态。':'先竖直抬升，再分段高处接近、竖直下探；抬升时切换运输姿态。'):''}\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
     $('archiveLink').hidden=!p.backup_url;if(p.backup_url)$('archiveLink').href=p.backup_url;
     $('backupStatus').textContent=p.backup_url?'完整试次已备份；Langfuse待同步记录已生成。':r?'正在整理本轮备份…':'观察数据已保存；动作结束后生成完整备份。';
   }
@@ -78,6 +78,12 @@ function render(){
   if(r){
     const timing=Number.isFinite(r.physical_elapsed_s)?`动作耗时 ${number(r.physical_elapsed_s)} 秒`:'动作未完整结束，时序已保留';
     $('resultText').textContent=`闭爪${r.grasp_attempted?'已发送':'未发送'}；投放${r.placement_attempted?'已发送':'未发送'}；${timing}。${r.motion_error?'\n动作记录：'+r.motion_error:''}`;
+    const diagnosis=r.execution_diagnosis;
+    if(diagnosis){
+      const label={time_budget:'10秒动作预算用尽',clearance_shortfall:'抬升后实测离桌高度不足',complete:'动作已完整结束'};
+      $('resultText').textContent+=`\n执行诊断：${label[diagnosis.category]||diagnosis.category}。`;
+      if(diagnosis.category==='clearance_shortfall')$('resultText').textContent+=` 实测离桌 ${number(diagnosis.lift.actual_height_mm)} mm，运输要求 ${number(diagnosis.lift.required_transfer_height_mm)} mm；这里的高度不是机器人Z。`;
+    }
     if(r.capture_trial_id&&$('trialVideo').dataset.planId!==j.plan_id){$('trialVideo').src=`${prefix}/plans/${j.plan_id}/video`;$('trialVideo').dataset.planId=j.plan_id;}
     $('rawVideoLink').href=`${prefix}/plans/${j.plan_id}/raw-video`;$('keyframesLink').href=`${prefix}/plans/${j.plan_id}/keyframes`;
   }else $('resultText').textContent=j.status==='running'?'本轮正在执行，结束后显示动作结果与录像。':'当前观察图与定位诊断；尚未执行本轮抓放。';

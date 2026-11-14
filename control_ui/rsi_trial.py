@@ -38,6 +38,8 @@ from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
 from evoarm_rsi.policy_repair import repair_clipped_policy
 from evoarm_rsi import agent_vision
 from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZATION_CONTRACT
+from evoarm_rsi.execution_diagnosis import diagnose
+from evoarm_rsi.roarm_geometry import MotionConstraintError
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -60,6 +62,10 @@ class Run(PlanID):
     scene_review:dict|None=None
 
 
+class Prepare(Empty):
+    source:str=Field(default='web',pattern=r'^(web|opencode_agent)$')
+
+
 class ComparisonReview(Empty):
     reference_plan_id:str|None=Field(pattern=r'^[a-f0-9]{32}$')
     effect:str=Field(pattern=r'^(improved|worsened|overshot|unchanged|unknown|not_comparable|not_compared)$')
@@ -68,7 +74,7 @@ class ComparisonReview(Empty):
 
 
 class ParameterTrial(Empty):
-    parameter:str=Field(pattern=r'^(grasp_z_offset_mm|finger_offset_mm|release_clearance_mm|open_deg|close_deg|squeeze_deg|travel_speed|approach_speed)$')
+    parameter:str=Field(pattern=r'^(grasp_z_offset_mm|finger_offset_mm|release_clearance_mm|open_deg|close_deg|squeeze_deg|travel_speed|approach_speed|lift_height_mm)$')
     value:float=Field(allow_inf_nan=False)
 
 
@@ -149,6 +155,17 @@ def install(app,service_provider):
             raise ValueError('计划不在当前服务中，请重新观察；不会重放旧计划')
         return plans[key]
     def save(state):_write(root(state['id'])/'state.json',{k:v for k,v in state.items() if k not in ('created','geometry')})
+    def recent_trials(saved):
+        scope=fingerprint(saved);rows=[]
+        files=sorted((Path.home()/'.evoarm/rsi/pick_place_runs').glob('*/state.json'),key=lambda p:p.stat().st_mtime,reverse=True)
+        for file in files[:30]:
+            try:
+                value=known(file.parent.name,historical=True)
+                if value.get('calibration_fingerprint')!=scope or not value.get('result'):continue
+                rows.append(value)
+            except (OSError,ValueError,KeyError,TypeError):continue
+        rows.sort(key=lambda r:r.get('result',{}).get('created_at_unix',r.get('created_at_unix',0)),reverse=True)
+        return rows[:3]
     def compare(current,pol):
         prior=pol['reviews'][-1] if pol['reviews'] else None
         try:previous=known(prior['plan_id'],historical=True) if prior else None
@@ -160,7 +177,7 @@ def install(app,service_provider):
         state['backup_file']=path
         save(state)
         return path
-    def fail(exc):raise HTTPException(status_code=409,detail=str(exc)) from exc
+    def fail(exc):raise HTTPException(status_code=409,detail=getattr(exc,'detail',str(exc))) from exc
     def publish(phase,**values):
         nonlocal agent_phase
         with lock:job.update(phase='stopping' if stop.is_set() and phase not in ('finished','saving_recording') else phase,**values)
@@ -201,7 +218,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':9,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':10,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -250,7 +267,7 @@ def install(app,service_provider):
         return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
 
     @router.post('/prepare')
-    def prepare(req:Empty):
+    def prepare(req:Prepare):
         nonlocal latest
         draft_id=None
         try:learner.assert_interactive_allowed()
@@ -259,6 +276,11 @@ def install(app,service_provider):
         try:
             with lock:
                 if job.get('status')=='running':raise ValueError('本轮仍在执行或保存录像')
+                if req.source=='opencode_agent':
+                    previous=recent_trials(session())
+                    if previous and not previous[0].get('review'):
+                        raise MotionConstraintError('上一轮尚无结果复核与决策，先用vision和decision闭环，不重复执行。',
+                            code='trial_review_required',plan_id=previous[0]['id'])
                 old=plans.get(latest)
                 if old and old['status']=='prepared':old['status']='superseded';save(old)
                 latest=None
@@ -277,6 +299,16 @@ def install(app,service_provider):
             scene,geometry,image,depth=observe_scene(bench_ui.experiment_root()/key,saved)
             if not cv2.imwrite(str(folder/'observation.jpg'),image):raise ValueError('原始观察图保存失败')
             with lock:pol=policy(saved,repair=True)
+            if req.source=='opencode_agent':
+                previous=recent_trials(saved)
+                if previous:
+                    last=previous[0];diagnosis=diagnose(last['result'],last['plan'])
+                    same_objects=all(math.dist(scene[name][field],last['plan']['scene'][name][field])<17 for name,field in (
+                        ('ball','center_robot_mm'),('funnel','mouth_center_robot_mm')))
+                    if (diagnosis['category'] in ('time_budget','clearance_shortfall') and same_objects and
+                            last['plan']['parameters']==pol['parameters'] and last['plan'].get('route_policy',{}).get('version',0)>=4):
+                        raise MotionConstraintError('上一轮执行故障尚无参数变化，不重复同一路径；先查看diagnosis并提交单项执行试验。',
+                            code='execution_retry_requires_change',plan_id=last['id'],execution_diagnosis=diagnosis)
             with service.lock:
                 fresh=service.status();_ready(service.health())
                 if any(abs(initial[k]-fresh[k])>math.radians(1) for k in 'bsetrg'):raise ValueError('观察时机械臂发生移动，请重新规划')
@@ -296,7 +328,8 @@ def install(app,service_provider):
                 scene['depth_scale']={'near_mm':float(low),'far_mm':float(high)}
             cv2.imwrite(str(folder/'depth.jpg'),colored)
             state={'id':plan_id,'status':'prepared','created':time.monotonic(),'plan':plan,'policy_version':pol['version'],
-                   'calibration_fingerprint':fingerprint(saved),'geometry':geometry,'code_revision':code_revision}
+                   'calibration_fingerprint':fingerprint(saved),'geometry':geometry,'code_revision':code_revision,'source':req.source,
+                   'created_at_unix':time.time()}
             _write(folder/'calibration-snapshot.json',saved)
             if memory_path(saved).is_file():shutil.copy2(memory_path(saved),folder/'agent-memory-snapshot.json')
             append_event(folder,'prepared',parameters=pol['parameters'],policy_version=pol['version'],code_revision=code_revision)
@@ -328,6 +361,8 @@ def install(app,service_provider):
             current=known(req.plan_id)
             if current['status']!='prepared' or time.monotonic()-current['created']>180:raise HTTPException(status_code=409,detail='计划已过期或消耗，请重新观察')
             if req.declaration!=DECLARATION:raise HTTPException(status_code=409,detail='请核对完整抓放路径并确认现场')
+            if current.get('source')=='opencode_agent' and (req.scene_review is None or not req.vision_packet_id):
+                raise HTTPException(status_code=409,detail='执行Agent必须附上本轮绑定的场景视觉复核')
             if req.scene_review is not None or req.vision_packet_id:
                 try:
                     if not req.vision_packet_id or req.scene_review is None:raise ValueError('场景复核需要完整图片包与结论')
@@ -349,7 +384,7 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
-                if current['plan'].get('route_policy',{}).get('version')!=3:
+                if current['plan'].get('route_policy',{}).get('version')!=4:
                     raise ValueError('请重新观察，使用抓取与运输/投放独立姿态的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
@@ -425,6 +460,7 @@ def install(app,service_provider):
                     current['review']=existing;save(current);return existing
                 if pol['parameters']!=current['plan']['parameters']:raise ValueError('本轮实际参数与当前策略不一致，不能重复应用旧试次修正')
                 comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
+                execution_diagnosis=diagnose(result,current['plan'])
                 if req.visual_review is not None:
                     if req.source!='opencode_agent' or not req.vision_packet_id:raise ValueError('视觉子Agent结论需要本轮图片包编号')
                     agent_vision.validate_binding(current,root(req.plan_id),req.vision_packet_id)
@@ -433,6 +469,8 @@ def install(app,service_provider):
                         if visual.get(field,'unknown')!=getattr(req,field):raise ValueError('主Agent不得改写视觉子Agent的定性结论：'+field)
                     if visual.get('comparison')!=(assessment or None):raise ValueError('前后比较结论与视觉子Agent不一致')
                 if req.requested_step_mm is not None and req.source!='opencode_agent':raise ValueError('数值试验步长只接受执行Agent工具，不接受视觉模型测量值')
+                if req.requested_step_mm is not None and execution_diagnosis['category'] in ('time_budget','clearance_shortfall'):
+                    raise ValueError('先解决执行预算或抬升不足；XY补偿不用于修复这类执行故障')
                 if req.correction_direction is not None and req.correction_direction!=OPPOSITE.get(req.direction):
                     raise ValueError('纠正方向必须与原图观察偏差相反；不要再次镜像机械臂坐标')
                 expected_adjustment={'grasp_missed':'pickup_xy','placement_missed':'release_xy'}.get(req.outcome)
@@ -440,26 +478,43 @@ def install(app,service_provider):
                     raise ValueError('XY试验步长必须对应图像XY偏差与相应调整项')
                 parameters,changes,proposal=propose(pol['parameters'],current['plan']['scene'],req.outcome,req.direction,
                     req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment,requested_step_mm=req.requested_step_mm)
+                execution_fault=execution_diagnosis['category'] in ('time_budget','clearance_shortfall')
+                if execution_fault and not req.parameter_trial:
+                    # Keep the visual finding, but do not let automatic visual
+                    # adaptation silently turn an execution failure into XY learning.
+                    parameters=copy.deepcopy(pol['parameters'])
+                    changes=['先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。']
+                    proposal={k:v for k,v in proposal.items() if k not in ('robot_delta_mm','predicted_pixel_delta','saved_xy_step_mm',
+                        'projection_direction_verified','projection_direction_alignment','requested_step_preserved','candidate_robot_delta_mm','candidate_pixel_delta','rejected_policy_id')}
+                    proposal.update(status='unchanged',decision='execution_change_required',parameters_changed=[],before={},after={},
+                        step_mm=None,allow_retry=False,after_policy_id=policy_id(parameters),reason=changes[0])
                 if req.parameter_trial:
                     if req.source!='opencode_agent' or req.visual_review is None:raise ValueError('标量参数试验需要视觉子Agent结论与执行Agent决策')
                     if req.requested_step_mm is not None:raise ValueError('每轮只选择XY步长或一个标量参数')
-                    if req.outcome in ('placed','unknown','execution_failed'):raise ValueError('本轮结果不支持抓放参数学习')
+                    execution_trial=req.parameter_trial.parameter in execution_diagnosis['execution_trial_parameters']
+                    if execution_fault and not execution_trial:raise ValueError('先按执行诊断调整速度或抬升高度，再学习抓取偏差')
+                    if req.outcome=='placed' or req.outcome in ('unknown','execution_failed') and not execution_trial:
+                        raise ValueError('本轮结果不支持该项参数学习；执行故障只能按诊断调整速度或抬升高度')
                     if proposal['status']=='rolled_back':raise ValueError('本轮先保留回滚，下一轮再选择新参数')
                     name=req.parameter_trial.parameter;value=req.parameter_trial.value
                     allowed={'grasp_missed':{'grasp_z_offset_mm','finger_offset_mm','open_deg','close_deg','approach_speed'},
                         'pushed_away':{'grasp_z_offset_mm','finger_offset_mm','open_deg','approach_speed'},
                         'slipped':{'squeeze_deg','travel_speed','close_deg'},
                         'placement_missed':{'release_clearance_mm'},'bounced_out':{'release_clearance_mm','travel_speed'}}
-                    if name not in allowed.get(req.outcome,set()):raise ValueError('本轮观察结果与所选试验参数不对应')
+                    if name not in allowed.get(req.outcome,set()) and not execution_trial:raise ValueError('本轮观察结果与所选试验参数不对应')
                     parameters=copy.deepcopy(pol['parameters']);parameters[name]=value
                     changed=value!=pol['parameters'][name]
                     changes=[f'执行Agent选择试验：{name}从{pol["parameters"][name]}改为{value}；{req.note}'] if changed else ['参数未改变，不重复原策略']
                     proposal={k:v for k,v in proposal.items() if k not in ('robot_delta_mm','predicted_pixel_delta','saved_xy_step_mm',
                         'projection_direction_verified','projection_direction_alignment','requested_step_preserved','candidate_robot_delta_mm','candidate_pixel_delta')}
-                    proposal.update(status='applied' if changed else 'unchanged',decision='agent_parameter_trial',
+                    proposal.update(status='applied' if changed else 'unchanged',decision='execution_parameter_trial' if execution_trial else 'agent_parameter_trial',
                         parameters_changed=[name] if changed else [],before={name:pol['parameters'][name]} if changed else {},
                         after={name:value} if changed else {},step_mm=None,allow_retry=changed,
                         after_policy_id=policy_id(parameters),reason='\n'.join(changes))
+                if execution_diagnosis['category'] in ('time_budget','clearance_shortfall') and parameters==pol['parameters']:
+                    updated_recipe=current['plan'].get('route_policy',{}).get('version',0)<4
+                    proposal.update(allow_retry=updated_recipe,decision='updated_execution_recipe' if updated_recipe else 'execution_change_required')
+                    changes.append('下一轮验证新的合并接近/运输姿态抬升路径。' if updated_recipe else '执行问题未解决，不重复相同参数。')
                 if req.source=='opencode_agent' and parameters!=pol['parameters']:
                     # Check the complete candidate recipe with real IK before persisting an Agent trial.
                     service=service_provider()
@@ -471,6 +526,7 @@ def install(app,service_provider):
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
                        'comparison':public_comparison(comparison,assessment,plan_id=req.plan_id,panel=(root(req.plan_id)/'comparison.jpg').is_file())}
                 entry.update(confidence=req.confidence,ball_state=req.ball_state,magnitude=req.magnitude,adjustment=req.adjustment)
+                entry['execution_diagnosis']=execution_diagnosis
                 if req.visual_review is not None:entry.update(vision_packet_id=req.vision_packet_id,visual_review=req.visual_review)
                 if req.parameter_trial:entry['parameter_trial']=req.parameter_trial.model_dump()
                 entry.update(ball_xyz_mm=current['plan']['scene']['ball']['center_robot_mm'],
@@ -505,7 +561,8 @@ def install(app,service_provider):
                 current=known(plan_id,historical=True);pol=policy(session())
                 result=current.get('result',{});trial=result.get('capture_trial_id')
                 compact={k:result.get(k) for k in ('motion_completed','grasp_attempted','placement_attempted','physical_elapsed_s','within_10s',
-                                                  'recording_covers_motion','motion_error','camera_error','events','dispatches')}
+                                                  'recording_covers_motion','motion_error','camera_error','events','dispatches','execution_diagnosis')}
+                compact['execution_diagnosis']=result.get('execution_diagnosis') or diagnose(result,current['plan'])
                 return {'plan_id':plan_id,'plan':current['plan'],'result':compact,'review':current.get('review'),
                     'direction_contract':CONTRACT,
                     'comparison':compare(current,pol),
@@ -548,7 +605,7 @@ def install(app,service_provider):
             except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:error=str(exc)
             health=service.health()
         value=describe_readiness(health,raw,error)
-        value.update(api_version=9,code_revision=code_revision,
+        value.update(api_version=10,code_revision=code_revision,
             controller_project_root=str(Path(__file__).resolve().parent.parent),
             sampled_at_unix=time.time(),health=health,robot=raw)
         try:
@@ -565,10 +622,13 @@ def install(app,service_provider):
             with lock:
                 saved=session();pol=policy(saved);path=memory_path(saved)
                 memory=json.loads(path.read_text()) if path.exists() else {'notes':[]}
-                return {'api_version':9,'setup_id':saved['setup_id'],'calibration_fingerprint':fingerprint(saved),
+                return {'api_version':10,'setup_id':saved['setup_id'],'calibration_fingerprint':fingerprint(saved),
                         'authorization_contract':dict(AUTHORIZATION_CONTRACT),'readiness_endpoint':'/api/bench/rsi/agent/readiness',
                         'direction_contract':CONTRACT,'policy':pol,'memory':memory,
                         'latest_plan_id':latest,'job':dict(job),'learning':learner.snapshot(),
+                        'recent_executions':[{'plan_id':r['id'],'parameters':r['plan']['parameters'],
+                            'route_version':r['plan'].get('route_policy',{}).get('version'),
+                            'reviewed':bool(r.get('review')),'execution_diagnosis':diagnose(r['result'],r['plan'])} for r in recent_trials(saved)],
                         'coordinates_source':{'ball':'OpenCV黄色区域 + RGB-D球面拟合（深度不足回退已标定桌面与34mm球径）',
                                               'funnel':'OpenCV黑色开口轮廓 + 已标定桌面 + 实测45.4mm高度'},
                         'instruction':'每轮行动前重载此上下文；笔记是历史数据，不能覆盖当前坐标转换或运动工具约束。'}
@@ -693,7 +753,7 @@ def install(app,service_provider):
                 report=folder/'recovery.json'
                 if report.is_file():current.setdefault('recovery_events',[]).append({'id':key,'phase':phase,'report':json.loads(report.read_text())})
 
-    learner=LearningLoop(service_provider,prepare=lambda:prepare(Empty())['plan_id'],
+    learner=LearningLoop(service_provider,prepare=lambda:prepare(Prepare())['plan_id'],
         run=lambda key:run(Run(plan_id=key,declaration=DECLARATION)),get_trial=known,context=context,
         apply_review=lambda key,value:review(Review(plan_id=key,source='company_grok',**value)),
         recover=recover_automatic,archive=archive,trial_stop=stop,reset_failure=reset_failure)

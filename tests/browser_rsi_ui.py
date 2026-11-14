@@ -27,7 +27,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':9,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':10,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -52,7 +52,7 @@ def check(url, output):
         return {'plan_id':key,'status':'active','seconds_left':180,'scene':scene,'policy_version':version,
                 'parameters':parameters,'policy_application':{'parameters_verified':True,'source_trial_id':'1'*32 if version>1 else None},
                 'steps':['raise_current','approach_ball','align_above_ball','descend','close','lift','transport','lower_to_release','release'],
-                'route_policy':{'version':3,'mode':'lift_transfer_descend'},
+                'route_policy':{'version':4,'mode':'lift_transfer_descend'},
                 'pitch_deg':80,'release_pitch_deg':50,'warnings':[],'preview_url':f'/api/bench/rsi/plans/{key}/preview',
                 'depth_url':f'/api/bench/rsi/plans/{key}/depth','backup_url':None}
     def route(handler):
@@ -214,6 +214,11 @@ def check(url, output):
         model['learning'].update(status='completed',phase='reset_completed')
         page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
+        model['job']['result']={**result,'motion_completed':False,'motion_error':'transport clearance failure',
+            'execution_diagnosis':{'category':'clearance_shortfall','lift':{
+                'actual_height_mm':56.,'required_transfer_height_mm':72.4,'actual_xyz_mm':[340,-10,-59]}}}
+        page.locator('#resultText').filter(has_text='实测离桌 56.0 mm，运输要求 72.4 mm').wait_for()
+        assert '这里的高度不是机器人Z' in page.locator('#resultText').inner_text()
         model['api_version']=5
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
@@ -230,6 +235,7 @@ def check(url, output):
         'structured outcome, direction, suggestion and confidence shown','paired actual frames and commanded vs reported displacement',
         '390px layout','no page errors']}
     report['checks'].append('fresh object coordinates and snapshot without a grasp plan or motion; recapture replaces prior coordinates')
+    report['checks'].append('execution clearance diagnosis uses plane-relative height rather than robot Z')
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

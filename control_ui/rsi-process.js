@@ -24,6 +24,8 @@
       lines.push(`Grok画面依据：${value.visual_review.note||''}`);
       if(value.note)lines.push(`执行Agent决策：${value.note}`);
     }else if(value.note)lines.push(`画面依据：${value.note}`);
+    if(value.execution_diagnosis?.category==='time_budget')lines.push('执行依据：10秒窗口内未完成，速度试验与抓取坐标修正分别记录。');
+    if(value.execution_diagnosis?.category==='clearance_shortfall')lines.push(`执行依据：实测离桌${Number(value.execution_diagnosis.lift.actual_height_mm).toFixed(1)}mm，运输要求${Number(value.execution_diagnosis.lift.required_transfer_height_mm).toFixed(1)}mm。`);
     return lines.join('\n');
   }
   function describe(row){

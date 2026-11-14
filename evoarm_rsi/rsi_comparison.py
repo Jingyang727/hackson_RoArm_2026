@@ -68,6 +68,8 @@ def build_comparison(current,previous,review,experiments):
              'feedback':{'available':False,'status':'missing','note':'固件反馈并非图像实测位移'}}
     if not previous or not review:return context
     a=previous['plan'];b=current['plan'];before=a['parameters'];after=b['parameters']
+    if a.get('route_policy',{}).get('version')!=b.get('route_policy',{}).get('version'):
+        context['reason']='执行路径版本已变化，先验证新流程，不把变化归因于单项参数';return context
     context['parameter_changes']=[{'name':k,'before':before[k],'after':after[k]} for k in before if before[k]!=after.get(k)]
     if current['id']==previous['id'] or previous['id']!=review['plan_id']:
         context['reason']='前轮ID不对应本次已应用的修正';return context

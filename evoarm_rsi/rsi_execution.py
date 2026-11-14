@@ -14,6 +14,7 @@ from .task_agent import _write
 from .rsi_journal import append_event
 from evoarm.limits import GRIPPER_MAX_RAD
 from .rsi_route import execution_target
+from .execution_diagnosis import diagnose
 MIN_VERIFIED_STEP_GAP_S=.12
 
 
@@ -125,6 +126,7 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                         if not service.fault:service.pending=reservation(run_id,index-1)
                         raise
                     service.pending=reservation(run_id,index-1)
+                    report['last_preflight']={'stage':stage['stage'],'status':actual}
                     if not report['events']:event('start')
                     event(stage['stage'])
                     if stage['kind']=='cartesian':
@@ -192,11 +194,13 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
             report['within_10s']=report['physical_elapsed_s']<=10
         except Exception as exc:
             report['motion_error']=f'{type(exc).__name__}: {str(exc)[:600]}';event('fault')
+            report['failure']={**getattr(exc,'detail',{}),'stage':stage['stage'] if 'stage' in locals() else 'recording_warmup'}
             with service.lock:
                 pending=service.pending or {}
                 if pending.get('run_id')==run_id and pending.get('stage_kind')!='reserved' and not service.fault:
                     service._latch_fault('rsi_action_unverified','本轮动作未确认，保留录像并停止后续动作')
         finally:
+            report['execution_diagnosis']=diagnose(report,plan)
             with service.lock:
                 service.disarm()
             publish('saving_recording')
@@ -219,7 +223,7 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                                 placement_attempted=report['placement_attempted'],motion_report_file='rsi-trial.json')
                 _write(trial/'manifest.json',manifest)
             except Exception as exc:report['camera_error']=f'{type(exc).__name__}: {str(exc)[:400]}'
-            try:persist()
+            try:report['execution_diagnosis']=diagnose(report,plan);persist()
             finally:
                 with service.lock:
                     if (service.pending or {}).get('run_id')==run_id and service.pending.get('stage_kind')=='reserved':service.pending=None
