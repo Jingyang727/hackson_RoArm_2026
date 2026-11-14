@@ -133,6 +133,7 @@ def _overlay(session, path):
     if not ok:
         raise CalibrationError("无法读取原录像生成采点图")
     corners = session["reference"]["corners_px"]
+    cv2.drawChessboardCorners(frame,(9,6),np.asarray(corners,dtype=np.float32).reshape(-1,1,2),True)
     for key, grid in session["points"].items():
         x, y = [round(v) for v in corners[grid[1]*9+grid[0]]]
         color = (0, 200, 255) if key == "V1" else (30, 30, 240)

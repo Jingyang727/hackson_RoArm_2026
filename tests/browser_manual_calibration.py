@@ -27,6 +27,9 @@ def check(url, output):
                 "teach_active":model["mode"]=="manual",
                 "torque_status":[0 if model["mode"]=="manual" else 1]*6 if model["known"] else None}
     def state():
+        if model.get('no_session'):
+            return {'setup_id':'bench-layout-v2','session_exists':False,'health':health(),
+                    'recalibration_required':True,'current_image_available':False}
         return {"setup_id":"bench-layout-v2","session_exists":True,"points":points,"health":health(),
                 "next_point":next((p["id"] for p in points if not p["captured"]),None),
                 "current_image_available":False,"reference_trial_id":"simulated-browser-fixture",
@@ -59,8 +62,17 @@ def check(url, output):
         if path=='/bench/live-frame':
             if model['hold']:held.append(handler);return
             return live_response(handler)
+        if path=='/bench/rsi/learning/events':
+            snapshot={'reset':True,'cursor':'idle:0','session_id':None,'events':[],'model_output':None}
+            return handler.fulfill(status=200,content_type='text/event-stream',
+                                   body='event: snapshot\ndata: '+json.dumps(snapshot)+'\n\n')
         if path=='/bench/status':data=state()
         elif path=='/bench/live/start':data={'started':True,'robot_control':False}
+        elif path=='/bench/recalibrate':
+            assert request.post_data_json=={'square_mm':24}
+            model['no_session']=False;model.pop('fit',None)
+            for point in points:point['captured']=False
+            data={**state(),'corner_count':54,'message':'已检测到完整9×6、54个角点；新五点记录已建立，旧标定保留。'}
         elif path=='/bench/sources':data={"sources":[]}
         elif path=='/ports':data=[]
         elif path=='/bench/robot':data={"health":health(),"xyz_mm":[300.,20.,-90.],"pitch_rad":.06,"roll_rad":0.,"gripper_rad":3.}
@@ -76,7 +88,8 @@ def check(url, output):
                 model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
         elif path=='/bench/rsi/history':data={"trials":model.get('trials',[])}
-        elif path=='/bench/rsi/state':data={"api_version":1,"setup_id":"bench-layout-v2","health":health(),"plan":None,"job":{"status":"idle","phase":"idle"}}
+        elif path=='/bench/rsi/state':data={"api_version":7,"setup_id":"bench-layout-v2","health":health(),"plan":None,
+                                           "learning":{"status":"idle","phase":"idle"},"job":{"status":"idle","phase":"idle"}}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=200,content_type='application/json',body=json.dumps(data))
     with sync_playwright() as playwright:
@@ -153,6 +166,19 @@ def check(url, output):
         page.locator('#frame').wait_for(state='visible')
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'calibration-mobile.png'),full_page=True)
+        # A moved layout can preview the camera before a new reference exists.
+        model['no_session']=True;model['error']=False;model['known']=True
+        page.reload();page.locator('#recalibrate').wait_for(state='visible')
+        page.locator('#liveToggle').click()
+        page.get_by_text('实时 · 待检测当前棋盘',exact=True).wait_for()
+        assert not page.locator('#pointOverlay').is_visible()
+        page.locator('#recalibrate').click()
+        page.locator('#referenceMessage').filter(has_text='54个角点').wait_for()
+        page.wait_for_function("document.getElementById('progress').textContent==='0 / 5'")
+        assert page.locator('#points button').count()==5
+        assert not page.locator('#resultCard').is_visible()
+        page.locator('#frame').wait_for(state='visible')
+        page.screenshot(path=str(output/'calibration-new-reference-mobile.png'),full_page=True)
         page.goto(url+'/experiments');page.get_by_text('还没有本分支的完整抓放试次。',exact=True).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
         page.screenshot(path=str(output/'experiments-mobile.png'),full_page=True)
@@ -170,7 +196,8 @@ def check(url, output):
             "checks":["one release, five supported captures, one final relock","retained progress on reload", "unknown torque block",
                       "HTTP500 no JSON syntax error","live five-point overlay with selected/captured states",
                       "stale preview blocks alignment but allows torque restore","390px live overlay letterboxing",
-                      "390px responsive layout","retired-page redirects","no page errors"]}
+                      "390px responsive layout","retired-page redirects","no page errors",
+                      "raw live preview before reference; explicit fresh 54-corner calibration resets points without torque commands"]}
     (output/'report.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))
 
