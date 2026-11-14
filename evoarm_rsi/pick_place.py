@@ -12,7 +12,7 @@ import numpy as np
 
 from .ball_trial import observe_ball, pixel_at_height, check_segment
 from .coordinate_test import gripper_hold
-from .roarm_geometry import forward, inverse, height_above_plane
+from .roarm_geometry import forward, inverse, height_above_plane,MotionConstraintError
 from .task_scene import load_rgbd
 from control_ui.vision import yellow_ball_mask
 from evoarm.limits import GRIPPER_MAX_RAD
@@ -160,24 +160,36 @@ def build_plan(session,status,scene,parameters):
         grasp_center=ball+normal*p['grasp_z_offset_mm']
         release_center=mouth+normal*(BALL_RADIUS+p['release_clearance_mm'])
         grasp=grasp_center-_opening_direction(ball,pitch,roll)*p['finger_offset_mm']
-        release=release_center-_opening_direction(mouth,pitch,roll)*p['finger_offset_mm']
-        grasp[:2]+=p['pickup_xy_mm'];release[:2]+=p['release_xy_mm']
+        release_candidates=[]
+        for angle in dict.fromkeys((pitch_deg,80.,75.,70.,65.,60.,50.,40.,30.,20.,10.,0.)):
+            drop_pitch=math.radians(angle)
+            tip=release_center-_opening_direction(mouth,drop_pitch,roll)*p['finger_offset_mm']
+            tip[:2]+=p['release_xy_mm']
+            release_candidates.append({'pitch_rad':drop_pitch,'xyz_mm':tip.tolist()})
+        release=release_candidates[0]['xyz_mm']
+        grasp[:2]+=p['pickup_xy_mm']
         try:
             steps,route=build_route(initial,grasp,release,pitch,plane,p,
-                ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,funnel_height=FUNNEL_HEIGHT,ball_radius=BALL_RADIUS)
+                ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,funnel_height=FUNNEL_HEIGHT,ball_radius=BALL_RADIUS,
+                release_candidates=release_candidates)
+            release=route['release_tip_xyz_mm']
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
                     'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,'route_policy':route,
                     'object_geometry':{'ball_diameter_mm':2*BALL_RADIUS,'ball_top_xyz_mm':(ball+normal*BALL_RADIUS).tolist(),
                         'grasp_center_xyz_mm':(grasp_center+np.array([*p['pickup_xy_mm'],0.])).tolist(),
                         'release_ball_center_xyz_mm':(release_center+np.array([*p['release_xy_mm'],0.])).tolist(),
                         'finger_offset_mm':p['finger_offset_mm'],'reference':'stock_fixed_fingertip_is_not_ball_center'},
-                    'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':release.tolist(),
-                    'grasp_pitch_deg':pitch_deg,'target_duration_s':10,'board_required':False,
+                    'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':list(release),
+                    'grasp_pitch_deg':pitch_deg,'release_pitch_deg':math.degrees(route['release_pitch_rad']),
+                    'target_duration_s':10,'board_required':False,
                     'camera_frame':'unmirrored_rgb','warnings':scene['warnings'],
                     'timing_verified':False,'pose_reference':'stock_firmware_fixed_fingertip'}
         except ValueError as exc:
-            if str(exc) not in failures:failures.append(str(exc))
-    raise ValueError('未找到完整抓放路径：'+'；'.join(failures[:3]))
+            detail=getattr(exc,'detail',{'message':str(exc)})
+            if detail not in failures:failures.append(detail)
+    raise MotionConstraintError('完整抓放候选路径检查未通过：'+'；'.join(f['message'] for f in failures[:1]),
+        code='pick_place_search_exhausted',attempts=[a for f in failures for a in f.get('attempts',[f])][:64],
+        grasp_pitch_candidates_deg=[80.,75.,85.,70.,90.,65.,60.])
 
 
 def preview(image,plan,geometry):

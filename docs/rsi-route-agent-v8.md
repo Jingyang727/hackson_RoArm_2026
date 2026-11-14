@@ -1,6 +1,8 @@
 # RSI v8：先抬升的抓放路径与 OpenCode/Grok 分工
 
-更新 `feature/rsi-pick-place-loop-v1` 并从正在运行的worktree重启普通用户8765服务，沿用原Gemini Python、相机服务、当前标定和24.92mm尺寸。状态 `/api/bench/rsi/state` 为 `api_version=8`，新计划 `route_policy.version=2`。更新验收先读取状态与规划预览，现场由用户开始物理任务。云端没有移动机械臂。
+本文记录v8设计。最新启动入口、授权协议与独立投放姿态见 [RSI v9](rsi-reported-failure-v9.md)。
+
+更新 `feature/rsi-pick-place-loop-v1` 并从正在运行的worktree重启普通用户8765服务，沿用原Gemini Python、相机服务、当前实际使用的标定及尺寸。v8时状态 `/api/bench/rsi/state` 为 `api_version=8`，计划 `route_policy.version=2`。更新验收先读取状态与规划预览，现场由用户开始物理任务。云端没有移动机械臂。
 
 ## 抓放路径
 

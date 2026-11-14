@@ -27,7 +27,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':8,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':9,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -52,8 +52,8 @@ def check(url, output):
         return {'plan_id':key,'status':'active','seconds_left':180,'scene':scene,'policy_version':version,
                 'parameters':parameters,'policy_application':{'parameters_verified':True,'source_trial_id':'1'*32 if version>1 else None},
                 'steps':['raise_current','approach_ball','align_above_ball','descend','close','lift','transport','lower_to_release','release'],
-                'route_policy':{'version':2,'mode':'lift_transfer_descend'},
-                'pitch_deg':80,'warnings':[],'preview_url':f'/api/bench/rsi/plans/{key}/preview',
+                'route_policy':{'version':3,'mode':'lift_transfer_descend'},
+                'pitch_deg':80,'release_pitch_deg':50,'warnings':[],'preview_url':f'/api/bench/rsi/plans/{key}/preview',
                 'depth_url':f'/api/bench/rsi/plans/{key}/depth','backup_url':None}
     def route(handler):
         request=handler.request;path=request.url.split('/api',1)[1].split('?',1)[0]
@@ -115,6 +115,7 @@ def check(url, output):
         model['job']={'status':'running','phase':'descend','plan_id':key}
         health.update(armed=True,pending={'kind':'rsi_trial'})
         page.locator('#phase').filter(has_text='下降').wait_for();assert page.locator('#start').is_disabled()
+        assert '抓取俯仰 80.0°；运输/投放俯仰 50.0°' in page.locator('#planFacts').text_content(), page.locator('#planFacts').text_content()
         assert page.locator('#targetOverlay circle').count()==2
         assert page.locator('#targetOverlay').is_visible()
         assert '画面右侧' in page.locator('#targetCaption').inner_text()

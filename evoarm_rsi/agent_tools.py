@@ -57,6 +57,10 @@ def objects(state):
 
 def invoke(args,controller):
     command=args.command
+    if command=='readiness':
+        value=controller.request('/agent/readiness')
+        value.update(controller_url=controller.url,client_project_root=str(Path(__file__).resolve().parent.parent),client_cwd=str(Path.cwd()))
+        return value
     if command=='state':return controller.request('/state')
     if command=='context':return controller.request('/context/'+args.plan_id if args.plan_id else '/agent/context')
     if command=='coordinate-evidence':return controller.request('/agent/coordinate-evidence')
@@ -134,7 +138,7 @@ def invoke(args,controller):
 def parser():
     result=argparse.ArgumentParser(description=__doc__);result.add_argument('--url',default='http://127.0.0.1:8765')
     sub=result.add_subparsers(dest='command',required=True)
-    for name in ('state','objects','history','coordinate-evidence','observe','prepare','stop'):sub.add_parser(name)
+    for name in ('state','objects','history','coordinate-evidence','observe','prepare','stop','readiness'):sub.add_parser(name)
     context=sub.add_parser('context');context.add_argument('plan_id',type=plan_id,nargs='?')
     memory=sub.add_parser('remember');memory.add_argument('--note',required=True);memory.add_argument('--plan-id',type=plan_id)
     review=sub.add_parser('review');source=review.add_mutually_exclusive_group(required=True)
