@@ -165,7 +165,8 @@ def run(*, setup_id, controller="http://127.0.0.1:8765", execute=False, home=Non
     valid_id(setup_id)
     base = _base_url(controller)
     home = Path(home) if home is not None else Path.home()
-    path, session = load_session(home/".evoarm/rsi/calibrations"/setup_id/"session.json")
+    from .bench_layout import active_session
+    path, session = load_session(active_session(home,setup_id))
     if session["setup_id"] != setup_id:
         raise ValueError("calibration layout differs from requested setup")
     folder = path.parent/"first-motion"

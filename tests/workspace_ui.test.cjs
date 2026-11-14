@@ -34,6 +34,7 @@ async function page({
   failAction = false,
   robotError = false,
   completed = 0,
+  squareMm = null,
 } = {}) {
   const folder = path.join(__dirname, "..", "control_ui");
   const html = fs.readFileSync(
@@ -70,6 +71,7 @@ async function page({
     reference_tool_pose_rad: baseline,
     next_point: points.find((p) => !p.captured)?.id || null,
     current_image_available: false,
+    square_mm: squareMm,
   });
   const context = {
     document: {
@@ -160,6 +162,15 @@ test("loading the page only reads, and unknown torque disables switching", async
   assert.equal(p.el("release").disabled, true);
   assert.equal(p.el("lock").disabled, true);
   assert.equal(p.calls.filter((c) => c.method === "POST").length, 0);
+});
+
+test("restored measured square size is shown and draft edits are not mistaken for active calibration", async () => {
+  const p=await page({squareMm:24.92});
+  assert.equal(p.el("square").value,"24.92");
+  assert.match(p.el("squareHint").textContent,/已采用 24.92/);
+  p.el("square").value="25";p.el("square").oninput();
+  assert.match(p.el("squareHint").textContent,/尚未应用/);
+  assert.equal(p.calls.filter(call=>call.method==="POST").length,0);
 });
 test("release uses existing all-joint endpoint and never retries on double click", async () => {
   const p = await page();

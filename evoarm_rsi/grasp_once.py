@@ -19,7 +19,7 @@ from .real_probe import _base_url, _controller_get, _controller_post
 from .task_agent import _write
 
 
-def export_keyframes(folder,events):
+def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sample_count=0):
     import cv2
     import numpy as np
     folder=Path(folder)
@@ -27,25 +27,44 @@ def export_keyframes(folder,events):
     if not rows:return None
     stamps=np.array([r["host_monotonic_ns"] for r in rows],dtype=np.int64)
     wanted=[("before",int(stamps[0]))]
-    wanted.extend((e["stage"],e["host_monotonic_ns"]) for e in events if e["stage"] in ("close","lift","finish","fault"))
+    wanted.extend((e["stage"],e["host_monotonic_ns"]) for e in events if e["stage"] in stages)
+    wanted.extend(("sample",int(stamps[i])) for i in
+                  np.linspace(0,len(stamps)-1,sample_count,dtype=int))
     wanted.append(("last",int(stamps[-1])))
-    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];used=set()
+    # These events mark the start of the NEXT motion, after the previous stage
+    # settled. Retain the last actual frame before lifting/transporting.
+    for label,prior_stage,next_stages in (('close_review','close',('lift',)),('lift_review','lift',('transport','transit_arc')),('release_review','release',('finish',))):
+        prior=next((e for e in events if e['stage']==prior_stage),None)
+        event=next((e for e in events if prior and e['stage'] in next_stages and e['host_monotonic_ns']>prior['host_monotonic_ns']),None)
+        if event:
+            index=int(np.searchsorted(stamps,event['host_monotonic_ns'],side='left'))-1
+            if index>=0 and stamps[index]>=prior['host_monotonic_ns']:wanted.append((label,int(stamps[index])))
+    # Preserve event labels when a uniform sample selects the same frame.
+    selected={}
+    for label,stamp in wanted:
+        index=int(np.argmin(np.abs(stamps-stamp)))
+        labels=selected.setdefault(index,[])
+        if label not in labels:labels.append(label)
+    cap=cv2.VideoCapture(str(folder/"rgb.mp4"));tiles=[];evidence=[]
     try:
-        for label,stamp in wanted:
-            index=int(np.argmin(np.abs(stamps-stamp)))
-            if index in used:continue
-            used.add(index);cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read()
+        for index,labels in sorted(selected.items()):
+            label='/'.join(labels)
+            cap.set(cv2.CAP_PROP_POS_FRAMES,index);ok,frame=cap.read()
             if not ok:continue
             tile=cv2.resize(frame,(480,270))
             cv2.putText(tile,f"{label}: {(int(stamps[index])-int(stamps[0]))/1e9:.2f}s",(10,25),
                         cv2.FONT_HERSHEY_SIMPLEX,.6,(30,30,240),2)
             cv2.imwrite(str(folder/f"evidence-{len(tiles):02d}.jpg"),frame)
+            evidence.append({'label':label,'labels':labels,'frame_index':index,
+                             'elapsed_s':(int(stamps[index])-int(stamps[0]))/1e9,
+                             'file':f'evidence-{len(tiles):02d}.jpg'})
             tiles.append(tile)
     finally:cap.release()
     if not tiles:return None
-    while len(tiles)%2:tiles.append(np.zeros_like(tiles[0]))
-    sheet=np.vstack([np.hstack(tiles[i:i+2]) for i in range(0,len(tiles),2)])
+    # A chronological strip contains only actual frames: never pad with black.
+    sheet=np.vstack(tiles)
     output=folder/"grasp-keyframes.jpg";cv2.imwrite(str(output),sheet)
+    _write(folder/'keyframes.json',{'frames':evidence,'padding_frames':0})
     return str(output)
 
 

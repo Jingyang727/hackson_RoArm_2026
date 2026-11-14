@@ -18,7 +18,7 @@ def check(url,output):
     plane={'normal_up':[0,0,1.],'d_mm':115.}
     h={'connected':True,'motion_enabled':True,'torque_status':[True]*6,'pending':None,'fault':None}
     model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None,
-           'coordinate_api_version':5,'joint_limits':joint_limits_info()}
+           'coordinate_api_version':6,'joint_limits':joint_limits_info()}
     calls=[];errors=[];key='a'*32
     image,_=scene();_,jpeg=cv2.imencode('.jpg',image)
     def route(handler):
@@ -32,12 +32,16 @@ def check(url,output):
                 data['torque_feedback']={'source':'current_T1051_reply','fresh':True,
                     'joints':[{'joint':i+1,'field':'torswitch'+j,'raw':model['robot'].get('torswitch'+j)} for i,j in enumerate('BSETRG')]}
         elif path=='/coordinates/prepare':
+            assert body['path_mode']=='lift'
             if model.get('reject_prepare'):
                 return handler.fulfill(status=409,content_type='application/json',body=json.dumps({'detail':{
                     'message':'路径60.0%处：J3 肘部上下需要185.0°，官方接口范围为0.0°～180.0°',
                     'code':'joint_limit','joint':3,'required_deg':185.}}))
             target=body['xyz_mm'];model['result']={'plan_id':key,'status':'prepared','target_xyz_mm':target,'physical_accuracy':'not_checked'}
-            data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,
+            corridor=max(raw['z'],target[2],-15.)
+            waypoints=[[raw[k] for k in 'xyz'],[raw['x'],raw['y'],corridor],[target[0],target[1],corridor],target]
+            data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,'path_mode':'lift',
+                  'path_xyz_mm':waypoints,
                   'orientation':{'mode':body['pitch_mode'],'initial_pitch_deg':22.,'target_pitch_deg':40.,'changed':True},
                   'gripper_hold':{'normalized':True,'feedback_deg':180.8,'command_deg':179.90874767},
                   'predicted_joints_xyz_mm':forward(inverse(target,math.radians(40),raw['r'],3.14))['joints_xyz_mm']}}
@@ -111,6 +115,8 @@ def check(url,output):
         assert not any(c[0]=='POST' for c in calls)  # Picking and slider movement cannot actuate.
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
         assert '22.0° → 40.0°' in page.locator('#planNote').inner_text()
+        assert '先原XY抬高' in page.locator('#planNote').inner_text()
+        page.screenshot(path=str(output/'coordinates-waypoints.png'),full_page=True)
         page.locator('#pitchMode').select_option('hold')
         assert page.locator('#move').is_disabled();assert page.locator('#confirmed').is_disabled()
         assert not any(c[1]=='/coordinates/move' for c in calls)
@@ -170,16 +176,19 @@ def check(url,output):
         page.locator('#y').fill('10');assert page.locator('#move').is_disabled();assert not page.locator('#confirmed').is_checked()
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
         page.locator('#confirmed').check();page.locator('#move').click();page.evaluate("document.getElementById('move').click()")
-        page.locator('#summary').filter(has_text='等待实际反馈').wait_for()
+        page.locator('#summary').filter(has_text='等待当前途径点反馈').wait_for()
         assert page.locator('#factoryResetOpen').is_disabled()
         assert '不能叠加复位' in page.locator('#factoryResetReason').inner_text()
         assert len([c for c in calls if c[1]=='/coordinates/move'])==1
         assert page.locator('#x').is_disabled()
         count=len([c for c in calls if c[0]=='POST']);page.reload()
-        page.locator('#summary').filter(has_text='等待实际反馈').wait_for()
+        page.locator('#summary').filter(has_text='等待当前途径点反馈').wait_for()
         assert len([c for c in calls if c[0]=='POST'])==count
         assert float(page.locator('#x').input_value())==360  # Restore the running target, not current XYZ.
-        h['pending']=None;model['result'].update(status='settled_with_offset',actual_xyz_mm=[350.,10.,145.],
+        h['pending']=None;h['automation_owner']=key
+        page.wait_for_function("document.getElementById('factoryResetReason').textContent.includes('不能叠加复位')")
+        assert page.locator('#prepare').is_disabled()  # Keep occupancy between waypoint feedback and the next dispatch.
+        h['automation_owner']=None;model['result'].update(status='settled_with_offset',actual_xyz_mm=[350.,10.,145.],
             actual_minus_target_mm=[-10.,0.,0.],position_error_mm=10.,pose_error_deg={'pitch':.4,'roll':.1,'gripper':.2},movement_observed=True)
         model['robot']={**raw,'x':350.,'y':10.};model['model']=forward(raw)
         page.locator('#summary').filter(has_text='反馈已稳定，但与目标有偏差').wait_for()
@@ -231,7 +240,8 @@ def check(url,output):
         'structured path errors show joint angle and progress and leave move disabled',
         'official reset preview/cancel never moves; explicit confirmation sends once',
         'pending motion blocks reset; reset progress survives reload without replay',
-        'table click and height slider generate XYZ without motion','changed target invalidates plan','one move under double click','reload restores target and never resends',
+        'table click and height slider generate XYZ without motion','page requests lift/transfer/descend and draws waypoint polyline',
+        'ownership blocks new moves between waypoints without JS errors','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
         '390px layout','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))

@@ -1,88 +1,97 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>EvoArm · 抓取试验</title>
-    <link rel="stylesheet" href="/assets/workspace.css" />
-  </head>
-  <body>
-    <header>
-      <a class="brand" href="/calibration"
-        ><span class="brand-mark">e</span>EvoArm<span class="brand-sub"
-          >/ 机械臂工作区</span
-        ></a
-      >
-      <nav aria-label="主导航">
-        <a href="/coordinates">坐标验证</a>
-        <a href="/calibration">手动标定</a
-        ><a href="/experiments" aria-current="page">抓取试验</a>
-      </nav>
-      <span id="connection" class="status-chip">正在读取状态</span>
-    </header>
-    <main>
-      <div class="page-heading">
-        <div>
-          <div class="eyebrow">RSI / 抓取试验</div>
-          <h1>先试一次，再看结果调整。</h1>
-          <p>
-            按当前黄球位置估计抓取与提升，录像和反馈用于下一轮调整。
-          </p>
-        </div>
-        <span id="setupBadge" class="setup-badge"></span>
-      </div>
-      <div id="error" class="alert" role="alert" hidden></div>
-      <section class="grasp-grid">
-        <div class="card">
-          <div class="card-heading"><h2>黄球与抓取路径</h2><span id="viewBadge" class="mini-badge">尚未观察</span></div>
-          <div class="camera-view grasp-view">
-            <img id="graspFrame" alt="当前黄球与抓取路径预览" hidden />
-            <div id="graspEmpty"><strong>先观察当前场景</strong><p>保留已有五点标定，无需重新摆放机械臂。</p></div>
-            <div id="streamNotice" class="live-notice" hidden></div>
-          </div>
-          <p id="imageCaption" class="small-note">规划完成后，会在画面上标出黄球和指尖目标。</p>
-          <a id="maskLink" class="text-button" target="_blank" rel="noopener" hidden>查看黄色识别轮廓</a>
-        </div>
-        <div class="card grasp-controls">
-          <div class="card-heading"><h2>执行一次抓取</h2><span id="motionBadge" class="mini-badge">状态未确认</span></div>
-          <p id="readiness" class="inline-note">正在读取控制服务状态。</p>
-          <div id="observationWarnings" class="observation-warnings" role="status" hidden></div>
-          <button id="connect" class="secondary" hidden>连接机械臂</button>
-          <button id="prepare" class="secondary" disabled>1 · 观察并规划</button>
-          <div id="sizeMetrics" class="size-metrics" hidden>
-            <div><span>识别等效直径</span><strong id="observedSize">—</strong></div>
-            <div><span>34mm球预期直径</span><strong id="expectedSize">—</strong></div>
-            <p id="sizeNote"></p>
-          </div>
-          <label class="check-row"><input id="confirmed" type="checkbox" disabled /><span>已核对图中黄球和路径，现场有人看护，双手已离开运动范围。</span></label>
-          <button id="run" class="primary" disabled>2 · 执行一次抓取</button>
-          <button id="stop" class="secondary stop-button" hidden>停止后续动作</button>
-          <div id="phase" class="action-message" role="status" aria-live="polite">尚未开始抓取。</div>
-          <p id="planExpiry" class="small-note"></p>
-          <p class="small-note">本轮抓取并提升约5cm，暂不投漏斗。停止只阻止后续指令，已接受的动作可能继续；紧急情况请切断运动电源。</p>
-          <div id="runResult" class="run-result" hidden>
-            <strong id="resultTitle"></strong><p id="resultText"></p>
-            <a id="keyframesLink" class="button subtle" target="_blank" rel="noopener" hidden>查看实测关键帧</a>
-          </div>
-        </div>
-      </section>
-      <section class="card trials-card">
-        <div class="card-heading">
-          <h2>当前布置的试次</h2>
-          <span id="count" class="mini-badge">0 次</span>
-        </div>
-        <div id="emptyTrials" class="empty-trials">
-          <span class="empty-cross">↗</span>
-          <h2>还没有抓放试次</h2>
-          <p>在上方执行一次抓取后，这里会显示实测记录和待确认的视觉结果。</p>
-          <a class="button primary" href="/calibration">查看标定结果</a>
-        </div>
-        <div id="trials"></div>
-      </section>
-    </main>
-    <footer>
-      以实际录像与机械臂反馈判断结果；准备动作不计为抓取成功。
-    </footer>
-    <script src="/assets/grasp.js"></script>
-  </body>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>EvoArm · 自动抓放与学习</title>
+  <link rel="stylesheet" href="/assets/workspace.css"/>
+  <style>
+    .learning-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:22px;align-items:start}
+    .learning-grid>*{min-width:0}.workspace-frame{display:block;width:100%;border-radius:10px;background:#edf2f1;aspect-ratio:16/9;object-fit:contain}
+    .workspace-view{position:relative}.workspace-view svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    .learning-controls>button{width:100%;margin:12px 0}.learning-controls .check-row{margin:20px 0}
+    .phase-line{font-size:18px;line-height:1.7;white-space:pre-line}.quiet{color:var(--muted);font-size:13px;line-height:1.8;white-space:pre-line}
+    .verdict{border-top:1px solid var(--line);margin-top:18px;padding-top:18px;line-height:1.9;white-space:pre-line}
+    .recordings,.history-card{margin-top:22px}.recordings video{display:block;width:100%;max-height:480px;margin:12px 0}
+    .recordings details{margin-top:18px}.depth-image{display:block;max-width:100%;max-height:360px;margin-top:10px}
+    .facts{font-size:12px;line-height:1.9;white-space:pre-line;color:var(--muted)}.trial-row p{margin:8px 0}
+    .media-links{display:flex;gap:18px;flex-wrap:wrap}.limits-note{font-size:12px;line-height:1.8;color:var(--muted)}
+    .process-card{margin-top:22px}.process-events{max-height:340px;overflow:auto;padding-left:24px;scrollbar-gutter:stable}
+    .process-events li{padding:8px 8px 8px 4px;border-bottom:1px solid var(--line)}.process-events p{margin:5px 0;white-space:pre-line;line-height:1.8}
+    .process-time{font-size:12px;color:var(--muted)}.grok-live{border-top:1px solid var(--line);padding-top:14px;margin-top:18px}
+    .grok-public{white-space:pre-wrap;line-height:1.9;overflow-wrap:anywhere}.grok-raw{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+    .comparison-image{display:block;width:100%;max-width:1120px;border-radius:8px;margin:12px 0}
+    [hidden]{display:none!important}@media(max-width:850px){.learning-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/coordinates"><span class="brand-mark">e</span>EvoArm<span class="brand-sub">/ 机械臂工作区</span></a>
+  <nav aria-label="主导航"><a href="/coordinates">坐标验证</a><a href="/calibration">手动标定</a><a href="/experiments" aria-current="page">抓取试验</a></nav>
+  <span id="connection" class="status-chip">正在读取状态</span>
+</header>
+<main>
+  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制10秒，Grok分析结果；失败后自动恢复并重试，成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
+  <p id="error" class="error-banner" role="alert" hidden></p>
+  <section class="learning-grid">
+    <div class="card">
+      <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
+      <div id="frameEmpty" class="empty-trials"><p>正在读取相机画面。球和黑色漏斗应同时可见。</p></div>
+      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
+      <p id="imageCaption" class="quiet"></p>
+      <p id="targetCaption" class="quiet" hidden></p>
+      <p id="streamNotice" class="quiet" hidden></p>
+      <details><summary>采集当前物体坐标（不运动）</summary>
+        <button id="observeObjects" class="secondary">重新定位黄球和漏斗</button>
+        <p id="observationFacts" class="facts">先采集当前画面，再验证位置；物体移动后需要重新采集。</p>
+        <img id="observationImage" class="depth-image" alt="本次定位快照，标出黄球与漏斗，不是实时画面" hidden/>
+      </details>
+    </div>
+    <div class="card learning-controls">
+      <div class="card-heading"><h2>自动学习</h2><span id="attemptBadge" class="mini-badge">尚未开始</span></div>
+      <p id="readiness" class="inline-note">正在检查机械臂和Grok。</p>
+      <p id="grokStatus" class="quiet"></p>
+      <button id="connect" class="secondary" hidden>连接机械臂</button>
+      <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
+      <button id="start" class="primary" disabled>开始自动抓放</button>
+      <button id="reset" class="secondary" disabled>恢复官方初始姿态</button>
+      <button id="stop" class="secondary" hidden>停止自动任务</button>
+      <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
+      <p id="nextChange" class="quiet"></p>
+      <details id="changeDetails" hidden><summary>本轮参数变化</summary><p id="changeFacts" class="facts"></p></details>
+      <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
+      <div id="grokVerdict" class="verdict" hidden></div>
+      <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
+      <p class="limits-note">抓放目标为10秒，分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
+    </div>
+  </section>
+  <section class="card process-card">
+    <div class="card-heading"><h2>RSI 过程</h2><span id="processConnection" class="mini-badge">连接实时过程…</span></div>
+    <p id="processEmpty" class="quiet">启动后，这里会显示每轮动作、Grok判断、程序修正与下一轮尝试。</p>
+    <ol id="processEvents" class="process-events" aria-label="逐轮RSI过程"></ol>
+    <p id="processStorageError" class="quiet"></p>
+    <div id="effectComparison" class="grok-live" hidden>
+      <strong>前后动作实帧与修正效果</strong><p id="comparisonSummary" class="quiet"></p>
+      <img id="comparisonFrame" class="comparison-image" alt="前轮与本轮对应动作的实际相机画面对照，保持相机方向" hidden/>
+      <p id="comparisonFacts" class="facts"></p>
+    </div>
+    <div id="grokLive" class="grok-live" hidden>
+      <strong id="grokLiveTitle">Grok公开回复</strong><p id="grokReplyStatus" class="quiet" role="status"></p>
+      <p id="grokLiveText" class="grok-public"></p>
+      <details><summary>完整公开回复</summary><pre id="grokRawText" class="grok-raw"></pre></details>
+    </div>
+  </section>
+  <section id="recordings" class="card recordings" hidden>
+    <div class="card-heading"><h2>本轮录像与记录</h2><span id="policyVersion" class="mini-badge"></span></div>
+    <p id="resultText" class="quiet"></p>
+    <video id="trialVideo" controls preload="none" hidden></video>
+    <div class="media-links"><a id="rawVideoLink" class="text-button" download>下载原录像</a><a id="keyframesLink" class="text-button" target="_blank" rel="noopener">查看实际关键帧</a><a id="archiveLink" class="text-button" download hidden>下载完整试次备份</a></div>
+    <p id="backupStatus" class="quiet"></p>
+    <details id="diagnostics"><summary>定位与深度诊断（可选）</summary><p id="sceneFacts" class="facts"></p><img id="depthFrame" class="depth-image" alt="到相机距离的深度伪彩图"/><p id="depthLegend" class="quiet"></p><p class="quiet">深度参与球心定位，无需人工解读此图。黑色区域表示未测到深度，不表示黑色物体。</p><p id="planFacts" class="facts"></p></details>
+  </section>
+  <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
+</main>
+<footer>录像、RGB-D、指令、反馈、Grok判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
+<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>
+</body>
 </html>

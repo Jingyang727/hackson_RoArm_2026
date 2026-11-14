@@ -32,15 +32,11 @@
         <span id="setupBadge" class="setup-badge">当前布置</span>
       </div>
       <div id="error" class="alert" role="alert" hidden></div>
-      <section id="prepare" class="card preparation" hidden>
-        <h2>先生成五点参考图</h2>
-        <p>选择相机、棋盘和底座固定后拍摄的完整空棋盘录像。</p>
+      <section id="prepare" class="card preparation">
+        <h2>读取当前棋盘</h2>
+        <p>固定好相机、机械臂底座和棋盘，让完整的 9×6 内角点可见。设备移动后，从这里开始新的五点标定。</p>
         <div class="preparation-fields">
           <label
-            >空棋盘录像<select id="source">
-              <option value="">正在查找录像…</option>
-            </select></label
-          ><label
             >实测单格边长 mm<input
               id="square"
               type="number"
@@ -48,8 +44,14 @@
               min="0.1"
               max="200"
               step="0.1" /></label
-          ><button id="initialize" class="primary">生成参考图</button>
+          ><button id="recalibrate" class="primary">采集当前棋盘并重新标定</button>
         </div>
+        <p id="squareHint" class="small-note"></p>
+        <p id="referenceMessage" class="small-note" role="status">只采集相机画面、检测角点，不移动机械臂。开始新标定后，旧记录保留，完成五点前暂停使用旧坐标关系。</p>
+        <details><summary>使用已有空棋盘录像</summary>
+          <label>空棋盘录像<select id="source"><option value="">正在查找录像…</option></select></label>
+          <button id="initialize" class="secondary">从所选录像生成参考图</button>
+        </details>
       </section>
       <div class="workspace-grid">
         <section class="card camera-card" id="camera">
@@ -82,7 +84,7 @@
             </div>
             <div id="emptyImage">
               <span class="empty-cross">＋</span><strong>等待五点参考图</strong>
-              <p>使用已有空棋盘录像，无需重新拍摄。</p>
+              <p>可先开启实时画面，再采集当前棋盘并检测角点。</p>
             </div>
           </div>
           <div class="target-strip">
@@ -178,6 +180,7 @@
             <p id="captureHint" class="small-note">
               每次读取三组静止反馈。成功后自动保存。
             </p>
+            <p id="captureReceipt" class="facts" role="status" hidden></p>
           </section>
           <section id="resultCard" class="card result-card" hidden>
             <div class="card-heading">
@@ -191,6 +194,13 @@
               </div>
             </div>
             <p id="resultNote"></p>
+            <p id="fitChecks" class="facts"></p>
+            <p id="fitHelp" class="facts"></p>
+            <button id="recheckPoint" class="secondary" hidden>查看建议复核点</button>
+            <details><summary>五点误差、记录值与拟合值</summary>
+              <p class="small-note">偏差＝记录值−拟合预测值，仅用于排查，不是移动指令。V1独立验证，不参与四点拟合。</p>
+              <div id="pointErrors" class="point-errors"></div>
+            </details>
           </section>
         </aside>
       </div>

@@ -112,3 +112,48 @@ def errors(status, target, pose):
             'pose_error_deg':{'pitch':math.degrees(status['tit']-pose['pitch']),
                               'roll':math.degrees(math.atan2(math.sin(status['r']-pose['roll']),math.cos(status['r']-pose['roll']))),
                               'gripper':math.degrees(status['g']-pose['gripper'])}}
+
+
+def plan_lift_point(session,status,target,pitch_mode='auto'):
+    """Route a UI target through an overhead waypoint; keep the T104 primitive."""
+    from .rsi_route import at_height
+    from .pick_place import FUNNEL_HEIGHT,BALL_RADIUS
+    if len(target)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in target):
+        raise ValueError('请输入有限XYZ')
+    plane=calibrated_table(session);start=[status[k] for k in 'xyz'];model=forward(status)
+    if math.dist(start,model['xyz_mm'])>3:raise ValueError('固件XYZ与关节几何不一致')
+    goal_h=height_above_plane(target,plane);start_h=height_above_plane(start,plane)
+    if goal_h<0:raise ValueError('目标低于已标定桌面')
+    hold=gripper_hold(status);minimum=FUNNEL_HEIGHT+BALL_RADIUS+10.
+    corridor=max(100.,minimum+10.,goal_h)
+    heights=list(dict.fromkeys([max(corridor,start_h),corridor]))
+    angles=[status['tit']] if pitch_mode=='hold' else list(dict.fromkeys([status['tit'],*[math.radians(x) for x in (40,60,30,80)]]))
+    failures=[]
+    for height in heights:
+        for transfer_pitch in angles:
+            current={**status,'g':hold['command_rad']};segments=[];path=[start]
+            def move(name,point,pitch,floor,vertical=False,keep=False):
+                nonlocal current
+                if math.dist([current[k] for k in 'xyz'],point)<.8 and abs(current['tit']-pitch)<math.radians(.5):return
+                stage={'stage':name,'kind':'cartesian','xyz_mm':list(point),'pitch_rad':pitch,'roll_rad':status['r'],
+                       'gripper_rad':hold['command_rad'],'spd':SPEED,'minimum_tip_height_mm':floor,
+                       'vertical_only':vertical,'hold_orientation':keep}
+                check_coordinate_segment(current,stage,plane)
+                begin=[current[k] for k in 'xyz'];count=max(2,math.ceil(math.dist(begin,point)/8))
+                path.extend([[a+(b-a)*i/count for a,b in zip(begin,point)] for i in range(1,count+1)])
+                segments.append(stage);current=inverse(point,pitch,status['r'],hold['command_rad'])
+            try:
+                move('raise_current' if height>=start_h else 'clearance_adjust',at_height(start,height,plane),status['tit'],min(0.,start_h) if height>=start_h else minimum,True,True)
+                move('orient_clear',[current[k] for k in 'xyz'],transfer_pitch,minimum,True)
+                move('coordinate_transfer',at_height(target,height,plane),transfer_pitch,minimum)
+                final=plan_point(session,current,target,pitch_mode)
+                move('coordinate_descend',target,final['pose_preserved_rad']['pitch'],0.,True)
+                final.update(kind='waypoint_xyz_validation_v1',path_mode='lift',initial_status=status,path_xyz_mm=path,
+                    segments=segments,gripper_hold=hold,distance_mm=sum(math.dist(a,b) for a,b in zip(path,path[1:])),
+                    route_policy={'mode':'lift_transfer_descend','transfer_height_mm':height,'minimum_transfer_height_mm':minimum})
+                final['orientation']['initial_pitch_deg']=math.degrees(status['tit'])
+                final['orientation']['changed']=abs(final['pose_preserved_rad']['pitch']-status['tit'])>1e-8
+                return final
+            except ValueError as exc:
+                if str(exc) not in failures:failures.append(str(exc))
+    raise MotionConstraintError('未找到抬升途径点路径：'+'；'.join(failures[:3]),code='no_waypoint_path')
