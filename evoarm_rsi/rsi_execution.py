@@ -13,6 +13,7 @@ from .grasp_once import export_keyframes
 from .task_agent import _write
 from .rsi_journal import append_event
 from evoarm.limits import GRIPPER_MAX_RAD
+from .rsi_route import execution_target
 MIN_VERIFIED_STEP_GAP_S=.12
 
 
@@ -128,11 +129,13 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                     event(stage['stage'])
                     if stage['kind']=='cartesian':
                         carry=grip_hold_target if grip_hold_target is not None else gripper_hold(actual)['command_rad']
-                        target={**stage,'gripper_rad':stage['gripper_rad'] if stage.get('open_while_moving') else carry}
+                        target={**execution_target(stage,actual,plan['table_plane']),
+                                'gripper_rad':stage['gripper_rad'] if stage.get('open_while_moving') else carry}
                         check_segment(actual,target,plan['table_plane'])
                         command={'T':104,**dict(zip('xyz',target['xyz_mm'])),'t':target['pitch_rad'],
                                  'r':target['roll_rad'],'g':target['gripper_rad'],'spd':target['spd']}
-                        stage_report={'plan':{'initial_status':actual,'target_xyz_mm':target['xyz_mm'],
+                        stage_report={'nominal_target_xyz_mm':stage['xyz_mm'],'vertical_only':stage.get('vertical_only',False),
+                            'plan':{'initial_status':actual,'target_xyz_mm':target['xyz_mm'],
                             'pose_preserved_rad':{'pitch':target['pitch_rad'],'roll':target['roll_rad'],'gripper':target['gripper_rad']}},
                             'status':'moving','feedback':[],'report_file':str(root/f'stage-{index:02d}.json')}
                         next_pending={'stage_kind':'cartesian','report':stage_report}
@@ -180,6 +183,10 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                                              'start':target,'target':target,'since':time.monotonic()}
                     if video.done():video.result();raise RuntimeError('录像已结束，动作尚未完成')
                     time.sleep(.08)
+                if stage.get('settle_s'):
+                    until=time.monotonic()+stage['settle_s'];event('settle_over_funnel')
+                    while time.monotonic()<until:
+                        guard(capture_start);time.sleep(.03)
             event('finish');report['motion_completed']=True
             report['physical_elapsed_s']=(report['events'][-1]['host_monotonic_ns']-report['events'][0]['host_monotonic_ns'])/1e9
             report['within_10s']=report['physical_elapsed_s']<=10

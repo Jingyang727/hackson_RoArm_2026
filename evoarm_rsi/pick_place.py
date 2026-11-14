@@ -153,73 +153,30 @@ def build_plan(session,status,scene,parameters):
     hold=gripper_hold(status);initial={**status,'g':hold['command_rad']}
     opening=math.radians(p['open_deg']);closing=min(math.radians(p['close_deg']),GRIPPER_MAX_RAD)
     ball=np.asarray(scene['ball']['center_robot_mm']);mouth=np.asarray(scene['funnel']['mouth_center_robot_mm'])
+    from .rsi_route import build_route
     failures=[]
     for pitch_deg in (80.,75.,85.,70.,90.,65.,60.):
-        pitch=math.radians(pitch_deg);roll=status['r'];steps=[];current=dict(initial);stage_hint='目标计算'
-        def move(stage,point,angle,speed,minimum=0):
-            nonlocal current,stage_hint
-            stage_hint={'raise_current':'起步抬升','approach_ball':'接近黄球','descend':'下降抓取',
-                        'lift':'抓后提升','transport':'运送到漏斗'}.get(stage,stage)
-            point=np.asarray(point).tolist()
-            if math.dist([current[k] for k in 'xyz'],point)<.8 and abs(current['tit']-angle)<math.radians(.5):return
-            step={'stage':stage,'kind':'cartesian','xyz_mm':point,'pitch_rad':angle,'roll_rad':roll,
-                  'gripper_rad':current['g'],'spd':speed,'minimum_tip_height_mm':minimum}
-            check_segment(current,step,plane);steps.append(step)
-            current=inverse(point,angle,roll,current['g'])
-        def hand(stage,angle):
-            if abs(current['g']-angle)<math.radians(1):return
-            steps.append({'stage':stage,'kind':'gripper','gripper_rad':angle,
-                          'spd':p['gripper_speed'],'acc':p['gripper_acc']});current['g']=angle
-        def at_height(point,height):return np.asarray(point)+normal*(height-height_above_plane(point,plane))
+        pitch=math.radians(pitch_deg);roll=status['r']
+        grasp_center=ball+normal*p['grasp_z_offset_mm']
+        release_center=mouth+normal*(BALL_RADIUS+p['release_clearance_mm'])
+        grasp=grasp_center-_opening_direction(ball,pitch,roll)*p['finger_offset_mm']
+        release=release_center-_opening_direction(mouth,pitch,roll)*p['finger_offset_mm']
+        grasp[:2]+=p['pickup_xy_mm'];release[:2]+=p['release_xy_mm']
         try:
-            travel_height=max(p['lift_height_mm'],FUNNEL_HEIGHT+BALL_RADIUS+p['release_clearance_mm']+10)
-            grasp=ball+normal*p['grasp_z_offset_mm']-_opening_direction(ball,pitch,roll)*p['finger_offset_mm']
-            grasp[:2]+=p['pickup_xy_mm']
-            release=mouth+normal*(BALL_RADIUS+p['release_clearance_mm'])-_opening_direction(mouth,pitch,roll)*p['finger_offset_mm']
-            release[:2]+=p['release_xy_mm']
-            if height_above_plane([current[k] for k in 'xyz'],plane)<FUNNEL_HEIGHT+BALL_RADIUS+5:
-                move('raise_current',at_height([current[k] for k in 'xyz'],travel_height),current['tit'],p['travel_speed'])
-            hand('open',opening)
-            hover=at_height(grasp,p['hover_height_mm'])
-            try:move('approach_ball',hover,pitch,p['travel_speed'])
-            except ValueError:
-                aligned=False
-                for align_pitch in (40.,60.,30.):
-                    saved=dict(current);saved_steps=list(steps)
-                    try:
-                        move('align',at_height(grasp,travel_height),math.radians(align_pitch),p['travel_speed'])
-                        move('approach_ball',hover,pitch,p['travel_speed']);aligned=True;break
-                    except ValueError:current=saved;steps[:]=saved_steps
-                if not aligned:raise ValueError('无法从当前姿态连接到球上方')
-            move('descend',grasp,pitch,p['approach_speed']);hand('close',closing)
-            move('lift',at_height(grasp,travel_height),pitch,p['travel_speed'])
-            try:move('transport',release,pitch,p['travel_speed'])
-            except ValueError:
-                start=[current[k] for k in 'xyz'];a=math.atan2(start[1],start[0]);b=math.atan2(release[1],release[0])
-                delta=math.atan2(math.sin(b-a),math.cos(b-a));count=max(2,math.ceil(abs(delta)/math.radians(25)))
-                radius=260.
-                for i in range(count+1):
-                    angle=a+delta*i/count
-                    waypoint=at_height([radius*math.cos(angle),radius*math.sin(angle),0.],travel_height)
-                    move('transit_arc',waypoint,pitch,p['travel_speed'])
-                move('transport',release,pitch,p['travel_speed'])
-            hand('release',opening)
-            # T104 interpolates g together with XYZ. Open while approaching,
-            # then keep the measured grasp angle during lift/transport.
-            for i,step in enumerate(steps):
-                if step['stage']=='open' and i+1<len(steps) and steps[i+1]['stage'] in ('align','approach_ball'):
-                    steps[i+1].update(gripper_rad=step['gripper_rad'],open_while_moving=True)
-                    del steps[i]
-                    break
+            steps,route=build_route(initial,grasp,release,pitch,plane,p,
+                ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,funnel_height=FUNNEL_HEIGHT,ball_radius=BALL_RADIUS)
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
-                    'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,
+                    'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,'route_policy':route,
+                    'object_geometry':{'ball_diameter_mm':2*BALL_RADIUS,'ball_top_xyz_mm':(ball+normal*BALL_RADIUS).tolist(),
+                        'grasp_center_xyz_mm':(grasp_center+np.array([*p['pickup_xy_mm'],0.])).tolist(),
+                        'release_ball_center_xyz_mm':(release_center+np.array([*p['release_xy_mm'],0.])).tolist(),
+                        'finger_offset_mm':p['finger_offset_mm'],'reference':'stock_fixed_fingertip_is_not_ball_center'},
                     'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':release.tolist(),
                     'grasp_pitch_deg':pitch_deg,'target_duration_s':10,'board_required':False,
                     'camera_frame':'unmirrored_rgb','warnings':scene['warnings'],
                     'timing_verified':False,'pose_reference':'stock_firmware_fixed_fingertip'}
         except ValueError as exc:
-            reason=f'{stage_hint}：{exc}'
-            if reason not in failures:failures.append(reason)
+            if str(exc) not in failures:failures.append(str(exc))
     raise ValueError('未找到完整抓放路径：'+'；'.join(failures[:3]))
 
 

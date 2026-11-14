@@ -58,7 +58,7 @@ function render(){
   const joints=(source?.joints?.length===6?source.joints:fields.map((field,i)=>({joint:i+1,field,raw:r?.[field]})))
     .map(j=>({...j,state:CoordinateView.torqueState(j.raw)}));
   const torqueLabels={locked:'锁定',reported_zero:'上报0',unknown:'未知'};
-  const moving=Boolean(h.pending),locked=joints.every(j=>j.state==='locked');
+  const moving=Boolean(h.pending||h.automation_owner),locked=joints.every(j=>j.state==='locked');
   const torqueProblem=joints.filter(j=>j.state!=='locked').map(j=>names[j.joint-1]+torqueLabels[j.state]).join('、');
   const feedbackValid=state?.feedback_valid??Boolean(r&&state?.model&&['x','y','z'].every(k=>Number.isFinite(r[k])));
   $('torqueFeedback').replaceChildren();
@@ -89,7 +89,7 @@ function render(){
   if(Array.isArray(h.allowed_joints)&&h.allowed_joints.length!==6)resetReasons.push('官方复位需要授权全部六个关节');
   if(!locked)resetReasons.push('六关节扭矩尚未全部确认锁定');
   if(!r||!['b','s','e','t','r','g'].every(k=>Number.isFinite(r[k])))resetReasons.push('缺少有效六关节角度反馈');
-  if(moving)resetReasons.push(h.pending.kind==='factory'?'官方复位执行中，请等待反馈':'上一动作尚未结束，不能叠加复位；复位不是急停');
+  if(moving)resetReasons.push(h.pending?.kind==='factory'?'官方复位执行中，请等待反馈':'上一动作尚未结束，不能叠加复位；复位不是急停');
   if(state&&(state.coordinate_api_version||0)<5)resetReasons.push('请更新并重启网页控制服务以加载复位接口');
   $('factoryResetOpen').disabled=resetReasons.length>0;
   $('factoryResetReason').textContent=resetReasons.length?resetReasons.join('；'):'';
@@ -114,7 +114,7 @@ function render(){
   const previewReasons=[];
   if(busy)previewReasons.push('正在处理请求');if(moving)previewReasons.push('当前动作尚未结束');
   if(!h.connected)previewReasons.push('机械臂未连接');if(!feedbackValid)previewReasons.push('未读到有效坐标反馈');
-  if(state&&(state.coordinate_api_version||0)<4)previewReasons.push('页面与旧后端版本不匹配，请更新并重启网页控制服务');
+  if(state&&(state.coordinate_api_version||0)<6)previewReasons.push('页面与旧后端版本不匹配，请更新并重启网页控制服务');
   if(!valid)previewReasons.push('请先选点或填写XYZ');if(state?.calibration_error)previewReasons.push('保存标定不可用');
   $('prepare').disabled=previewReasons.length>0;
   $('previewReason').textContent=previewReasons.length?'暂不可预览：'+previewReasons.join('；'):'';
@@ -133,13 +133,14 @@ function render(){
     const gripNote=hold?.normalized?`夹爪反馈 ${number(hold.feedback_deg)}°；保持指令取合法边界 ${number(hold.command_deg)}°。原始反馈保留，未扩大开合限位。`:'保持当前夹爪开度。';
     const orientation=plan.plan.orientation;
     const pitchNote=orientation?`末端俯仰 ${number(orientation.initial_pitch_deg)}° → ${number(orientation.target_pitch_deg)}°。`:'保持当前俯仰。';
-    $('planNote').textContent=ready?`预览有效；移动距离 ${number(plan.plan.distance_mm)} mm。${pitchNote}保持末端旋转。${gripNote}`:'预览已失效，请重新预览。';
+    $('planNote').textContent=ready?`预览有效；${plan.plan.path_mode==='lift'?'先原XY抬高→高处平移→竖直到目标。':''}移动距离 ${number(plan.plan.distance_mm)} mm。${pitchNote}保持末端旋转。${gripNote}`:'预览已失效，请重新预览。';
   }
-  const labels={prepared:'目标预览已保存，尚未发送运动。',superseded:'旧坐标预览已失效，请重新选点并预览。',moving:'已发送一次T104，等待实际反馈…',already_at_target:'当前反馈已在目标点附近，没有发送运动。',
+  const labels={prepared:'目标预览已保存，尚未发送运动。',superseded:'旧坐标预览已失效，请重新选点并预览。',moving:'分段移动中，等待当前途径点反馈…',stopped:'已停止后续途径点。',already_at_target:'当前反馈已在目标点附近，没有发送运动。',
     feedback_within_tolerance:'反馈已稳定并进入6mm参考带，实际准确度由你验收。',settled_with_offset:'反馈已稳定，但与目标有偏差；本次停止在实际位置，没有重发。',
     timeout_unverified:'反馈未在等待窗口内确认；请核对实际状态。',fault:'出现设备故障，请核对实际状态。',transmission_uncertain:'指令传输结果不确定，已锁定后续动作。'};
   if(result){
     const lines=[labels[result.status]||result.status,`目标 XYZ：${coordinateText(result.target_xyz_mm||[])} mm`];
+    if(result.route_steps)lines.push(`途径点 ${result.route_step} / ${result.route_steps}`);
     if(result.actual_xyz_mm)lines.push(`反馈 XYZ：${coordinateText(result.actual_xyz_mm)} mm`,`反馈－目标：${coordinateText(result.actual_minus_target_mm)} mm`,`三维差值：${number(result.position_error_mm)} mm`);
     if(result.movement_observed===false)lines.push('尚未检测到明显的反馈位移；不能据此判定实际移动成功。');
     if(result.pose_error_deg)lines.push(`姿态差：俯仰 ${number(result.pose_error_deg.pitch)}° / 旋转 ${number(result.pose_error_deg.roll)}° / 夹爪 ${number(result.pose_error_deg.gripper)}°`);
@@ -189,7 +190,7 @@ $('heightRange').oninput=()=>{if(!busy&&!state?.health?.pending&&target().slice(
 $('pitchMode').onchange=resetPlan;
 for(const id of ['x','y','z'])$(id).oninput=resetPlan;
 $('confirmed').onchange=render;
-$('prepare').onclick=()=>action(async()=>{resetPlan();const prepared=await api('/api/coordinates/prepare','POST',{xyz_mm:target(),pitch_mode:$('pitchMode').value});plan={...prepared,expires:performance.now()+prepared.expires_in_s*1000};});
+$('prepare').onclick=()=>action(async()=>{resetPlan();const prepared=await api('/api/coordinates/prepare','POST',{xyz_mm:target(),pitch_mode:$('pitchMode').value,path_mode:'lift'});plan={...prepared,expires:performance.now()+prepared.expires_in_s*1000};});
 $('move').onclick=()=>{if($('move').disabled)return;const key=plan.plan_id;return action(async()=>{$('confirmed').checked=false;const result=await api('/api/coordinates/move','POST',{plan_id:key,declaration});state.result=result;state.health.pending=result.sent?{kind:'coordinate_test'}:null;plan=null;render();});};
 $('disarm').onclick=async()=>{try{await api('/api/disarm','POST',{});$('summary').textContent+='\n已撤销后续运动授权，扭矩不变；当前指令可能继续。';}catch(exc){error(exc);}};
 $('saveCheck').onclick=()=>action(async()=>{await api('/api/coordinates/verify','POST',{plan_id:state.result.plan_id,result:document.querySelector('input[name=verified]:checked').value,note:$('note').value});});
@@ -217,7 +218,10 @@ function draw(){
   if(state?.model){arm(state.model.joints_xyz_mm,'#177d69',8);const tip=state.robot?['x','y','z'].map(k=>state.robot[k]):state.model.xyz_mm;dot(tip,'#177d69',6,'当前末端');}
   const t=target();if(t.every(Number.isFinite)){
     if(table){const foot=[t[0],t[1],planeZ(t[0],t[1])];dot(foot,'#cf7136',3);line(foot,t,'#cf7136',1,[2,4]);}
-    dot(t,'#cf7136',6,'目标');if(state?.robot)line(['x','y','z'].map(k=>state.robot[k]),t,'#cf7136',2,[5,5]);
+    dot(t,'#cf7136',6,'目标');
+    const route=plan?.plan?.path_xyz_mm;
+    if(route?.length){for(let i=1;i<route.length;i++)line(route[i-1],route[i],'#cf7136',2,[5,5]);}
+    else if(state?.robot)line(['x','y','z'].map(k=>state.robot[k]),t,'#cf7136',1,[2,6]);
   }
   if(depth?.point?.valid)dot(depth.point.robot_xyz_mm,'#865bc0',5,'深度表面点');
 }

@@ -8,7 +8,7 @@
   const magnitudes={small:'小',medium:'中',large:'大',unknown:'不确定'};
   const effects={improved:'偏差缩小',worsened:'偏差变大',overshot:'越过目标',unchanged:'偏差没有明显变化',unknown:'看不清效果',not_comparable:'两轮不可直接比较',not_compared:'本轮没有可比前轮'};
   const movements={as_expected:'向预期方向移动',opposite:'与预期方向相反',no_visible_motion:'没有可见的相应移动',unknown:'移动方向无法确认'};
-  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动10秒录像',raise_current:'起步抬升',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
+  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动10秒录像',raise_current:'原XY竖直抬升',clearance_adjust:'竖直到通行高度',orient_clear:'高处调整姿态',align_above_ball:'球顶上方竖直对齐',lower_to_release:'竖直到漏斗上方并停稳',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
   let session=null,started=0,sequence=-1,rows=[],output=null,source=null,paired=null;
   function verdict(value){
     if(!value)return '';
@@ -20,7 +20,10 @@
     const comparison=value.comparison?.assessment||value.comparison;
     if(comparison?.effect)lines.push(`前后对照：${effects[comparison.effect]||comparison.effect}；${movements[comparison.movement]||comparison.movement}\n${comparison.note||''}`);
     if(typeof value.confidence==='number')lines.push(`模型自报置信度：${Math.round(value.confidence*100)}%`);
-    if(value.note)lines.push(`画面依据：${value.note}`);
+    if(value.visual_review){
+      lines.push(`Grok画面依据：${value.visual_review.note||''}`);
+      if(value.note)lines.push(`执行Agent决策：${value.note}`);
+    }else if(value.note)lines.push(`画面依据：${value.note}`);
     return lines.join('\n');
   }
   function describe(row){

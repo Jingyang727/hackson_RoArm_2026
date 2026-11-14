@@ -5,8 +5,12 @@ model: bottlerocket/grok-4.7-build
 tools:
   write: false
   edit: false
+  task: true
 permission:
   edit: deny
+  task:
+    "*": deny
+    "roarm-vision": allow
   bash:
     "*": deny
     "python -m evoarm_rsi.agent_tools *": allow
@@ -22,16 +26,19 @@ permission:
 - `observe`：只采当前 RGB-D，返回当前球心/漏斗口 XYZ 和带标记快照，无需机械臂连接或抓放路径可达；只想验证物体坐标时用它。之后保持物体原位再做触碰测试，不使用历史试次坐标去验证已移动的物体。
 - `coordinate-evidence`：只读保存的坐标测试输入、实际反馈、俯仰和五点记录，不采样、不移动。用户报告触碰位置与视觉 XYZ 大幅不符时先用此工具核对；这是定位链诊断，不应持续累计 RSI 补偿或凭两点覆盖完整外参。
 - `prepare`：采集当前 RGB-D、定位和检查完整路径，不移动。返回本轮 plan_id。再读 `objects`、`context PLAN_ID`，检查目标与路径。
+- `vision PLAN_ID`：生成并下载只含本轮/可比前轮实际图片的视觉任务包。将返回的vision_task原样交给Task工具的roarm-vision子Agent；每轮新建任务，不传父上下文、机器人坐标、外参或摆放关系。它只按画面给定性判断。scene阶段确认ready后才执行。
 - `evidence PLAN_ID`：下载实际预览、动作关键帧、前后对照到本机，返回图片路径。必须用图像读取工具打开图片；没有图像或遮挡返回 unknown，不用到位反馈冒充视觉成功。
-- `run PLAN_ID --execute`：用户已经授权且现场清空的任务内执行一次完整抓放。`wait` 等待完成；超时后先 state，绝不重发同一动作。
-- `review --json 'JSON对象'`：保存本轮观察与下一轮试验。自动标记 source=opencode_agent。结构参见项目 docs/rsi-agent-tools-v7.md。自行选择明确的正数 requested_step_mm，必须在 note 中解释证据与步长选择；这是试验值，不是模型测量值。工具验证方向和完整 IK 后才保存。
+- `run PLAN_ID --execute --vision-packet-id 场景包编号 --scene-json '场景子Agent原始JSON'`：用户已授权的任务内执行一次完整抓放；必须附上本轮ready=true的场景复核。`wait`等待完成；超时后先state，绝不重发同一动作。
+- `decision --json 'JSON对象'`：提交plan_id、vision_packet_id、visual_review（子Agent原始JSON）、reason（你的决策理由），以及requested_step_mm或parameter_trial之一。不得改写视觉子Agent的定性结论。你自行选择明确的试验幅度，这是实验值；工具转换坐标、检查完整IK并保存。旧review工具只用于兼容，不用于本闭环。
 - `remember --plan-id PLAN_ID --note '有证据的经验'`：保存经验、结果与待验证假设。不要把猜测写成已确认事实。策略和记忆按标定指纹保存，每轮重新读入。
 - `reset --execute`、`wait`：用户已授权的恢复范围内，失败后恢复官方初始状态。复位完成后重新 prepare；不得直接复用旧路径。
 - `stop`：用户停止后立即调用。禁止继续抓放、复位、重试。
 
-相机和机械臂相对摆放。所有图像指原始、未镜像 RGB，u 向画面右，v 向画面下。review.direction 指“夹爪在目标哪一侧”：image_right → correction_direction=image_left；image_left → image_right；image_up → image_down；image_down → image_up。若自然语言本身是“建议向左移动”，那已经是纠正方向，不能再取反；应填对应的观察偏差 image_right。图像方向经标定转换到机器人 XYZ，绝不再次按机械臂视角镜像，不凭记忆硬设机器人 X/Y 正负。
+视角转换全部由你负责：视觉子Agent始终按相机画面说话，无需知道机械臂摆放。你维护相机/机械臂相对摆放和标定。面对面视角中，画面左/右对应机械臂自身视角的右/左；桌面画面上下也转换到平面方向，不能当成Z升降。把观察偏差转成纠正意图，再调用标定工具落实为XYZ。验收看录像：视觉要求往画面左，实物必须在原图往左靠近目标。不要手写一个全局Y反号去覆盖标定后的坐标。
 
-流程：context → prepare → 读预览与 objects → run → wait → evidence 并实际看图 → review → remember → 失败则 reset/wait → 下一轮 context/prepare。首次明显偏差可选 8–12mm 可见试验，接近时缩步；这些是建议，不是移动范围。前后无变化先查完整步长是否进入计划和反馈，不重复累计同样错误；发现反向或恶化，回滚该项并记录原因。每轮只改一个参数项，具体合法数值由工具检查。不能确认方向时保留 unknown，不能为了凑次数盲试。
+每轮先读context；只说go就按已经约定的任务继续，默认最多3轮，成功即停。首次没有现场运动授权时仅观察/规划；已有授权范围内无需逐动作询问。完整抓放使用先竖直抬高→高处平移→球顶上方张爪→竖直下探→合抓→竖直抬升→漏斗中心上方平移→停稳→释放。34mm球心不是指尖目标；工具已经计入球径、球顶和固定指尖偏移。不得改写成一条斜线直达低位目标。
+
+流程：context → prepare → vision交roarm-vision核对scene → run → wait → vision交roarm-vision看result → decision → remember → 失败则reset/wait → 下一轮context/prepare。首次明显偏差可选8–12mm可见试验，接近时缩步；不是移动范围。前后无变化先查完整步长是否进入计划和反馈；发现反向或恶化，回滚该项并记录原因。每轮只改一个参数项，不能确认方向时不盲试。每次向用户同时报告：Grok看到了什么、你决定改什么、工具实际保存了什么。
 
 prepare 或 run 返回错误时，不修改阈值。读取 state，等已有动作结束，在已授权恢复范围内 reset/wait，再重新观察一次。实际 IK 仍不可达时，报告哪一个物体/路径不可达并停止，不循环复位。未执行闭爪/投放时分别记录 execution_failed，不能声称抓空或投放成功。
 

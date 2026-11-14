@@ -8,6 +8,7 @@ import time
 import uuid
 import subprocess
 import shutil
+import re
 
 import cv2
 import numpy as np
@@ -35,6 +36,7 @@ from evoarm_rsi.rsi_events import stream_events
 from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
 from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
 from evoarm_rsi.policy_repair import repair_clipped_policy
+from evoarm_rsi import agent_vision
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -53,6 +55,8 @@ class PlanID(Empty):
 
 class Run(PlanID):
     declaration:str
+    vision_packet_id:str|None=Field(default=None,pattern=r'^[a-f0-9]{16}$')
+    scene_review:dict|None=None
 
 
 class ComparisonReview(Empty):
@@ -62,12 +66,20 @@ class ComparisonReview(Empty):
     note:str=Field(max_length=2000)
 
 
+class ParameterTrial(Empty):
+    parameter:str=Field(pattern=r'^(grasp_z_offset_mm|finger_offset_mm|release_clearance_mm|open_deg|close_deg|squeeze_deg|travel_speed|approach_speed)$')
+    value:float=Field(allow_inf_nan=False)
+
+
 class Review(PlanID):
     outcome:str=Field(pattern=r'^(placed|grasp_missed|pushed_away|slipped|placement_missed|bounced_out|execution_failed|unknown)$')
     direction:str=Field(default='none',pattern=r'^(none|image_left|image_right|image_up|image_down|too_high|too_low)$')
     source:str=Field(default='human',pattern=r'^(human|company_grok|opencode_agent)$')
     requested_step_mm:float|None=Field(default=None,gt=0,allow_inf_nan=False)
     correction_direction:str|None=Field(default=None,pattern=r'^(image_left|image_right|image_up|image_down|lower|higher)$')
+    vision_packet_id:str|None=Field(default=None,pattern=r'^[a-f0-9]{16}$')
+    visual_review:dict|None=None
+    parameter_trial:ParameterTrial|None=None
     note:str=Field(default='',max_length=2000)
     confidence:float|None=Field(default=None,ge=0,le=1)
     ball_state:str|None=Field(default=None,pattern=r'^(table|gripper|funnel|unknown)$')
@@ -93,6 +105,7 @@ class AgentMemory(Empty):
 def install(app,service_provider):
     router=APIRouter(prefix='/api/bench/rsi');lock=threading.RLock();preparing=threading.Lock()
     plans={};job={'status':'idle','phase':'idle'};stop=threading.Event();latest=None
+    agent_stream=None;agent_phase=None
     try:code_revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parent.parent,text=True,stderr=subprocess.DEVNULL,timeout=3).strip()
     except (OSError,subprocess.SubprocessError):code_revision='unknown'
     def root(key):return Path.home()/'.evoarm/rsi/pick_place_runs'/key
@@ -148,8 +161,13 @@ def install(app,service_provider):
         return path
     def fail(exc):raise HTTPException(status_code=409,detail=str(exc)) from exc
     def publish(phase,**values):
+        nonlocal agent_phase
         with lock:job.update(phase='stopping' if stop.is_set() and phase not in ('finished','saving_recording') else phase,**values)
         learner.record_motion_phase(phase)
+        if agent_stream and learner.snapshot().get('status')!='running':
+            signature=(job.get('plan_id'),phase)
+            if signature!=agent_phase:
+                agent_phase=signature;learner.events.emit('motion',phase=phase,plan_id=job.get('plan_id'))
     def validate_live(state):
         packet=preview_frame(Path.home());image=cv2.imdecode(np.frombuffer(packet['jpeg'],np.uint8),cv2.IMREAD_COLOR)
         if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
@@ -171,6 +189,7 @@ def install(app,service_provider):
                     'preview_url':f"/api/bench/rsi/plans/{current['id']}/preview",'depth_url':f"/api/bench/rsi/plans/{current['id']}/depth",
                     'scene':p['scene'],'parameters':p['parameters'],'policy_version':current['policy_version'],
                     'target_audit':p.get('target_audit'),'policy_application':p.get('policy_application'),
+                    'route_policy':p.get('route_policy'),'object_geometry':p.get('object_geometry'),
                     'steps':[s['stage'] for s in p['steps']],'pitch_deg':p['grasp_pitch_deg'],'warnings':p['warnings'],
                     'review':current.get('review')}
                 plan['backup_url']=f"/api/bench/rsi/plans/{current['id']}/archive" if (root(current['id'])/'backup.json').is_file() else None
@@ -180,7 +199,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':7,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':8,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -302,6 +321,16 @@ def install(app,service_provider):
             current=known(req.plan_id)
             if current['status']!='prepared' or time.monotonic()-current['created']>180:raise HTTPException(status_code=409,detail='计划已过期或消耗，请重新观察')
             if req.declaration!=DECLARATION:raise HTTPException(status_code=409,detail='请核对完整抓放路径并确认现场')
+            if req.scene_review is not None or req.vision_packet_id:
+                try:
+                    if not req.vision_packet_id or req.scene_review is None:raise ValueError('场景复核需要完整图片包与结论')
+                    agent_vision.validate_binding(current,root(req.plan_id),req.vision_packet_id,phase='scene')
+                    scene_review=grok_review._scene_verdict(req.scene_review)
+                    if not scene_review['ready']:raise ValueError('视觉子Agent尚未确认本轮目标：'+scene_review['note'])
+                    current['scene_review']={'vision_packet_id':req.vision_packet_id,**scene_review}
+                    append_event(root(req.plan_id),'agent_scene_review',review=current['scene_review'])
+                    learner.events.emit('grok_validated',plan_id=req.plan_id,verdict=scene_review)
+                except (OSError,ValueError,KeyError,TypeError) as exc:fail(exc)
             current['status']='starting'
             try:save(current)
             except (OSError,ValueError) as exc:fail(exc)
@@ -313,6 +342,8 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
+                if current['plan'].get('route_policy',{}).get('version')!=2:
+                    raise ValueError('请重新观察，使用先抬高再平移的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
                     raise ValueError('执行参数与本轮已核对的RSI参数不一致')
@@ -387,6 +418,13 @@ def install(app,service_provider):
                     current['review']=existing;save(current);return existing
                 if pol['parameters']!=current['plan']['parameters']:raise ValueError('本轮实际参数与当前策略不一致，不能重复应用旧试次修正')
                 comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
+                if req.visual_review is not None:
+                    if req.source!='opencode_agent' or not req.vision_packet_id:raise ValueError('视觉子Agent结论需要本轮图片包编号')
+                    agent_vision.validate_binding(current,root(req.plan_id),req.vision_packet_id)
+                    visual=grok_review.validate_verdict(req.visual_review)
+                    for field in ('outcome','direction','ball_state','magnitude','confidence','adjustment'):
+                        if visual.get(field,'unknown')!=getattr(req,field):raise ValueError('主Agent不得改写视觉子Agent的定性结论：'+field)
+                    if visual.get('comparison')!=(assessment or None):raise ValueError('前后比较结论与视觉子Agent不一致')
                 if req.requested_step_mm is not None and req.source!='opencode_agent':raise ValueError('数值试验步长只接受执行Agent工具，不接受视觉模型测量值')
                 if req.correction_direction is not None and req.correction_direction!=OPPOSITE.get(req.direction):
                     raise ValueError('纠正方向必须与原图观察偏差相反；不要再次镜像机械臂坐标')
@@ -395,6 +433,26 @@ def install(app,service_provider):
                     raise ValueError('XY试验步长必须对应图像XY偏差与相应调整项')
                 parameters,changes,proposal=propose(pol['parameters'],current['plan']['scene'],req.outcome,req.direction,
                     req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment,requested_step_mm=req.requested_step_mm)
+                if req.parameter_trial:
+                    if req.source!='opencode_agent' or req.visual_review is None:raise ValueError('标量参数试验需要视觉子Agent结论与执行Agent决策')
+                    if req.requested_step_mm is not None:raise ValueError('每轮只选择XY步长或一个标量参数')
+                    if req.outcome in ('placed','unknown','execution_failed'):raise ValueError('本轮结果不支持抓放参数学习')
+                    if proposal['status']=='rolled_back':raise ValueError('本轮先保留回滚，下一轮再选择新参数')
+                    name=req.parameter_trial.parameter;value=req.parameter_trial.value
+                    allowed={'grasp_missed':{'grasp_z_offset_mm','finger_offset_mm','open_deg','close_deg'},
+                        'pushed_away':{'grasp_z_offset_mm','finger_offset_mm','open_deg'},
+                        'slipped':{'squeeze_deg','travel_speed','close_deg'},
+                        'placement_missed':{'release_clearance_mm'},'bounced_out':{'release_clearance_mm','travel_speed'}}
+                    if name not in allowed.get(req.outcome,set()):raise ValueError('本轮观察结果与所选试验参数不对应')
+                    parameters=copy.deepcopy(pol['parameters']);parameters[name]=value
+                    changed=value!=pol['parameters'][name]
+                    changes=[f'执行Agent选择试验：{name}从{pol["parameters"][name]}改为{value}；{req.note}'] if changed else ['参数未改变，不重复原策略']
+                    proposal={k:v for k,v in proposal.items() if k not in ('robot_delta_mm','predicted_pixel_delta','saved_xy_step_mm',
+                        'projection_direction_verified','projection_direction_alignment','requested_step_preserved','candidate_robot_delta_mm','candidate_pixel_delta')}
+                    proposal.update(status='applied' if changed else 'unchanged',decision='agent_parameter_trial',
+                        parameters_changed=[name] if changed else [],before={name:pol['parameters'][name]} if changed else {},
+                        after={name:value} if changed else {},step_mm=None,allow_retry=changed,
+                        after_policy_id=policy_id(parameters),reason='\n'.join(changes))
                 if req.source=='opencode_agent' and parameters!=pol['parameters']:
                     # Check the complete candidate recipe with real IK before persisting an Agent trial.
                     service=service_provider()
@@ -406,6 +464,8 @@ def install(app,service_provider):
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
                        'comparison':public_comparison(comparison,assessment,plan_id=req.plan_id,panel=(root(req.plan_id)/'comparison.jpg').is_file())}
                 entry.update(confidence=req.confidence,ball_state=req.ball_state,magnitude=req.magnitude,adjustment=req.adjustment)
+                if req.visual_review is not None:entry.update(vision_packet_id=req.vision_packet_id,visual_review=req.visual_review)
+                if req.parameter_trial:entry['parameter_trial']=req.parameter_trial.model_dump()
                 entry.update(ball_xyz_mm=current['plan']['scene']['ball']['center_robot_mm'],
                              grasp_pitch_deg=current['plan']['grasp_pitch_deg'],
                              funnel_xyz_mm=current['plan']['scene']['funnel']['mouth_center_robot_mm'])
@@ -423,6 +483,9 @@ def install(app,service_provider):
                 current['review']=entry;save(current)
                 append_event(root(req.plan_id),'policy_updated',review=entry)
                 archive(current)
+                if req.source=='opencode_agent':
+                    learner.events.emit('grok_validated',plan_id=req.plan_id,verdict=req.visual_review or entry)
+                    learner.events.emit('policy',plan_id=req.plan_id,review=entry,changes=changes)
                 for old in plans.values():
                     if old['status']=='prepared':old['status']='superseded';save(old)
                 return entry
@@ -450,6 +513,23 @@ def install(app,service_provider):
                     'allowed_directions':['none','image_left','image_right','image_up','image_down','too_high','too_low']}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
 
+    @router.get('/vision-context/{plan_id}')
+    def vision_context(plan_id:str):
+        nonlocal agent_stream,agent_phase
+        try:
+            with lock:
+                current=known(plan_id,historical=True);pol=policy(session())
+                if current['calibration_fingerprint']!=fingerprint(session()):raise ValueError('本轮标定已变化')
+                if current['status'] not in ('prepared','completed','failed'):raise ValueError('请等待本轮观察或执行完成')
+                packet=agent_vision.packet(current,compare(current,pol),root(plan_id),bench_ui.experiment_root())
+                if learner.snapshot().get('status')!='running':
+                    if agent_stream is None or learner.events.session_id!=agent_stream:
+                        agent_stream=uuid.uuid4().hex;agent_phase=None;learner.events.reset(agent_stream)
+                    learner.events.emit('phase',phase='scene_check' if packet['phase']=='scene' else 'analyzing',
+                                        plan_id=plan_id,message='图片包已准备，等待只读Grok视觉子Agent复核')
+                return packet
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
     def memory_path(saved):return Path.home()/'.evoarm/rsi/agent_memory'/saved['setup_id']/f'{fingerprint(saved)}.json'
 
     @router.get('/agent/context')
@@ -458,7 +538,7 @@ def install(app,service_provider):
             with lock:
                 saved=session();pol=policy(saved);path=memory_path(saved)
                 memory=json.loads(path.read_text()) if path.exists() else {'notes':[]}
-                return {'api_version':7,'setup_id':saved['setup_id'],'calibration_fingerprint':fingerprint(saved),
+                return {'api_version':8,'setup_id':saved['setup_id'],'calibration_fingerprint':fingerprint(saved),
                         'direction_contract':CONTRACT,'policy':pol,'memory':memory,
                         'latest_plan_id':latest,'job':dict(job),'learning':learner.snapshot(),
                         'coordinates_source':{'ball':'OpenCV黄色区域 + RGB-D球面拟合（深度不足回退已标定桌面与34mm球径）',
@@ -518,7 +598,9 @@ def install(app,service_provider):
     @router.get('/plans/{plan_id}/{kind}')
     def asset(plan_id:str,kind:str):
         if len(plan_id)!=32 or any(c not in '0123456789abcdef' for c in plan_id):raise HTTPException(status_code=404)
-        if kind in ('preview','depth','comparison'):path=root(plan_id)/f'{kind}.jpg';media='image/jpeg'
+        vision=re.fullmatch(r'vision-([a-f0-9]{16})-([0-9]{1,2})',kind)
+        if vision:path=root(plan_id)/'vision-evidence'/vision[1]/f'frame-{int(vision[2]):02d}.jpg';media='image/jpeg'
+        elif kind in ('preview','depth','comparison'):path=root(plan_id)/f'{kind}.jpg';media='image/jpeg'
         elif kind=='archive':path=Path.home()/'.evoarm/rsi/backups'/f'{plan_id}.zip';media='application/zip'
         elif kind in ('video','raw-video','keyframes'):
             try:trial=known(plan_id,historical=True).get('result',{}).get('capture_trial_id')

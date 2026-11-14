@@ -104,7 +104,7 @@ def check(url, output):
                 else:model['fit']={"planar_fit_validated":True,"train_rms_mm":2.,"validation_error_mm":3.2}
                 data['fit']=model['fit']
         elif path=='/bench/rsi/history':data={"trials":model.get('trials',[])}
-        elif path=='/bench/rsi/state':data={"api_version":7,"setup_id":"bench-layout-v2","health":health(),"plan":None,
+        elif path=='/bench/rsi/state':data={"api_version":8,"setup_id":"bench-layout-v2","health":health(),"plan":None,
                                            "learning":{"status":"idle","phase":"idle"},"job":{"status":"idle","phase":"idle"}}
         else:raise AssertionError('unexpected API '+path)
         handler.fulfill(status=200,content_type='application/json',body=json.dumps(data))

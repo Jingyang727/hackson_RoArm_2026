@@ -27,7 +27,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':7,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':8,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -51,7 +51,8 @@ def check(url, output):
         if version>1:parameters['pickup_xy_mm']=[0,-12]
         return {'plan_id':key,'status':'active','seconds_left':180,'scene':scene,'policy_version':version,
                 'parameters':parameters,'policy_application':{'parameters_verified':True,'source_trial_id':'1'*32 if version>1 else None},
-                'steps':['approach_ball','descend','close','lift','transport','release'],
+                'steps':['raise_current','approach_ball','align_above_ball','descend','close','lift','transport','lower_to_release','release'],
+                'route_policy':{'version':2,'mode':'lift_transfer_descend'},
                 'pitch_deg':80,'warnings':[],'preview_url':f'/api/bench/rsi/plans/{key}/preview',
                 'depth_url':f'/api/bench/rsi/plans/{key}/depth','backup_url':None}
     def route(handler):
@@ -140,8 +141,8 @@ def check(url, output):
         page.locator('#phase').filter(has_text='Grok正在分析').wait_for()
         page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
         assert len([call for call in calls if call[0]=='POST'])==posts
-        review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'company_grok',
-                'note':'夹爪偏左，球未离桌','changes':['下一轮修正抓取偏移12mm。'],'after_version':2,
+        review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'opencode_agent',
+                'note':'主Agent选择12mm可见试验','visual_review':{'note':'夹爪偏左，球未离桌'},'changes':['下一轮修正抓取偏移12mm。'],'after_version':2,
                 'ball_state':'table','adjustment':'pickup_xy','confidence':.92}
         review['proposal']={'parameters_changed':['pickup_xy_mm'],'before':{'pickup_xy_mm':[0,0]},
                             'after':{'pickup_xy_mm':[0,-12]},'robot_delta_mm':[0,-12],
@@ -155,6 +156,8 @@ def check(url, output):
         page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         page.locator('#grokVerdict').filter(has_text='夹爪偏左').wait_for()
         assert '调整抓取平面偏移' in page.locator('#grokVerdict').inner_text()
+        assert 'Grok画面依据' in page.locator('#grokVerdict').inner_text()
+        assert '执行Agent决策' in page.locator('#grokVerdict').inner_text()
         page.locator('#processEvents').filter(has_text='程序采用的修正').wait_for()
         count=page.locator('#processEvents li').count()
         page.evaluate('window.RSIProcess.close();window.RSIProcess.connect()')

@@ -18,7 +18,7 @@ from . import bench_ui
 from .safety import JOINTS, TORQUE_FIELDS
 from evoarm.limits import joint_limits_info
 from evoarm_rsi.bench_calibration import load_session
-from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point, errors, check_coordinate_segment
+from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point,plan_lift_point, errors, check_coordinate_segment
 from evoarm_rsi.roarm_geometry import forward, height_above_plane
 from evoarm_rsi.ball_trial import camera_geometry
 from evoarm_rsi.task_scene import load_rgbd
@@ -26,6 +26,9 @@ from evoarm_rsi.task_agent import _write
 from evoarm_rsi.bench_start import _ready
 
 DECLARATION='已核对XYZ目标和路径，现场有人看护且双手离开运动范围'
+
+
+def _launch_route(target):threading.Thread(target=target,name='coordinate-waypoints',daemon=True).start()
 
 
 def torque_feedback(raw):
@@ -50,6 +53,7 @@ class Target(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
     xyz_mm:list[float]=Field(min_length=3,max_length=3)
     pitch_mode:str=Field(default='auto',pattern=r'^(auto|hold)$')
+    path_mode:str=Field(default='direct',pattern=r'^(direct|lift)$')
 
 
 class PlanID(BaseModel):
@@ -111,7 +115,7 @@ def observe_pending(service,pending,status,now,*,disarm_on_finish=True):
     if outcome:
         report.update(status=outcome,finished_at_unix=time.time())
         service.pending=None
-        if disarm_on_finish:service.armed_until=0
+        if disarm_on_finish and not pending.get('route_owner'):service.armed_until=0
         service.last_command.update(status=outcome,**measured)
         if outcome=='timeout_unverified':
             service._latch_fault('coordinate_timeout','坐标验证超时；目标未确认，请核对实际状态',**measured)
@@ -154,7 +158,7 @@ def install(app, service_provider):
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
-                'coordinate_api_version':5,'joint_limits':joint_limits_info(),
+                'coordinate_api_version':6,'joint_limits':joint_limits_info(),
                 'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
@@ -168,7 +172,8 @@ def install(app, service_provider):
         try:
             with service.lock,lock:
                 if service.pending:raise ValueError('当前动作尚未结束，请先核对反馈')
-                raw=service.status();saved=session();plan=plan_point(saved,raw,req.xyz_mm,req.pitch_mode)
+                raw=service.status();saved=session()
+                plan=(plan_lift_point if req.path_mode=='lift' else plan_point)(saved,raw,req.xyz_mm,req.pitch_mode)
                 for key in list(plans):
                     if key!=latest and time.monotonic()-plans[key]['created_monotonic']>180:plans.pop(key)
                 if len(plans)>=128:raise ValueError('本次服务的点位记录已满，请保留记录后重启网页服务')
@@ -215,6 +220,23 @@ def install(app, service_provider):
                 if any(abs(raw[k]-plan['initial_status'][k])>math.radians(1) for k in 'bsetrg'):
                     raise ValueError('机械臂姿态已改变，请重新预览目标')
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('本次XYZ移动需要现有六关节授权')
+                if plan.get('path_mode')=='lift':
+                    service._check_automation_owner(None)
+                    if math.dist([raw[k] for k in 'xyz'],plan['target_xyz_mm'])<.8:
+                        report.update(status='already_at_target',**errors(raw,plan['target_xyz_mm'],plan['pose_preserved_rad']))
+                        persist(report);return {'sent':False,**result_view(report)}
+                    service.automation_owner=req.plan_id
+                    try:service.unlock_once('已检查设备并清空运动区域',automation_id=req.plan_id)
+                    except Exception:
+                        service.automation_owner=None;raise
+                    report.update(status='moving',commands=[],route_step=0,route_steps=len(plan['segments']));persist(report)
+                    def validate():
+                        if fingerprint(session())!=plan['calibration_fingerprint']:raise ValueError('标定已改变，停止后续途径点')
+                    from .coordinate_route import execute_route
+                    try:_launch_route(lambda:execute_route(service,report,validate))
+                    except Exception:
+                        service.disarm();service.automation_owner=None;report['status']='fault';persist(report);raise
+                    return {'sent':True,**result_view(report)}
                 check_coordinate_segment(raw,plan['stage'],plan['table_plane'])
                 if math.dist([raw[k] for k in 'xyz'],plan['target_xyz_mm'])<.8:
                     report.update(status='already_at_target',**errors(raw,plan['target_xyz_mm'],plan['pose_preserved_rad']))

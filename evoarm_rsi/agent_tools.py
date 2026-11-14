@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -69,9 +70,27 @@ def invoke(args,controller):
         if not isinstance(payload,dict):raise ValueError('复核文件需为JSON对象')
         payload['source']='opencode_agent'
         return controller.request('/review',payload)
+    if command=='decision':
+        from .grok_review import validate_verdict
+        value=json.loads(args.json)
+        if not isinstance(value,dict) or set(value)-{'plan_id','vision_packet_id','visual_review','requested_step_mm','parameter_trial','reason'}:
+            raise ValueError('decision需提交视觉结论、图片包编号和Agent决策理由')
+        required={'plan_id','vision_packet_id','visual_review','reason'}
+        if not required<=set(value) or not isinstance(value['reason'],str) or not value['reason'].strip():raise ValueError('缺少视觉来源或决策理由')
+        verdict=validate_verdict(value['visual_review'])
+        payload={**verdict,'plan_id':value['plan_id'],'source':'opencode_agent','note':value['reason'],
+                 'vision_packet_id':value['vision_packet_id'],'visual_review':verdict}
+        for key in ('requested_step_mm','parameter_trial'):
+            if key in value:payload[key]=value[key]
+        return controller.request('/review',payload)
     if command in ('run','reset'):
         if not args.execute:raise ValueError('该工具会移动机械臂；执行Agent须在用户已授权的现场任务中带--execute调用')
-        if command=='run':return controller.request('/run',{'plan_id':args.plan_id,'declaration':RUN_DECLARATION})
+        if command=='run':
+            payload={'plan_id':args.plan_id,'declaration':RUN_DECLARATION}
+            if args.scene_json is not None or args.vision_packet_id:
+                if args.scene_json is None or not args.vision_packet_id:raise ValueError('场景复核需同时提供图片包编号与JSON')
+                payload.update(vision_packet_id=args.vision_packet_id,scene_review=json.loads(args.scene_json))
+            return controller.request('/run',payload)
         return controller.request('/learning/reset',{'declaration':RESET_DECLARATION})
     if command=='stop':
         state=controller.request('/state')
@@ -96,6 +115,19 @@ def invoke(args,controller):
             path=folder/(kind+'.jpg');path.write_bytes(data);paths[kind]=str(path)
         return {'context':context,'images':paths,'missing':missing,
                 'instruction':'用图片读取工具打开这些实际图片，再做复核；没有看到图像时返回unknown，不凭坐标宣称成功。'}
+    if command=='vision':
+        packet=controller.request('/vision-context/'+args.plan_id)
+        folder=Path.cwd()/'.evoarm-agent-evidence'/args.plan_id/'vision'/packet['vision_packet_id'];folder.mkdir(parents=True,exist_ok=True)
+        for i,row in enumerate(packet['images']):
+            if not row['url'].startswith(PREFIX+'/plans/'+args.plan_id+'/vision-'):raise ValueError('视觉图片地址不属于本轮')
+            data=controller.request(row['url'][len(PREFIX):],binary=True)
+            if hashlib.sha256(data).hexdigest()!=row['sha256']:raise ValueError('视觉图片校验失败')
+            path=folder/f'frame-{i:02d}.jpg';path.write_bytes(data);row['local_path']=str(path)
+        # Only this packet is passed to the visual task: no main-agent context,
+        # robot coordinates, extrinsics, policies or remembered view relationship.
+        packet['vision_task']=packet['instructions']+'\n'+json.dumps({k:v for k,v in packet.items() if k!='instructions'},ensure_ascii=False)
+        path=folder/'vision-task.json';path.write_text(json.dumps(packet,ensure_ascii=False,indent=2))
+        return packet
     raise ValueError('未知工具')
 
 
@@ -107,10 +139,13 @@ def parser():
     memory=sub.add_parser('remember');memory.add_argument('--note',required=True);memory.add_argument('--plan-id',type=plan_id)
     review=sub.add_parser('review');source=review.add_mutually_exclusive_group(required=True)
     source.add_argument('--file');source.add_argument('--json')
+    decision=sub.add_parser('decision');decision.add_argument('--json',required=True)
     run=sub.add_parser('run');run.add_argument('plan_id',type=plan_id);run.add_argument('--execute',action='store_true')
+    run.add_argument('--vision-packet-id');run.add_argument('--scene-json')
     reset=sub.add_parser('reset');reset.add_argument('--execute',action='store_true')
     wait=sub.add_parser('wait');wait.add_argument('--seconds',type=float,default=60)
     evidence=sub.add_parser('evidence');evidence.add_argument('plan_id',type=plan_id)
+    vision=sub.add_parser('vision');vision.add_argument('plan_id',type=plan_id)
     return result
 
 

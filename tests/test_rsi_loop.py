@@ -210,7 +210,13 @@ class Execution(unittest.TestCase):
     def test_complete_pick_place_and_real_ten_second_recording_contract(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);home=Path(temp.name);saved=layout(home)
         folder,image,depth=scene(home,saved);world,_,_,_=observe_scene(folder,saved)
-        arm=InstantArm();service=ArmService();service.arm=arm
+        phase={'name':None}
+        class OffsetArm(InstantArm):
+            def send(self,command):
+                super().send(command)
+                if command['T']==104 and phase['name'] in ('approach_ball','transport'):
+                    self.raw=inverse([command['x']+9.,command['y']-5.,command['z']],command['t'],command['r'],command['g'])
+        arm=OffsetArm();service=ArmService();service.arm=arm
         plan=build_plan(saved,arm.status(),world,copy.deepcopy(DEFAULT_PARAMETERS));key=uuid.uuid4().hex
         root=home/'.evoarm/rsi/pick_place_runs'/key;camera_state={};camera_started=threading.Event()
         def camera(task_home,method,path,payload=None):
@@ -227,7 +233,10 @@ class Execution(unittest.TestCase):
             np.savez_compressed(trial/'depth_samples.npz',depth_mm=np.stack([depth]*3),monotonic_ns=[stamp,stamp+5_000_000_000,stamp+10_000_000_000])
             return {'trial_id':trial.name,'request_id':payload['request_id']}
         def publish(phase,**values):
+            # Route stage names are provided before the one motor write.
+            set_phase(phase)
             if phase=='saving_recording':self.assertEqual(service.pending['stage_kind'],'reserved')
+        def set_phase(value):phase['name']=value
         with patch.object(Path,'home',return_value=home),patch.dict('os.environ',{'EVOARM_ENABLE_MOTION':'1'}):
             service.unlock_once('已检查设备并清空运动区域');service.pending=reservation(key)
             result=execute(service,plan,root,threading.Event(),publish,camera=camera)
@@ -239,3 +248,11 @@ class Execution(unittest.TestCase):
         self.assertTrue(any(c['T']==106 and c['spd']==1000 and c['acc']==20 for c in arm.commands))
         self.assertFalse(any('acc' in c for c in arm.commands if c['T']==104))
         self.assertEqual(service.armed_until,0);self.assertIsNone(service.pending)
+        anchored=0
+        for path in root.glob('stage-*.json'):
+            report=json.loads(path.read_text())
+            if report.get('vertical_only'):
+                target=report['plan']['target_xyz_mm'];initial=report['plan']['initial_status']
+                self.assertEqual(target[:2],[initial['x'],initial['y']])
+                if target[:2]!=report['nominal_target_xyz_mm'][:2]:anchored+=1
+        self.assertGreaterEqual(anchored,2)
