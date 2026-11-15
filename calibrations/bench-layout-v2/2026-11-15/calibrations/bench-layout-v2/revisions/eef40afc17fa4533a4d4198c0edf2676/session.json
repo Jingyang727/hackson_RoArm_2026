@@ -1,0 +1,1400 @@
+{
+  "kind": "bench_calibration_session_v1",
+  "setup_id": "bench-layout-v2",
+  "session_id": "996aefb609d0424dbd551ad06c7fd93e",
+  "created_at": "2026-11-14T07:11:35.654833+00:00",
+  "reference_trial": "/Users/jyang51/.evoarm/rsi/experiments/a7a3ea63fdd84775a0e7681bd8de1bf6",
+  "reference": {
+    "kind": "gemini_checkerboard_reference_v1",
+    "source_trial_id": "a7a3ea63fdd84775a0e7681bd8de1bf6",
+    "source_frame_indices": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30
+    ],
+    "image_size": [
+      1280,
+      720
+    ],
+    "square_mm": 24.94,
+    "corners_px": [
+      [
+        493.51513671875,
+        289.5037841796875
+      ],
+      [
+        528.342041015625,
+        288.4314270019531
+      ],
+      [
+        562.7357788085938,
+        287.4482727050781
+      ],
+      [
+        597.5870361328125,
+        286.5853576660156
+      ],
+      [
+        631.84814453125,
+        285.244873046875
+      ],
+      [
+        665.9368286132812,
+        284.4991760253906
+      ],
+      [
+        700.0093383789062,
+        282.932861328125
+      ],
+      [
+        734.0084838867188,
+        281.6686706542969
+      ],
+      [
+        767.7984619140625,
+        280.5914306640625
+      ],
+      [
+        491.7118225097656,
+        319.61065673828125
+      ],
+      [
+        527.3383178710938,
+        318.464111328125
+      ],
+      [
+        562.597900390625,
+        317.5506286621094
+      ],
+      [
+        598.2010498046875,
+        315.896728515625
+      ],
+      [
+        633.4336547851562,
+        315.3370056152344
+      ],
+      [
+        668.3021850585938,
+        313.9981994628906
+      ],
+      [
+        703.2986450195312,
+        312.529296875
+      ],
+      [
+        737.9308471679688,
+        311.3683166503906
+      ],
+      [
+        772.7412719726562,
+        309.5803527832031
+      ],
+      [
+        489.77288818359375,
+        351.5003356933594
+      ],
+      [
+        526.1914672851562,
+        349.92755126953125
+      ],
+      [
+        562.3900756835938,
+        348.50152587890625
+      ],
+      [
+        598.7606201171875,
+        347.6473388671875
+      ],
+      [
+        634.8961791992188,
+        346.3292541503906
+      ],
+      [
+        670.642578125,
+        345.2635498046875
+      ],
+      [
+        706.5247192382812,
+        343.7676696777344
+      ],
+      [
+        742.0211791992188,
+        342.47369384765625
+      ],
+      [
+        777.4666137695312,
+        341.0849609375
+      ],
+      [
+        487.6559753417969,
+        384.5583190917969
+      ],
+      [
+        525.0753784179688,
+        383.5124206542969
+      ],
+      [
+        562.3370361328125,
+        382.2015380859375
+      ],
+      [
+        599.6033935546875,
+        380.6480407714844
+      ],
+      [
+        636.500244140625,
+        379.44512939453125
+      ],
+      [
+        673.3517456054688,
+        377.76275634765625
+      ],
+      [
+        710.10107421875,
+        376.46051025390625
+      ],
+      [
+        746.4362182617188,
+        374.89007568359375
+      ],
+      [
+        782.75830078125,
+        373.7117004394531
+      ],
+      [
+        485.08978271484375,
+        418.9379577636719
+      ],
+      [
+        523.5162353515625,
+        417.53485107421875
+      ],
+      [
+        561.9678344726562,
+        416.49114990234375
+      ],
+      [
+        600.3065795898438,
+        415.0167541503906
+      ],
+      [
+        638.29052734375,
+        413.3919372558594
+      ],
+      [
+        676.0496215820312,
+        412.17852783203125
+      ],
+      [
+        713.7960815429688,
+        410.638916015625
+      ],
+      [
+        750.9163818359375,
+        409.5513610839844
+      ],
+      [
+        788.2010498046875,
+        407.9035949707031
+      ],
+      [
+        483.01727294921875,
+        456.2629699707031
+      ],
+      [
+        522.4177856445312,
+        454.8158264160156
+      ],
+      [
+        561.6439819335938,
+        453.1923828125
+      ],
+      [
+        601.1427612304688,
+        451.5752868652344
+      ],
+      [
+        640.16650390625,
+        450.2278747558594
+      ],
+      [
+        678.750244140625,
+        448.71685791015625
+      ],
+      [
+        717.719970703125,
+        447.3041687011719
+      ],
+      [
+        755.9270629882812,
+        445.3880920410156
+      ],
+      [
+        794.008544921875,
+        443.8843078613281
+      ]
+    ],
+    "pixel_to_grid_h": [
+      [
+        0.037034758581829315,
+        0.002337851981206629,
+        -18.957456607672235
+      ],
+      [
+        0.0013981345362171548,
+        0.04385336541178332,
+        -13.3901376357338
+      ],
+      [
+        -3.3937084655435064e-05,
+        0.0010449090468008322,
+        1.0
+      ]
+    ],
+    "frames_verified": 29,
+    "max_median_corner_motion_px": 0.036,
+    "physical_placement_independently_verified": false,
+    "notes": "Reusable while camera, chessboard and robot base stay fixed; not proof of current pose stability"
+  },
+  "reference_sha256": "8e85bfdfb109ffe9c7d43e8d31619a3c799b12f1caf4e9959dd96d08d514d836",
+  "points": {
+    "P1": [
+      1,
+      1
+    ],
+    "P2": [
+      7,
+      1
+    ],
+    "P3": [
+      7,
+      4
+    ],
+    "P4": [
+      1,
+      4
+    ],
+    "V1": [
+      4,
+      2
+    ]
+  },
+  "records": {
+    "P1": {
+      "id": "P1",
+      "capture_id": "d8469cb54d054a7f93b6df151d3f351d",
+      "grid": [
+        1,
+        1
+      ],
+      "role": "train",
+      "board_mm": [
+        24.94,
+        24.94
+      ],
+      "pixel_xy": [
+        527.3383178710938,
+        318.464111328125
+      ],
+      "captured_at": "2026-11-14T07:11:59.174338+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        333.6917626,
+        -55.794076929999996,
+        -120.1643662
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.455747768,
+        "roll": 0.003067962,
+        "gripper": 3.156932461
+      },
+      "xyz_spread_mm": 0.0,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89770675130375,
+            "robot_status": {
+              "T": 1051,
+              "x": 333.6917626,
+              "y": -55.79407693,
+              "z": -120.1643662,
+              "tit": 1.455747768,
+              "b": -0.165669925,
+              "s": 0.911184588,
+              "e": 1.161223456,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1142
+            }
+          },
+          {
+            "host_monotonic_ns": 89771080258833,
+            "robot_status": {
+              "T": 1051,
+              "x": 333.6917626,
+              "y": -55.79407693,
+              "z": -120.1643662,
+              "tit": 1.455747768,
+              "b": -0.165669925,
+              "s": 0.911184588,
+              "e": 1.161223456,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1145
+            }
+          },
+          {
+            "host_monotonic_ns": 89771484558416,
+            "robot_status": {
+              "T": 1051,
+              "x": 333.6917626,
+              "y": -55.79407693,
+              "z": -120.1643662,
+              "tit": 1.455747768,
+              "b": -0.165669925,
+              "s": 0.911184588,
+              "e": 1.161223456,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1145
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          333.6917626,
+          -55.794076929999996,
+          -120.1643662
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.455747768,
+          "roll": 0.003067962,
+          "gripper": 3.156932461
+        },
+        "xyz_spread_mm": 0.0,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    },
+    "P2": {
+      "id": "P2",
+      "capture_id": "e2ee490a3aa24e0fa1707d37851d6888",
+      "grid": [
+        7,
+        1
+      ],
+      "role": "train",
+      "board_mm": [
+        174.58,
+        24.94
+      ],
+      "pixel_xy": [
+        737.9308471679688,
+        311.3683166503906
+      ],
+      "captured_at": "2026-11-14T07:12:08.380620+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        322.2112844,
+        103.1648641,
+        -120.1641767
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.4557477676666666,
+        "roll": 0.003067962,
+        "gripper": 3.156932461
+      },
+      "xyz_spread_mm": 0.8457647979246893,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89779882636833,
+            "robot_status": {
+              "T": 1051,
+              "x": 322.5641695,
+              "y": 103.27785,
+              "z": -119.9603733,
+              "tit": 1.454213787,
+              "b": 0.309864119,
+              "s": 0.911184588,
+              "e": 1.159689476,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89780286619416,
+            "robot_status": {
+              "T": 1051,
+              "x": 322.2113836,
+              "y": 103.1648959,
+              "z": -120.1643662,
+              "tit": 1.455747768,
+              "b": 0.309864119,
+              "s": 0.911184588,
+              "e": 1.161223456,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89780690997625,
+            "robot_status": {
+              "T": 1051,
+              "x": 321.8583001,
+              "y": 103.0518464,
+              "z": -120.3677906,
+              "tit": 1.457281748,
+              "b": 0.309864119,
+              "s": 0.911184588,
+              "e": 1.162757437,
+              "t": 0.95413605,
+              "r": 0.003067962,
+              "g": 3.156932461,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1145
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          322.2112844,
+          103.1648641,
+          -120.1641767
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.4557477676666666,
+          "roll": 0.003067962,
+          "gripper": 3.156932461
+        },
+        "xyz_spread_mm": 0.8457647979246893,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    },
+    "P4": {
+      "id": "P4",
+      "capture_id": "b27114a6951644c0aca84194e32a65c8",
+      "grid": [
+        1,
+        4
+      ],
+      "role": "train",
+      "board_mm": [
+        24.94,
+        99.76
+      ],
+      "pixel_xy": [
+        523.5162353515625,
+        417.53485107421875
+      ],
+      "captured_at": "2026-11-14T07:13:02.849168+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        407.7277145,
+        -54.102620519999995,
+        -117.2069513
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.26553415,
+        "roll": 0.003067962,
+        "gripper": 3.155398481
+      },
+      "xyz_spread_mm": 0.0,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [
+        "俯仰与 P1 相差 10.9°；已保留真实XYZ，可尽量保持一致"
+      ],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89834351132833,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.7277145,
+              "y": -54.10262052,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.131922348,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89834755731833,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.7277145,
+              "y": -54.10262052,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.131922348,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89835160240833,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.7277145,
+              "y": -54.10262052,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.131922348,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          407.7277145,
+          -54.102620519999995,
+          -117.2069513
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.26553415,
+          "roll": 0.003067962,
+          "gripper": 3.155398481
+        },
+        "xyz_spread_mm": 0.0,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    },
+    "P3": {
+      "id": "P3",
+      "capture_id": "05334080826f4814b2b85c69872a3ee0",
+      "grid": [
+        7,
+        4
+      ],
+      "role": "train",
+      "board_mm": [
+        174.58,
+        99.76
+      ],
+      "pixel_xy": [
+        750.9163818359375,
+        409.5513610839844
+      ],
+      "captured_at": "2026-11-14T07:12:54.729223+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        397.2323262,
+        106.65580949999999,
+        -117.2069513
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.26553415,
+        "roll": 0.003067962,
+        "gripper": 3.155398481
+      },
+      "xyz_spread_mm": 0.0,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [
+        "俯仰与 P1 相差 10.9°；已保留真实XYZ，可尽量保持一致"
+      ],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89826231186916,
+            "robot_status": {
+              "T": 1051,
+              "x": 397.2323262,
+              "y": 106.6558095,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": 0.262310715,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89826635710333,
+            "robot_status": {
+              "T": 1051,
+              "x": 397.2323262,
+              "y": 106.6558095,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": 0.262310715,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89827040112791,
+            "robot_status": {
+              "T": 1051,
+              "x": 397.2323262,
+              "y": 106.6558095,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": 0.262310715,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          397.2323262,
+          106.65580949999999,
+          -117.2069513
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.26553415,
+          "roll": 0.003067962,
+          "gripper": 3.155398481
+        },
+        "xyz_spread_mm": 0.0,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    },
+    "V1": {
+      "id": "V1",
+      "capture_id": "7d4b260c8d24445ebe82560d6510f402",
+      "grid": [
+        4,
+        2
+      ],
+      "role": "validate",
+      "board_mm": [
+        99.76,
+        49.88
+      ],
+      "pixel_xy": [
+        634.8961791992188,
+        346.3292541503906
+      ],
+      "captured_at": "2026-11-14T07:13:22.327068+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        352.4178728,
+        22.73676211333333,
+        -122.56533166666667
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.403081094,
+        "roll": 0.005624596,
+        "gripper": 3.155398481
+      },
+      "xyz_spread_mm": 0.26417452584623125,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89853829364458,
+            "robot_status": {
+              "T": 1051,
+              "x": 352.5929376,
+              "y": 22.74805668,
+              "z": -122.5497844,
+              "tit": 1.40205844,
+              "b": 0.064427193,
+              "s": 0.943398185,
+              "e": 1.099864225,
+              "t": 0.929592357,
+              "r": 0.006135923,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89854233225916,
+            "robot_status": {
+              "T": 1051,
+              "x": 352.3303404,
+              "y": 22.73111483,
+              "z": -122.5731053,
+              "tit": 1.403592421,
+              "b": 0.064427193,
+              "s": 0.943398185,
+              "e": 1.099864225,
+              "t": 0.931126338,
+              "r": 0.006135923,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          },
+          {
+            "host_monotonic_ns": 89854638404583,
+            "robot_status": {
+              "T": 1051,
+              "x": 352.3303404,
+              "y": 22.73111483,
+              "z": -122.5731053,
+              "tit": 1.403592421,
+              "b": 0.064427193,
+              "s": 0.943398185,
+              "e": 1.099864225,
+              "t": 0.931126338,
+              "r": 0.004601942,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1144
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          352.4178728,
+          22.73676211333333,
+          -122.56533166666667
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.403081094,
+          "roll": 0.005624596,
+          "gripper": 3.155398481
+        },
+        "xyz_spread_mm": 0.26417452584623125,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    }
+  },
+  "history": [
+    {
+      "id": "P4",
+      "capture_id": "2c581ac177f145a88971c5f982526f03",
+      "grid": [
+        1,
+        4
+      ],
+      "role": "train",
+      "board_mm": [
+        24.94,
+        99.76
+      ],
+      "pixel_xy": [
+        523.5162353515625,
+        417.53485107421875
+      ],
+      "captured_at": "2026-11-14T07:12:46.061825+00:00",
+      "operator_confirmed_endpoint_on_board": true,
+      "robot_xyz_mm": [
+        407.6442424,
+        -54.7280031,
+        -117.2069513
+      ],
+      "tool_pose_rad": {
+        "pitch": 1.26553415,
+        "roll": 0.003067962,
+        "gripper": 3.155398481
+      },
+      "xyz_spread_mm": 0.0,
+      "torque_locked": false,
+      "operator_support_required": true,
+      "pose_warnings": [
+        "俯仰与 P1 相差 10.9°；已保留真实XYZ，可尽量保持一致"
+      ],
+      "raw_feedback": {
+        "kind": "stationary_robot_feedback_v1",
+        "samples": [
+          {
+            "host_monotonic_ns": 89817565011916,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.6442424,
+              "y": -54.7280031,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.133456329,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1145
+            }
+          },
+          {
+            "host_monotonic_ns": 89817968006083,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.6442424,
+              "y": -54.7280031,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.133456329,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1145
+            }
+          },
+          {
+            "host_monotonic_ns": 89818372557625,
+            "robot_status": {
+              "T": 1051,
+              "x": 407.6442424,
+              "y": -54.7280031,
+              "z": -117.2069513,
+              "tit": 1.26553415,
+              "b": -0.133456329,
+              "s": 1.161223456,
+              "e": 0.521553468,
+              "t": 1.153553552,
+              "r": 0.003067962,
+              "g": 3.155398481,
+              "tB": 0,
+              "tS": 0,
+              "tE": 0,
+              "tT": 0,
+              "tR": 0,
+              "tG": 0,
+              "torswitchB": 0,
+              "torswitchS": 0,
+              "torswitchE": 0,
+              "torswitchT": 0,
+              "torswitchR": 0,
+              "torswitchG": 0,
+              "v": 1146
+            }
+          }
+        ],
+        "source": "T1051_encoder_forward_kinematics",
+        "motion_commands_sent": false,
+        "robot_xyz_mm": [
+          407.6442424,
+          -54.7280031,
+          -117.2069513
+        ],
+        "tool_pose_rad": {
+          "pitch": 1.26553415,
+          "roll": 0.003067962,
+          "gripper": 3.155398481
+        },
+        "xyz_spread_mm": 0.0,
+        "torque_locked": false,
+        "operator_support_required": true
+      }
+    }
+  ],
+  "tool_reference": "waveshare_stock_firmware_endpoint",
+  "alignment": "same_endpoint_on_board_surface_without_pressure",
+  "motion_authorized": false,
+  "capture_revision": 6,
+  "last_capture": {
+    "point_id": "V1",
+    "capture_id": "7d4b260c8d24445ebe82560d6510f402",
+    "captured_at": "2026-11-14T07:13:22.327068+00:00",
+    "capture_revision": 6,
+    "sample_file": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session-samples/V1-7d4b260c8d24445ebe82560d6510f402.json",
+    "query_count": 3,
+    "previous_capture_id": null,
+    "previous_captured_at": null,
+    "previous_xyz_mm": null,
+    "xyz_mm": [
+      352.4178728,
+      22.73676211333333,
+      -122.56533166666667
+    ],
+    "xyz_change_mm": null,
+    "change_norm_mm": null,
+    "xyz_unchanged": false,
+    "previous_validation_error_mm": null
+  },
+  "fit": {
+    "kind": "bench_calibration_candidate_v1",
+    "setup_id": "bench-layout-v2",
+    "session_id": "996aefb609d0424dbd551ad06c7fd93e",
+    "reference_sha256": "8e85bfdfb109ffe9c7d43e8d31619a3c799b12f1caf4e9959dd96d08d514d836",
+    "source_session": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+    "input_capture_revision": 6,
+    "board_to_robot_rotation_3x3": [
+      [
+        -0.062199410596141855,
+        0.9972796314311404,
+        0.039554646428220194
+      ],
+      [
+        0.9980637097799071,
+        0.062140454822046776,
+        0.0027193923730313265
+      ],
+      [
+        0.0002540509041184911,
+        0.039647201755964194,
+        -0.9992137082982099
+      ]
+    ],
+    "board_to_robot_translation_mm": [
+      309.2404001063395,
+      -78.46029900829814,
+      -121.18295852267923
+    ],
+    "train_rms_mm": 5.443994496455451,
+    "train_max_mm": 6.755599855474835,
+    "validation_error_mm": 3.70813510913535,
+    "train_errors_mm": {
+      "P1": 3.9409587607859504,
+      "P2": 5.9258558814957025,
+      "P3": 4.718394962271027,
+      "P4": 6.755599855474835
+    },
+    "point_diagnostics": [
+      {
+        "id": "P1",
+        "role": "train",
+        "grid": [
+          1,
+          1
+        ],
+        "capture_id": "d8469cb54d054a7f93b6df151d3f351d",
+        "captured_at": "2026-11-14T07:11:59.174338+00:00",
+        "recorded_xyz_mm": [
+          333.6917626,
+          -55.794076929999996,
+          -120.1643662
+        ],
+        "predicted_xyz_mm": [
+          332.56130081396435,
+          -52.01880714312541,
+          -120.18782128133677
+        ],
+        "recorded_minus_predicted_mm": [
+          1.130461786035653,
+          -3.7752697868745884,
+          0.023455081336763328
+        ],
+        "board_xy_error_mm": [
+          -3.8382678669163104,
+          0.8937194600342673
+        ],
+        "height_error_mm": -0.011011937581748787,
+        "error_mm": 3.9409587607859504
+      },
+      {
+        "id": "P2",
+        "role": "train",
+        "grid": [
+          7,
+          1
+        ],
+        "capture_id": "e2ee490a3aa24e0fa1707d37851d6888",
+        "captured_at": "2026-11-14T07:12:08.380620+00:00",
+        "recorded_xyz_mm": [
+          322.2112844,
+          103.1648641,
+          -120.1641767
+        ],
+        "predicted_xyz_mm": [
+          323.2537810123577,
+          97.33144638833991,
+          -120.14980510404448
+        ],
+        "recorded_minus_predicted_mm": [
+          -1.042496612357695,
+          5.83341771166009,
+          -0.01437159595552373
+        ],
+        "board_xy_error_mm": [
+          5.8869615457154625,
+          -0.6777392011351572
+        ],
+        "height_error_mm": 0.011011937581749232,
+        "error_mm": 5.9258558814957025
+      },
+      {
+        "id": "P3",
+        "role": "train",
+        "grid": [
+          7,
+          4
+        ],
+        "capture_id": "05334080826f4814b2b85c69872a3ee0",
+        "captured_at": "2026-11-14T07:12:54.729223+00:00",
+        "recorded_xyz_mm": [
+          397.2323262,
+          106.65580949999999,
+          -117.2069513
+        ],
+        "predicted_xyz_mm": [
+          397.8702430360356,
+          101.98079521812545,
+          -117.18340146866323
+        ],
+        "recorded_minus_predicted_mm": [
+          -0.6379168360356289,
+          4.675014281874539,
+          -0.023549831336765692
+        ],
+        "board_xy_error_mm": [
+          4.705634165796579,
+          -0.3466076382644106
+        ],
+        "height_error_mm": -0.011011937581750965,
+        "error_mm": 4.718394962271027
+      },
+      {
+        "id": "P4",
+        "role": "train",
+        "grid": [
+          1,
+          4
+        ],
+        "capture_id": "b27114a6951644c0aca84194e32a65c8",
+        "captured_at": "2026-11-14T07:13:02.849168+00:00",
+        "recorded_xyz_mm": [
+          407.7277145,
+          -54.102620519999995,
+          -117.2069513
+        ],
+        "predicted_xyz_mm": [
+          407.1777628376423,
+          -47.36945831333986,
+          -117.22141764595553
+        ],
+        "recorded_minus_predicted_mm": [
+          0.549951662357671,
+          -6.733162206660133,
+          0.014466345955526094
+        ],
+        "board_xy_error_mm": [
+          -6.7543278445958235,
+          0.13062737936529464
+        ],
+        "height_error_mm": 0.01101193758175077,
+        "error_mm": 6.755599855474835
+      },
+      {
+        "id": "V1",
+        "role": "validate",
+        "grid": [
+          4,
+          2
+        ],
+        "capture_id": "7d4b260c8d24445ebe82560d6510f402",
+        "captured_at": "2026-11-14T07:13:22.327068+00:00",
+        "recorded_xyz_mm": [
+          352.4178728,
+          22.73676211333333,
+          -122.56533166666667
+        ],
+        "predicted_xyz_mm": [
+          352.7796949210537,
+          24.206102565869088,
+          -119.18001198089688
+        ],
+        "recorded_minus_predicted_mm": [
+          -0.3618221210537058,
+          -1.4693404525357572,
+          -3.3853196857697867
+        ],
+        "board_xy_error_mm": [
+          -1.4448503038442388,
+          -0.5863617681272292
+        ],
+        "height_error_mm": -3.364350377704759,
+        "error_mm": 3.70813510913535
+      }
+    ],
+    "failure_reasons": [],
+    "suggested_recheck": null,
+    "limits_mm": {
+      "train_rms_mm": 6.0,
+      "train_max_mm": 9.0,
+      "validation_error_mm": 10.0
+    },
+    "table_plane_robot": {
+      "normal_up": [
+        -0.039554646428220194,
+        -0.0027193923730313265,
+        0.9992137082982099
+      ],
+      "d_mm": 133.10620371681316
+    },
+    "planar_fit_validated": true,
+    "motion_authorized": false,
+    "scope": "board_plane_firmware_endpoint",
+    "camera_to_robot_verified": false,
+    "grasp_tcp_verified": false,
+    "output_file": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/candidate-19da6ad0f0644050890524d26bcf7efe.json"
+  }
+}

@@ -1,0 +1,3476 @@
+{
+  "version": 17,
+  "parameters": {
+    "pickup_xy_mm": [
+      15.52546860583743,
+      20.660650114370302
+    ],
+    "release_xy_mm": [
+      0.0,
+      0.0
+    ],
+    "grasp_z_offset_mm": 1.0,
+    "finger_offset_mm": 19.0,
+    "hover_height_mm": 70.0,
+    "lift_height_mm": 125.0,
+    "release_clearance_mm": 18.0,
+    "open_deg": 110.0,
+    "close_deg": 180.0,
+    "travel_speed": 1.0,
+    "approach_speed": 0.4,
+    "gripper_speed": 1000,
+    "gripper_acc": 20,
+    "squeeze_deg": 2.0
+  },
+  "reviews": [
+    {
+      "plan_id": "be5146deb50341f3b6133b2c8c6bebd5",
+      "outcome": "execution_failed",
+      "direction": "none",
+      "source": "opencode_agent",
+      "note": "执行分类为clearance_shortfall：合爪后抬升实测离桌57.4mm，低于72.4mm要求，短差42.6mm，投放未开始。按诊断建议做一次lift_height_mm试验，100→125。视觉显示球仍在桌面且夹爪偏画面右侧，本轮不改XY。",
+      "before_version": 1,
+      "after_version": 2,
+      "before": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 100.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "执行Agent选择试验：lift_height_mm从100.0改为125.0；执行分类为clearance_shortfall：合爪后抬升实测离桌57.4mm，低于72.4mm要求，短差42.6mm，投放未开始。按诊断建议做一次lift_height_mm试验，100→125。视觉显示球仍在桌面且夹爪偏画面右侧，本轮不改XY。"
+      ],
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [
+          "lift_height_mm"
+        ],
+        "before": {
+          "lift_height_mm": 100.0
+        },
+        "after": {
+          "lift_height_mm": 125.0
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "execution_parameter_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "05dcb89145c8",
+        "after_policy_id": "08a3b2174557",
+        "source_trial_id": null,
+        "status": "applied",
+        "reason": "执行Agent选择试验：lift_height_mm从100.0改为125.0；执行分类为clearance_shortfall：合爪后抬升实测离桌57.4mm，低于72.4mm要求，短差42.6mm，投放未开始。按诊断建议做一次lift_height_mm试验，100→125。视觉显示球仍在桌面且夹爪偏画面右侧，本轮不改XY。"
+      },
+      "at_unix": 1794651348.564838,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": null,
+        "reason": "没有上一轮已执行修正的证据",
+        "parameter_changes": [],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "be5146deb50341f3b6133b2c8c6bebd5",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "本包没有可比前轮。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.78,
+      "ball_state": "table",
+      "magnitude": "unknown",
+      "adjustment": "unknown",
+      "execution_diagnosis": {
+        "category": "clearance_shortfall",
+        "error": "MotionConstraintError: 路径0.0%处：指尖低于本段要求的离桌高度72.4mm",
+        "failed_stage": null,
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.081,
+            "duration_s": 2.08
+          },
+          {
+            "stage": "align_above_ball",
+            "started_s": 2.136,
+            "completed_s": 4.574,
+            "duration_s": 2.438
+          },
+          {
+            "stage": "descend",
+            "started_s": 4.629,
+            "completed_s": 6.075,
+            "duration_s": 1.446
+          },
+          {
+            "stage": "close",
+            "started_s": 6.124,
+            "completed_s": 7.555,
+            "duration_s": 1.431
+          },
+          {
+            "stage": "lift",
+            "started_s": 7.613,
+            "completed_s": 9.374,
+            "duration_s": 1.761
+          },
+          {
+            "stage": "transport",
+            "started_s": 9.423
+          }
+        ],
+        "execution_trial_parameters": [
+          "lift_height_mm"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            342.4159251,
+            -6.303825431,
+            -19.594612524116215
+          ],
+          "actual_xyz_mm": [
+            333.1190506,
+            -5.621513999,
+            -62.6377571
+          ],
+          "target_height_mm": 100.0,
+          "actual_height_mm": 57.356579002746,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 42.643420997254
+        },
+        "elapsed_s": 9.423,
+        "target_duration_s": 10,
+        "suggested_trial": {
+          "parameter": "lift_height_mm",
+          "value": 125.0,
+          "meaning": "single measured execution trial; full parameter bounds and IK still required"
+        },
+        "retry_instruction": "不降低横移间隙；按实测抬升不足选择一次抬升高度试验，先检查完整IK。"
+      },
+      "vision_packet_id": "d8afd3c3aaa0cd6d",
+      "visual_review": {
+        "outcome": "execution_failed",
+        "direction": "none",
+        "ball_state": "table",
+        "magnitude": "unknown",
+        "adjustment": "unknown",
+        "confidence": 0.78,
+        "note": "全程未见闭爪、抬升或释放。黄球始终停在画面左侧桌面上；夹爪先从画面右上方接近，但在close_review中仍明显位于球的画面右侧且未夹住球，随后又向画面右侧退开。黑色漏斗开口在画面右侧，未见黄球进入。",
+        "comparison": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "本包没有可比前轮。"
+        }
+      },
+      "parameter_trial": {
+        "parameter": "lift_height_mm",
+        "value": 125.0
+      },
+      "ball_xyz_mm": [
+        358.38890558255184,
+        -8.89436764190369,
+        -104.36266820681746
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        367.84096886635655,
+        277.90773927764843,
+        -72.45761688778282
+      ]
+    },
+    {
+      "plan_id": "567750dafd004a98b796e0c261732747",
+      "outcome": "grasp_missed",
+      "direction": "too_high",
+      "source": "opencode_agent",
+      "note": "补交已保存的完整视觉JSON：结果为grasp_missed，球仍在桌面，夹爪抬起后为空，画面判断too_high。原始confidence为medium，接口要求数值，记为0.6。本调用只记录视觉复核，不改参数、不重放旧动作。",
+      "before_version": 2,
+      "after_version": 3,
+      "before": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。",
+        "执行问题未解决，不重复相同参数。"
+      ],
+      "proposal": {
+        "observed_direction": "too_high",
+        "correction_direction": "lower",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": false,
+        "decision": "execution_change_required",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "08a3b2174557",
+        "after_policy_id": "08a3b2174557",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。"
+      },
+      "at_unix": 1794718316.0840802,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "be5146deb50341f3b6133b2c8c6bebd5",
+        "reason": "执行路径版本已变化，先验证新流程，不把变化归因于单项参数",
+        "parameter_changes": [],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "567750dafd004a98b796e0c261732747",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "本包没有可比前轮。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.6,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "grasp_height",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.017,
+            "completed_s": 2.388,
+            "duration_s": 2.371
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.435,
+            "completed_s": 4.135,
+            "duration_s": 1.7
+          },
+          {
+            "stage": "close",
+            "started_s": 4.19,
+            "completed_s": 5.499,
+            "duration_s": 1.309
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.549,
+            "completed_s": 7.374,
+            "duration_s": 1.825
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.431
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            344.2417594,
+            0.52806066,
+            5.515930496590711
+          ],
+          "actual_xyz_mm": [
+            342.5199278,
+            0.525419401,
+            -20.7850613
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 98.78780207777432,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 26.212197922225684
+        },
+        "elapsed_s": 9.66,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "vision_packet_id": "651727608f8f6eaf",
+      "visual_review": {
+        "outcome": "grasp_missed",
+        "direction": "too_high",
+        "ball_state": "table",
+        "magnitude": "medium",
+        "adjustment": "grasp_height",
+        "confidence": 0.6,
+        "note": "前帧黄球在桌面、黑色漏斗在球的画面右侧，夹爪张开下探到球附近。闭爪后的抬升帧里夹爪已抬高且为空，黄球仍停在原桌面位置，没有离桌，也没有进入漏斗。球未被推动，更像夹爪在球上方闭合而没夹住。",
+        "comparison": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "本包没有可比前轮。"
+        }
+      },
+      "ball_xyz_mm": [
+        372.0771963051812,
+        4.7427305152626245,
+        -104.18652076065742
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        367.2233891582171,
+        278.4930250899715,
+        -72.48047138330566
+      ]
+    },
+    {
+      "plan_id": "3cde39cad77847b7a08bacb7ced16589",
+      "outcome": "grasp_missed",
+      "direction": "too_high",
+      "source": "company_grok",
+      "note": "闭合时夹爪位于球上方，抬起后球仍在桌面原位，抓取未成功",
+      "before_version": 3,
+      "after_version": 4,
+      "before": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。",
+        "执行问题未解决，不重复相同参数。"
+      ],
+      "proposal": {
+        "observed_direction": "too_high",
+        "correction_direction": "lower",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": false,
+        "decision": "execution_change_required",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "08a3b2174557",
+        "after_policy_id": "08a3b2174557",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。"
+      },
+      "at_unix": 1794719091.0137348,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "567750dafd004a98b796e0c261732747",
+        "reason": "前后不是单项参数试验，不能归因修正效果",
+        "parameter_changes": [],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "3cde39cad77847b7a08bacb7ced16589",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验，未比较修正效果"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.84,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "grasp_height",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.003,
+            "completed_s": 2.256,
+            "duration_s": 2.253
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.305,
+            "completed_s": 3.98,
+            "duration_s": 1.675
+          },
+          {
+            "stage": "close",
+            "started_s": 4.036,
+            "completed_s": 5.336,
+            "duration_s": 1.3
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.385,
+            "completed_s": 7.194,
+            "duration_s": 1.809
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.247,
+            "completed_s": 9.525,
+            "duration_s": 2.278
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.573
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            342.9334839,
+            4.734781204,
+            5.475590126221869
+          ],
+          "actual_xyz_mm": [
+            341.0490076,
+            4.708762797,
+            -21.9997752
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 97.6208488735442,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 27.379151126455795
+        },
+        "elapsed_s": 9.574,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "ball_xyz_mm": [
+        371.9130816745297,
+        5.113780007891718,
+        -104.30541749969986
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        367.0907613293783,
+        278.1583584119085,
+        -72.48663236452211
+      ]
+    },
+    {
+      "plan_id": "00ed8d593eab4d15aa0974f183e4e1b1",
+      "outcome": "grasp_missed",
+      "direction": "too_high",
+      "source": "company_grok",
+      "note": "闭合与抬起后黄球仍在棋盘原位，夹爪停在球上方，未夹住球。",
+      "before_version": 4,
+      "after_version": 5,
+      "before": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。",
+        "执行问题未解决，不重复相同参数。"
+      ],
+      "proposal": {
+        "observed_direction": "too_high",
+        "correction_direction": "lower",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": false,
+        "decision": "execution_change_required",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "08a3b2174557",
+        "after_policy_id": "08a3b2174557",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "先解决执行故障，保留视觉结论，暂不应用抓取坐标或夹持补偿。"
+      },
+      "at_unix": 1794720356.960154,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "3cde39cad77847b7a08bacb7ced16589",
+        "reason": "前后不是单项参数试验，不能归因修正效果",
+        "parameter_changes": [],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "00ed8d593eab4d15aa0974f183e4e1b1",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验，未比较修正效果。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.8,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "grasp_height",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.222,
+            "duration_s": 2.221
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.294,
+            "completed_s": 4.004,
+            "duration_s": 1.71
+          },
+          {
+            "stage": "close",
+            "started_s": 4.051,
+            "completed_s": 5.355,
+            "duration_s": 1.304
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.412,
+            "completed_s": 7.248,
+            "duration_s": 1.836
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.322,
+            "completed_s": 9.544,
+            "duration_s": 2.222
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            343.6617887,
+            4.744836693,
+            5.504448000605096
+          ],
+          "actual_xyz_mm": [
+            342.196778,
+            4.724609724,
+            -22.21741441
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 97.35793804508381,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 27.642061954916187
+        },
+        "elapsed_s": 9.578,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "ball_xyz_mm": [
+        371.8754537052467,
+        4.95659008178055,
+        -104.26310367147829
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        366.53033166822877,
+        278.8600322696741,
+        -72.5069077774686
+      ]
+    },
+    {
+      "plan_id": "55933009a38842b49b1e7eee8b4438fb",
+      "outcome": "grasp_missed",
+      "direction": "image_right",
+      "source": "company_grok",
+      "note": "夹爪闭合时偏在球的图像右侧，抬起后球仍停在棋盘上，未抓起。",
+      "before_version": 5,
+      "after_version": 6,
+      "before": {
+        "pickup_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.1883455080372467,
+          -7.99778256578673
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化8.0mm。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整8mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_right",
+        "correction_direction": "image_left",
+        "frame": "unmirrored_rgb",
+        "step_mm": 8.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            0.0,
+            0.0
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            0.1883455080372467,
+            -7.99778256578673
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "08a3b2174557",
+        "after_policy_id": "7a23a6a23e31",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          0.1883455080372467,
+          -7.99778256578673
+        ],
+        "predicted_pixel_delta": [
+          -12.248748201066519,
+          0.0
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 7.999999999999999,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化8.0mm。\npickup_xy_mm按Grok判断的方向和幅度调整8mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794720651.514302,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "00ed8d593eab4d15aa0974f183e4e1b1",
+        "reason": "前后不是单项参数试验，不能归因修正效果",
+        "parameter_changes": [],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "55933009a38842b49b1e7eee8b4438fb",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.44,
+            "duration_s": 2.439
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.488,
+            "completed_s": 4.163,
+            "duration_s": 1.675
+          },
+          {
+            "stage": "close",
+            "started_s": 4.212,
+            "completed_s": 5.642,
+            "duration_s": 1.43
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.691,
+            "completed_s": 7.547,
+            "duration_s": 1.856
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.598
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            339.8342429,
+            -3.649234653,
+            5.330086907520676
+          ],
+          "actual_xyz_mm": [
+            336.9202126,
+            -3.617942985,
+            -26.34535737
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 93.46464020533958,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 31.535359794660422
+        },
+        "elapsed_s": 9.631,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        369.4670713095958,
+        -9.52433149719385,
+        -104.18673903272921
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        366.77024318146164,
+        278.7310797190638,
+        -72.49776164344189
+      ]
+    },
+    {
+      "plan_id": "4621c7fb2bae46fe9ff4e9714af65a07",
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "source": "company_grok",
+      "note": "闭合时夹爪偏在球的图像左侧，抬起后球仍留在棋盘上",
+      "before_version": 6,
+      "after_version": 7,
+      "before": {
+        "pickup_xy_mm": [
+          0.1883455080372467,
+          -7.99778256578673
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.09430250607527327,
+          -3.99888822937548
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化4.0mm。",
+        "前后对照显示越过目标，按本轮观察方向反向修正，步长减半。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整4mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_left",
+        "correction_direction": "image_right",
+        "frame": "unmirrored_rgb",
+        "step_mm": 3.9999999999999996,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            0.1883455080372467,
+            -7.99778256578673
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            0.09430250607527327,
+            -3.99888822937548
+          ]
+        },
+        "comparison": "overshot",
+        "allow_retry": true,
+        "decision": "shrink_step",
+        "comparison_evidence_bound": true,
+        "effect_assessed": true,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "as_expected",
+        "before_policy_id": "7a23a6a23e31",
+        "after_policy_id": "1795d37f3ba2",
+        "source_trial_id": "55933009a38842b49b1e7eee8b4438fb",
+        "robot_delta_mm": [
+          -0.09404300196197343,
+          3.9988943364112504
+        ],
+        "predicted_pixel_delta": [
+          6.124383190630624,
+          -5.684341886080802e-14
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 3.999999999999999,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化4.0mm。\n前后对照显示越过目标，按本轮观察方向反向修正，步长减半。\npickup_xy_mm按Grok判断的方向和幅度调整4mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794720687.933368,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "55933009a38842b49b1e7eee8b4438fb",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              0.0,
+              0.0
+            ],
+            "after": [
+              0.1883455080372467,
+              -7.99778256578673
+            ]
+          }
+        ],
+        "requested_xy_delta_mm": [
+          0.1883455080372467,
+          -7.99778256578673
+        ],
+        "expected_image_delta_px": [
+          -12.246552923729041,
+          0.0003629213625799821
+        ],
+        "feedback": {
+          "available": true,
+          "status": "consistent",
+          "note": "固件反馈并非图像实测位移",
+          "requested_xy_delta_mm": [
+            0.1883455080372467,
+            -7.99778256578673
+          ],
+          "reported_xy_delta_mm": [
+            -0.13685034156901565,
+            -8.500073798134531
+          ],
+          "gain_along_command": 1.0618119825548917,
+          "previous_tip_xyz_mm": [
+            339.8342429,
+            -3.649234653,
+            -113.556186
+          ],
+          "current_tip_xyz_mm": [
+            340.2666876,
+            -12.01012268,
+            -113.9165685
+          ]
+        },
+        "previous_policy_version": 5,
+        "current_policy_version": 6,
+        "current_pitch_deg": 80.0,
+        "plan_id": "4621c7fb2bae46fe9ff4e9714af65a07",
+        "assessment": {
+          "reference_plan_id": "55933009a38842b49b1e7eee8b4438fb",
+          "effect": "overshot",
+          "movement": "as_expected",
+          "note": "相对上次，夹爪已明显向图像左侧移动，但越过了球心"
+        },
+        "panel_url": "/api/bench/rsi/plans/4621c7fb2bae46fe9ff4e9714af65a07/comparison"
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.219,
+            "duration_s": 2.218
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.274,
+            "completed_s": 3.833,
+            "duration_s": 1.559
+          },
+          {
+            "stage": "close",
+            "started_s": 3.888,
+            "completed_s": 5.317,
+            "duration_s": 1.429
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.384,
+            "completed_s": 7.194,
+            "duration_s": 1.81
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.25,
+            "completed_s": 9.461,
+            "duration_s": 2.211
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.531
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            340.7938972,
+            -12.02873118,
+            5.345270493833054
+          ],
+          "actual_xyz_mm": [
+            338.6883681,
+            -11.95441399,
+            -23.00069428
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 96.75940478454301,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 28.24059521545699
+        },
+        "elapsed_s": 9.534,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        370.0365500880411,
+        -9.376958723694303,
+        -104.50655648958212
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        366.3578466340481,
+        279.1353935478735,
+        -72.51298632616238
+      ]
+    },
+    {
+      "plan_id": "ac8624ed122d41948af8e5561763b161",
+      "outcome": "grasp_missed",
+      "direction": "too_high",
+      "source": "company_grok",
+      "note": "闭合时指尖压在球顶，抬起后夹爪为空、球未离桌",
+      "before_version": 7,
+      "after_version": 8,
+      "before": {
+        "pickup_xy_mm": [
+          0.09430250607527327,
+          -3.99888822937548
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 3.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          0.09430250607527327,
+          -3.99888822937548
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "上一轮试探较小，画面无法确认变化；扩大到可见试验尺度，不把看不出变化当成方向已错。",
+        "下一轮抓取高度调整-2mm。"
+      ],
+      "proposal": {
+        "observed_direction": "too_high",
+        "correction_direction": "lower",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [
+          "grasp_z_offset_mm"
+        ],
+        "before": {
+          "grasp_z_offset_mm": 3.0
+        },
+        "after": {
+          "grasp_z_offset_mm": 1.0
+        },
+        "comparison": "probe_too_small",
+        "allow_retry": true,
+        "decision": "increase_step",
+        "comparison_evidence_bound": true,
+        "effect_assessed": true,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "no_visible_motion",
+        "before_policy_id": "1795d37f3ba2",
+        "after_policy_id": "75ebe7bc766c",
+        "source_trial_id": "4621c7fb2bae46fe9ff4e9714af65a07",
+        "status": "applied",
+        "reason": "上一轮试探较小，画面无法确认变化；扩大到可见试验尺度，不把看不出变化当成方向已错。\n下一轮抓取高度调整-2mm。"
+      },
+      "at_unix": 1794720789.484331,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "4621c7fb2bae46fe9ff4e9714af65a07",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              0.1883455080372467,
+              -7.99778256578673
+            ],
+            "after": [
+              0.09430250607527327,
+              -3.99888822937548
+            ]
+          }
+        ],
+        "requested_xy_delta_mm": [
+          -0.09404300196197343,
+          3.9988943364112504
+        ],
+        "expected_image_delta_px": [
+          6.12491833236129,
+          6.745170628619235e-05
+        ],
+        "feedback": {
+          "available": true,
+          "status": "inconclusive",
+          "note": "固件反馈并非图像实测位移",
+          "requested_xy_delta_mm": [
+            -0.09404300196197343,
+            3.9988943364112504
+          ],
+          "reported_xy_delta_mm": [
+            0.4392940969606798,
+            4.297408103411258
+          ],
+          "gain_along_command": 1.0714730243972965,
+          "previous_tip_xyz_mm": [
+            340.2666876,
+            -12.01012268,
+            -113.9165685
+          ],
+          "current_tip_xyz_mm": [
+            340.4983341,
+            -7.836151533,
+            -113.1342106
+          ]
+        },
+        "previous_policy_version": 6,
+        "current_policy_version": 7,
+        "current_pitch_deg": 80.0,
+        "plan_id": "ac8624ed122d41948af8e5561763b161",
+        "assessment": {
+          "reference_plan_id": "4621c7fb2bae46fe9ff4e9714af65a07",
+          "effect": "unchanged",
+          "movement": "no_visible_motion",
+          "note": "与上次相比，夹爪仍压在球顶且抬起后球未动，预期右移不明显，失败未改善"
+        },
+        "panel_url": "/api/bench/rsi/plans/ac8624ed122d41948af8e5561763b161/comparison"
+      },
+      "confidence": 0.74,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "grasp_height",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.347,
+            "duration_s": 2.346
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.395,
+            "completed_s": 3.848,
+            "duration_s": 1.453
+          },
+          {
+            "stage": "close",
+            "started_s": 3.905,
+            "completed_s": 5.327,
+            "duration_s": 1.422
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.401,
+            "completed_s": 7.23,
+            "duration_s": 1.829
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.313,
+            "completed_s": 9.503,
+            "duration_s": 2.19
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.559
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            340.4983341,
+            -7.836151533,
+            5.344980641121923
+          ],
+          "actual_xyz_mm": [
+            339.0489818,
+            -7.282444345,
+            -22.86710431
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 96.86592084783783,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 28.134079152162172
+        },
+        "elapsed_s": 9.561,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        369.82874895585223,
+        -9.507247847251953,
+        -104.38256982337755
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        367.1775429568648,
+        278.12815969369973,
+        -72.48327923355538
+      ]
+    },
+    {
+      "plan_id": "270ba69ba83b4756ae40677e7f61b7b8",
+      "outcome": "grasp_missed",
+      "direction": "image_up",
+      "source": "company_grok",
+      "note": "闭合帧夹爪与球顶部有重叠，但抬起后球仍在棋盘上，抓取失败，未进入漏斗。",
+      "before_version": 8,
+      "after_version": 9,
+      "before": {
+        "pickup_xy_mm": [
+          0.09430250607527327,
+          -3.99888822937548
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          4.0886168601950486,
+          -3.7856915115941723
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面上方，下一轮向画面下方修正，保存的补偿变化4.0mm。",
+        "前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整4mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_up",
+        "correction_direction": "image_down",
+        "frame": "unmirrored_rgb",
+        "step_mm": 4.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            0.09430250607527327,
+            -3.99888822937548
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            4.0886168601950486,
+            -3.7856915115941723
+          ]
+        },
+        "comparison": "improved",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": true,
+        "effect_assessed": true,
+        "effect_verified": true,
+        "improvement_confirmed": true,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "75ebe7bc766c",
+        "after_policy_id": "98a8e9ade3f4",
+        "source_trial_id": "ac8624ed122d41948af8e5561763b161",
+        "robot_delta_mm": [
+          3.9943143541197754,
+          0.21319671778130767
+        ],
+        "predicted_pixel_delta": [
+          1.1368683772161603e-13,
+          5.615005209730725
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 4.0,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面上方，下一轮向画面下方修正，保存的补偿变化4.0mm。\n前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。\npickup_xy_mm按Grok判断的方向和幅度调整4mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794720904.159862,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "ac8624ed122d41948af8e5561763b161",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "grasp_z_offset_mm",
+            "before": 3.0,
+            "after": 1.0
+          }
+        ],
+        "expected_image_delta_px": null,
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "previous_policy_version": 7,
+        "current_policy_version": 8,
+        "current_pitch_deg": 80.0,
+        "plan_id": "270ba69ba83b4756ae40677e7f61b7b8",
+        "assessment": {
+          "reference_plan_id": "ac8624ed122d41948af8e5561763b161",
+          "effect": "improved",
+          "movement": "unknown",
+          "note": "与上次相比，闭合时夹爪更贴球、重叠更好，但抬起后球仍留在桌面；无预期位移，无法判断移动方向。"
+        },
+        "panel_url": "/api/bench/rsi/plans/270ba69ba83b4756ae40677e7f61b7b8/comparison"
+      },
+      "confidence": 0.74,
+      "ball_state": "table",
+      "magnitude": "small",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.0,
+            "completed_s": 2.207,
+            "duration_s": 2.207
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.281,
+            "completed_s": 3.861,
+            "duration_s": 1.58
+          },
+          {
+            "stage": "close",
+            "started_s": 3.918,
+            "completed_s": 5.253,
+            "duration_s": 1.335
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.302,
+            "completed_s": 7.03,
+            "duration_s": 1.728
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.083,
+            "completed_s": 9.382,
+            "duration_s": 2.299
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.439
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            342.3763186,
+            -4.727088587,
+            5.427783523298865
+          ],
+          "actual_xyz_mm": [
+            340.3372359,
+            -4.176775923,
+            -23.16966391
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 96.50419718148545,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 28.495802818514548
+        },
+        "elapsed_s": 9.83,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        371.886158483057,
+        -6.809187461614449,
+        -104.39829301621299
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        367.13933426310354,
+        278.31553262002495,
+        -72.4842818127405
+      ]
+    },
+    {
+      "plan_id": "1d37cc1220ec45e0b40ff43b4fa76f7b",
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "source": "company_grok",
+      "note": "闭合时夹爪在球的图像左侧，未夹住球，抬起后球仍在棋盘上。",
+      "before_version": 9,
+      "after_version": 10,
+      "before": {
+        "pickup_xy_mm": [
+          4.0886168601950486,
+          -3.7856915115941723
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化12.0mm。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_left",
+        "correction_direction": "image_right",
+        "frame": "unmirrored_rgb",
+        "step_mm": 12.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            4.0886168601950486,
+            -3.7856915115941723
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            3.8006065870508072,
+            8.210851743967549
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "98a8e9ade3f4",
+        "after_policy_id": "72e17a4c4f85",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          -0.2880102731442413,
+          11.996543255561722
+        ],
+        "predicted_pixel_delta": [
+          17.967644117472787,
+          -5.684341886080802e-14
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 12.000000000000002,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化12.0mm。\npickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794723495.813944,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "270ba69ba83b4756ae40677e7f61b7b8",
+        "reason": "目标位置变化较大，本轮按新位置试验",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              0.09430250607527327,
+              -3.99888822937548
+            ],
+            "after": [
+              4.0886168601950486,
+              -3.7856915115941723
+            ]
+          }
+        ],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "1d37cc1220ec45e0b40ff43b4fa76f7b",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.003,
+            "completed_s": 2.363,
+            "duration_s": 2.36
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.439,
+            "completed_s": 4.079,
+            "duration_s": 1.64
+          },
+          {
+            "stage": "close",
+            "started_s": 4.125,
+            "completed_s": 5.407,
+            "duration_s": 1.282
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.474,
+            "completed_s": 7.113,
+            "duration_s": 1.639
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.184,
+            "completed_s": 9.436,
+            "duration_s": 2.252
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.519
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            333.0706736,
+            21.48854884,
+            5.130759082157171
+          ],
+          "actual_xyz_mm": [
+            331.8218887,
+            21.40798163,
+            -7.119414553
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 112.80907291375843,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 12.190927086241572
+        },
+        "elapsed_s": 9.536,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        352.9164457532701,
+        34.63996521856883,
+        -105.03216107559297
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        336.6011788777022,
+        278.4822216754736,
+        -73.69270463146864
+      ]
+    },
+    {
+      "plan_id": "ac5114e2994f4a4581399607017c6975",
+      "outcome": "pushed_away",
+      "direction": "image_up",
+      "source": "company_grok",
+      "note": "闭合时夹爪位于球的图像上方且开口未包住球，球被推到棋盘下方，最终仍在桌面",
+      "before_version": 10,
+      "after_version": 11,
+      "before": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.65,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "网页控制器依据执行诊断选择单项试验：travel_speed从0.65改为0.85；这是待验证的试验值。"
+      ],
+      "proposal": {
+        "status": "applied",
+        "decision": "execution_parameter_trial",
+        "parameters_changed": [
+          "travel_speed"
+        ],
+        "before": {
+          "travel_speed": 0.65
+        },
+        "after": {
+          "travel_speed": 0.85
+        },
+        "step_mm": null,
+        "allow_retry": true,
+        "reason": "网页控制器依据执行诊断选择单项试验：travel_speed从0.65改为0.85；这是待验证的试验值。",
+        "before_policy_id": "72e17a4c4f85",
+        "after_policy_id": "2a8f5bda7319"
+      },
+      "at_unix": 1794723557.2659369,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "1d37cc1220ec45e0b40ff43b4fa76f7b",
+        "reason": "目标位置变化较大，本轮按新位置试验",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              4.0886168601950486,
+              -3.7856915115941723
+            ],
+            "after": [
+              3.8006065870508072,
+              8.210851743967549
+            ]
+          }
+        ],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "ac5114e2994f4a4581399607017c6975",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "large",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.476,
+            "duration_s": 2.475
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.528,
+            "completed_s": 4.193,
+            "duration_s": 1.665
+          },
+          {
+            "stage": "close",
+            "started_s": 4.25,
+            "completed_s": 5.675,
+            "duration_s": 1.425
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.738,
+            "completed_s": 7.437,
+            "duration_s": 1.699
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.507
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            351.1143578,
+            51.53256594,
+            5.92679802071929
+          ],
+          "actual_xyz_mm": [
+            349.0641453,
+            52.32613935,
+            -24.27284348
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 94.9030416198514,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 30.096958380148607
+        },
+        "elapsed_s": 9.59,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "execution",
+        "allow_visual": false,
+        "execution_issue_pending": true,
+        "reason": "本轮先按实际阶段耗时选择单项速度试验。"
+      },
+      "ball_xyz_mm": [
+        374.72402196440436,
+        53.9403914705642,
+        -104.09295601015039
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        336.00964129320664,
+        279.3501184088502,
+        -73.71375909466474
+      ]
+    },
+    {
+      "plan_id": "6157fb7fa0b04580bc31a8d6a3fd5a6c",
+      "outcome": "grasp_missed",
+      "direction": "image_right",
+      "source": "company_grok",
+      "note": "闭合时夹爪在球的画面右侧，抬起后球仍留在棋盘上，抓取失败。",
+      "before_version": 11,
+      "after_version": 12,
+      "before": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          4.076999168240823,
+          -3.785964797976529
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化12.0mm。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_right",
+        "correction_direction": "image_left",
+        "frame": "unmirrored_rgb",
+        "step_mm": 12.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            3.8006065870508072,
+            8.210851743967549
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            4.076999168240823,
+            -3.785964797976529
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "2a8f5bda7319",
+        "after_policy_id": "7caf9fa9595b",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          0.27639258119001564,
+          -11.996816541944078
+        ],
+        "predicted_pixel_delta": [
+          -18.461827454900686,
+          -5.684341886080802e-14
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 11.999999999999998,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化12.0mm。\npickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794723592.446162,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "ac5114e2994f4a4581399607017c6975",
+        "reason": "目标位置变化较大，本轮按新位置试验",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "travel_speed",
+            "before": 0.65,
+            "after": 0.85
+          }
+        ],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "6157fb7fa0b04580bc31a8d6a3fd5a6c",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.328,
+            "duration_s": 2.327
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.376,
+            "completed_s": 4.082,
+            "duration_s": 1.706
+          },
+          {
+            "stage": "close",
+            "started_s": 4.139,
+            "completed_s": 5.458,
+            "duration_s": 1.319
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.516,
+            "completed_s": 7.165,
+            "duration_s": 1.649
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.246,
+            "completed_s": 9.587,
+            "duration_s": 2.341
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            351.1030747,
+            4.308899275,
+            5.797830636748983
+          ],
+          "actual_xyz_mm": [
+            349.5447577,
+            5.362370041,
+            -20.68154545
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 98.60021830452843,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 26.399781695471574
+        },
+        "elapsed_s": 9.592,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        375.7552270882641,
+        -9.84195013838588,
+        -104.3454173558241
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        335.0113445799679,
+        280.356874106564,
+        -73.75053752299453
+      ]
+    },
+    {
+      "plan_id": "9ab52a15516344c1bfa20c0dd675dd2b",
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "source": "company_grok",
+      "note": "闭合时夹爪在球的图像左侧，抬起后球未离桌，也未进入漏斗。",
+      "before_version": 12,
+      "after_version": 13,
+      "before": {
+        "pickup_xy_mm": [
+          4.076999168240823,
+          -3.785964797976529
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。",
+        "已将pickup_xy_mm从[4.076999168240823, -3.785964797976529]恢复为[3.8006065870508072, 8.210851743967549]。"
+      ],
+      "proposal": {
+        "observed_direction": "image_left",
+        "correction_direction": "image_right",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            4.076999168240823,
+            -3.785964797976529
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            3.8006065870508072,
+            8.210851743967549
+          ]
+        },
+        "comparison": "error_worsened",
+        "allow_retry": false,
+        "decision": "undo",
+        "comparison_evidence_bound": true,
+        "effect_assessed": true,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "as_expected",
+        "before_policy_id": "7caf9fa9595b",
+        "after_policy_id": "2a8f5bda7319",
+        "source_trial_id": "6157fb7fa0b04580bc31a8d6a3fd5a6c",
+        "rejected_policy_id": "7caf9fa9595b",
+        "status": "rolled_back",
+        "reason": "前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。\n已将pickup_xy_mm从[4.076999168240823, -3.785964797976529]恢复为[3.8006065870508072, 8.210851743967549]。"
+      },
+      "at_unix": 1794723886.6623418,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "6157fb7fa0b04580bc31a8d6a3fd5a6c",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              3.8006065870508072,
+              8.210851743967549
+            ],
+            "after": [
+              4.076999168240823,
+              -3.785964797976529
+            ]
+          }
+        ],
+        "requested_xy_delta_mm": [
+          0.27639258119001564,
+          -11.996816541944078
+        ],
+        "expected_image_delta_px": [
+          -18.460447804366822,
+          0.0005090380009278306
+        ],
+        "feedback": {
+          "available": true,
+          "status": "consistent",
+          "note": "固件反馈并非图像实测位移",
+          "requested_xy_delta_mm": [
+            0.27639258119001564,
+            -11.996816541944078
+          ],
+          "raw_xy_delta_mm": [
+            -0.8444847999999752,
+            -4.846189644
+          ],
+          "nominal_baseline_delta_mm": [
+            0.4845142004248828,
+            6.227096132922804
+          ],
+          "reported_xy_delta_mm": [
+            -1.328999000424858,
+            -11.073285776922804
+          ],
+          "gain_along_command": 0.9199781424870505,
+          "previous_tip_xyz_mm": [
+            351.1030747,
+            4.308899275,
+            -114.8287598
+          ],
+          "current_tip_xyz_mm": [
+            350.2585899,
+            -0.537290369,
+            -115.475285
+          ]
+        },
+        "previous_policy_version": 11,
+        "current_policy_version": 12,
+        "current_pitch_deg": 80.0,
+        "plan_id": "9ab52a15516344c1bfa20c0dd675dd2b",
+        "assessment": {
+          "reference_plan_id": "6157fb7fa0b04580bc31a8d6a3fd5a6c",
+          "effect": "worsened",
+          "movement": "as_expected",
+          "note": "与上次相比，夹爪相对球向图像左移动，左侧偏差更大，抓取仍失败。"
+        },
+        "panel_url": "/api/bench/rsi/plans/9ab52a15516344c1bfa20c0dd675dd2b/comparison"
+      },
+      "confidence": 0.76,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.003,
+            "completed_s": 2.319,
+            "duration_s": 2.316
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.392,
+            "completed_s": 4.061,
+            "duration_s": 1.669
+          },
+          {
+            "stage": "close",
+            "started_s": 4.11,
+            "completed_s": 5.529,
+            "duration_s": 1.419
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.579,
+            "completed_s": 7.32,
+            "duration_s": 1.741
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.394
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            350.2585899,
+            -0.537290369,
+            5.751211992061353
+          ],
+          "actual_xyz_mm": [
+            348.6382284,
+            0,
+            -24.38573021
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 94.9493859483963,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 30.050614051603702
+        },
+        "elapsed_s": 9.603,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        376.24291116194775,
+        -3.257754411018551,
+        -104.39753313474715
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        335.49712090894917,
+        280.13396839851964,
+        -73.73191433688413
+      ]
+    },
+    {
+      "plan_id": "84ae53c5fd2b40cd9640103b5600eac3",
+      "outcome": "grasp_missed",
+      "direction": "image_up",
+      "source": "company_grok",
+      "note": "闭合时夹爪在球的图像上方，只碰到球上沿，抬起后球原位未动",
+      "before_version": 13,
+      "after_version": 14,
+      "before": {
+        "pickup_xy_mm": [
+          3.8006065870508072,
+          8.210851743967549
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面上方，下一轮向画面下方修正，保存的补偿变化12.0mm。",
+        "前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_up",
+        "correction_direction": "image_down",
+        "frame": "unmirrored_rgb",
+        "step_mm": 12.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            3.8006065870508072,
+            8.210851743967549
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            15.792062224869191,
+            8.663611819762274
+          ]
+        },
+        "comparison": "unchanged",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": true,
+        "effect_assessed": true,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "2a8f5bda7319",
+        "after_policy_id": "4fd8f2845526",
+        "source_trial_id": "9ab52a15516344c1bfa20c0dd675dd2b",
+        "robot_delta_mm": [
+          11.991455637818383,
+          0.45276007579472477
+        ],
+        "predicted_pixel_delta": [
+          0.0,
+          17.265898062652127
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 11.999999999999996,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面上方，下一轮向画面下方修正，保存的补偿变化12.0mm。\n前轮改善尚未确认，不凭重复的方向或幅度标签自动加码；仅按本轮可见偏差进行试验。\npickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794724071.8723042,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "9ab52a15516344c1bfa20c0dd675dd2b",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              4.076999168240823,
+              -3.785964797976529
+            ],
+            "after": [
+              3.8006065870508072,
+              8.210851743967549
+            ]
+          }
+        ],
+        "requested_xy_delta_mm": [
+          -0.27639258119001564,
+          11.996816541944078
+        ],
+        "expected_image_delta_px": [
+          18.45983939689279,
+          -0.0006521110371977556
+        ],
+        "feedback": {
+          "available": true,
+          "status": "consistent",
+          "note": "固件反馈并非图像实测位移",
+          "requested_xy_delta_mm": [
+            -0.27639258119001564,
+            11.996816541944078
+          ],
+          "raw_xy_delta_mm": [
+            1.2927242999999748,
+            4.851690647
+          ],
+          "nominal_baseline_delta_mm": [
+            0.1499291460251584,
+            0.30996378318365814
+          ],
+          "reported_xy_delta_mm": [
+            1.1427951539748165,
+            4.541726863816342
+          ],
+          "gain_along_command": 0.37618336018364695,
+          "previous_tip_xyz_mm": [
+            350.2585899,
+            -0.537290369,
+            -115.475285
+          ],
+          "current_tip_xyz_mm": [
+            351.5513142,
+            4.314400278,
+            -115.401118
+          ]
+        },
+        "previous_policy_version": 12,
+        "current_policy_version": 13,
+        "current_pitch_deg": 80.0,
+        "plan_id": "84ae53c5fd2b40cd9640103b5600eac3",
+        "assessment": {
+          "reference_plan_id": "9ab52a15516344c1bfa20c0dd675dd2b",
+          "effect": "unchanged",
+          "movement": "unknown",
+          "note": "两次都是压在球顶后抓空，看不出横向修正改善了相对位置"
+        },
+        "panel_url": "/api/bench/rsi/plans/84ae53c5fd2b40cd9640103b5600eac3/comparison"
+      },
+      "confidence": 0.66,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.0,
+            "completed_s": 2.303,
+            "duration_s": 2.303
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.393,
+            "completed_s": 4.102,
+            "duration_s": 1.709
+          },
+          {
+            "stage": "close",
+            "started_s": 4.177,
+            "completed_s": 5.588,
+            "duration_s": 1.411
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.637,
+            "completed_s": 7.401,
+            "duration_s": 1.764
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.481
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            351.5513142,
+            4.314400278,
+            5.815589514730636
+          ],
+          "actual_xyz_mm": [
+            349.6880721,
+            5.364568629,
+            -21.98391826
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 97.29319481021805,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 27.706805189781946
+        },
+        "elapsed_s": 9.543,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        376.3928371381544,
+        -2.9621789634855666,
+        -104.468043318805
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        335.48185515130604,
+        280.04848491607476,
+        -73.73275128974944
+      ]
+    },
+    {
+      "plan_id": "0997412cc0d64c3fb44b3fc2fb80a434",
+      "outcome": "grasp_missed",
+      "direction": "image_right",
+      "source": "company_grok",
+      "note": "闭合时夹爪偏在黄球图像右侧，抬起后球仍在棋盘上，未入夹爪也未进漏斗",
+      "before_version": 14,
+      "after_version": 15,
+      "before": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "网页控制器依据执行诊断选择单项试验：travel_speed从0.85改为1；这是待验证的试验值。"
+      ],
+      "proposal": {
+        "status": "applied",
+        "decision": "execution_parameter_trial",
+        "parameters_changed": [
+          "travel_speed"
+        ],
+        "before": {
+          "travel_speed": 0.85
+        },
+        "after": {
+          "travel_speed": 1.0
+        },
+        "step_mm": null,
+        "allow_retry": true,
+        "reason": "网页控制器依据执行诊断选择单项试验：travel_speed从0.85改为1；这是待验证的试验值。",
+        "before_policy_id": "4fd8f2845526",
+        "after_policy_id": "f42c284a821c"
+      },
+      "at_unix": 1794724162.977246,
+      "comparison": {
+        "available": true,
+        "reference_plan_id": "84ae53c5fd2b40cd9640103b5600eac3",
+        "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "pickup_xy_mm",
+            "before": [
+              3.8006065870508072,
+              8.210851743967549
+            ],
+            "after": [
+              15.792062224869191,
+              8.663611819762274
+            ]
+          }
+        ],
+        "requested_xy_delta_mm": [
+          11.991455637818383,
+          0.45276007579472477
+        ],
+        "expected_image_delta_px": [
+          0.09645270495695968,
+          17.201448133421536
+        ],
+        "feedback": {
+          "available": true,
+          "status": "consistent",
+          "note": "固件反馈并非图像实测位移",
+          "requested_xy_delta_mm": [
+            11.991455637818383,
+            0.45276007579472477
+          ],
+          "raw_xy_delta_mm": [
+            11.998184900000012,
+            1.2628166570000001
+          ],
+          "nominal_baseline_delta_mm": [
+            -2.194533533073127,
+            4.833798184480355
+          ],
+          "reported_xy_delta_mm": [
+            14.19271843307314,
+            -3.570981527480355
+          ],
+          "gain_along_command": 1.1706566361333353,
+          "previous_tip_xyz_mm": [
+            351.5513142,
+            4.314400278,
+            -115.401118
+          ],
+          "current_tip_xyz_mm": [
+            363.5494991,
+            5.577216935,
+            -114.3826619
+          ]
+        },
+        "previous_policy_version": 13,
+        "current_policy_version": 14,
+        "current_pitch_deg": 80.0,
+        "plan_id": "0997412cc0d64c3fb44b3fc2fb80a434",
+        "assessment": {
+          "reference_plan_id": "84ae53c5fd2b40cd9640103b5600eac3",
+          "effect": "worsened",
+          "movement": "unknown",
+          "note": "上次闭合时球更接近夹爪正中，本次明显更偏图像右侧；预期向下位移看不清"
+        },
+        "panel_url": "/api/bench/rsi/plans/0997412cc0d64c3fb44b3fc2fb80a434/comparison"
+      },
+      "confidence": 0.74,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lift",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.0,
+            "completed_s": 2.042,
+            "duration_s": 2.042
+          },
+          {
+            "stage": "align_above_ball",
+            "started_s": 2.09,
+            "completed_s": 4.837,
+            "duration_s": 2.747
+          },
+          {
+            "stage": "descend",
+            "started_s": 4.885,
+            "completed_s": 6.494,
+            "duration_s": 1.609
+          },
+          {
+            "stage": "close",
+            "started_s": 6.56,
+            "completed_s": 7.877,
+            "duration_s": 1.317
+          },
+          {
+            "stage": "lift",
+            "started_s": 7.927
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            363.5494991,
+            5.577216935,
+            6.293983727615906
+          ],
+          "actual_xyz_mm": [
+            362.0982865,
+            6.666174731,
+            -22.91168478
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 95.87173656493704,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 29.128263435062962
+        },
+        "elapsed_s": 9.601,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "execution",
+        "allow_visual": false,
+        "execution_issue_pending": true,
+        "reason": "本轮先按实际阶段耗时选择单项速度试验。"
+      },
+      "ball_xyz_mm": [
+        374.1961760788595,
+        2.1558060289816248,
+        -104.11962509013341
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        335.3775102457114,
+        280.3879896196023,
+        -73.73595789041894
+      ]
+    },
+    {
+      "plan_id": "dd88fabc244b4f6e94c8ab6dd3f6de3d",
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "source": "company_grok",
+      "note": "接近时夹爪相对黄球偏图像左，闭合后球从棋盘消失，抬起时夹爪内无球且桌面未见球，空爪到达漏斗后故障，球未被抓住也未放入漏斗。",
+      "before_version": 15,
+      "after_version": 16,
+      "before": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 0.3,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 0.4,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "网页控制器依据执行诊断选择单项试验：approach_speed从0.3改为0.4；这是待验证的试验值。"
+      ],
+      "proposal": {
+        "status": "applied",
+        "decision": "execution_parameter_trial",
+        "parameters_changed": [
+          "approach_speed"
+        ],
+        "before": {
+          "approach_speed": 0.3
+        },
+        "after": {
+          "approach_speed": 0.4
+        },
+        "step_mm": null,
+        "allow_retry": true,
+        "reason": "网页控制器依据执行诊断选择单项试验：approach_speed从0.3改为0.4；这是待验证的试验值。",
+        "before_policy_id": "f42c284a821c",
+        "after_policy_id": "c2e8fe4c24c2"
+      },
+      "at_unix": 1794725303.359298,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "0997412cc0d64c3fb44b3fc2fb80a434",
+        "reason": "目标位置变化较大，本轮按新位置试验",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "travel_speed",
+            "before": 0.85,
+            "after": 1.0
+          }
+        ],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 80.0,
+        "plan_id": "dd88fabc244b4f6e94c8ab6dd3f6de3d",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照，本轮按新位置单独判断。"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.62,
+      "ball_state": "unknown",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "lower_to_release",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.344,
+            "duration_s": 2.343
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.39,
+            "completed_s": 3.977,
+            "duration_s": 1.587
+          },
+          {
+            "stage": "close",
+            "started_s": 4.025,
+            "completed_s": 5.447,
+            "duration_s": 1.422
+          },
+          {
+            "stage": "lift",
+            "started_s": 5.497,
+            "completed_s": 7.189,
+            "duration_s": 1.692
+          },
+          {
+            "stage": "transport",
+            "started_s": 7.27,
+            "completed_s": 9.483,
+            "duration_s": 2.213
+          },
+          {
+            "stage": "lower_to_release",
+            "started_s": 9.54
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            343.7587417,
+            24.82703918,
+            5.562940322544429
+          ],
+          "actual_xyz_mm": [
+            342.5020428,
+            25.26446848,
+            -24.18077829
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 95.32818736533507,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 29.67181263466493
+        },
+        "elapsed_s": 9.543,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "execution",
+        "allow_visual": false,
+        "execution_issue_pending": true,
+        "reason": "本轮先按实际阶段耗时选择单项速度试验。"
+      },
+      "ball_xyz_mm": [
+        356.9046793535056,
+        24.678008107950735,
+        -104.96108926749548
+      ],
+      "grasp_pitch_deg": 80.0,
+      "funnel_xyz_mm": [
+        335.13230976007884,
+        280.6557231432421,
+        -73.74493569560366
+      ]
+    },
+    {
+      "plan_id": "ea5ed86f93bf4a67ba0cb97846d19485",
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "source": "company_grok",
+      "note": "夹爪闭合后球仍留在棋盘上，夹爪相对球偏图像左侧，存在明显间隙",
+      "before_version": 16,
+      "after_version": 17,
+      "before": {
+        "pickup_xy_mm": [
+          15.792062224869191,
+          8.663611819762274
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 0.4,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.52546860583743,
+          20.660650114370302
+        ],
+        "release_xy_mm": [
+          0.0,
+          0.0
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 18.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 0.4,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 2.0
+      },
+      "changes": [
+        "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化12.0mm。",
+        "pickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      ],
+      "proposal": {
+        "observed_direction": "image_left",
+        "correction_direction": "image_right",
+        "frame": "unmirrored_rgb",
+        "step_mm": 12.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            15.792062224869191,
+            8.663611819762274
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            15.52546860583743,
+            20.660650114370302
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "c2e8fe4c24c2",
+        "after_policy_id": "0373c24a3e2c",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          -0.26659361903176126,
+          11.997038294608029
+        ],
+        "predicted_pixel_delta": [
+          18.84999528568278,
+          5.684341886080802e-14
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 11.999999999999998,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化12.0mm。\npickup_xy_mm按Grok判断的方向和幅度调整12mm；数值是试验步长，不是Grok测得的绝对误差。"
+      },
+      "at_unix": 1794725339.2798898,
+      "comparison": {
+        "available": false,
+        "reference_plan_id": "dd88fabc244b4f6e94c8ab6dd3f6de3d",
+        "reason": "目标位置变化较大，本轮按新位置试验",
+        "target": "ball",
+        "parameter_changes": [
+          {
+            "name": "approach_speed",
+            "before": 0.3,
+            "after": 0.4
+          }
+        ],
+        "feedback": {
+          "available": false,
+          "status": "missing",
+          "note": "固件反馈并非图像实测位移"
+        },
+        "current_pitch_deg": 75.0,
+        "plan_id": "ea5ed86f93bf4a67ba0cb97846d19485",
+        "assessment": {
+          "reference_plan_id": null,
+          "effect": "not_compared",
+          "movement": "unknown",
+          "note": "无可用对照试验"
+        },
+        "panel_url": null
+      },
+      "confidence": 0.86,
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "execution_diagnosis": {
+        "category": "time_budget",
+        "error": "RuntimeError: 本轮10秒录像窗口即将结束，停止发送后续动作",
+        "failed_stage": "transport",
+        "grasp_attempted": true,
+        "placement_attempted": false,
+        "stage_timings": [
+          {
+            "stage": "approach_ball",
+            "started_s": 0.001,
+            "completed_s": 2.367,
+            "duration_s": 2.366
+          },
+          {
+            "stage": "descend",
+            "started_s": 2.42,
+            "completed_s": 4.066,
+            "duration_s": 1.646
+          },
+          {
+            "stage": "close",
+            "started_s": 4.119,
+            "completed_s": 6.235,
+            "duration_s": 2.116
+          },
+          {
+            "stage": "lift",
+            "started_s": 6.285,
+            "completed_s": 7.982,
+            "duration_s": 1.697
+          },
+          {
+            "stage": "transport",
+            "started_s": 8.033
+          }
+        ],
+        "execution_trial_parameters": [
+          "travel_speed",
+          "approach_speed"
+        ],
+        "lift": {
+          "target_xyz_mm": [
+            371.8975025,
+            -19.41404964,
+            6.556431351156583
+          ],
+          "actual_xyz_mm": [
+            371.2845126,
+            -19.38204992,
+            -23.50033084
+          ],
+          "target_height_mm": 125.0,
+          "actual_height_mm": 94.99103077050106,
+          "required_transfer_height_mm": 72.4,
+          "height_reference": "distance_above_calibrated_table_not_robot_z",
+          "undershoot_mm": 30.008969229498945
+        },
+        "elapsed_s": 9.589,
+        "target_duration_s": 10,
+        "retry_instruction": "使用新的合并接近路径；仍超时时只选择一个速度试验并保存，不重复同策略。"
+      },
+      "learning_basis": {
+        "scope": "visual_pickup",
+        "allow_visual": true,
+        "execution_issue_pending": true,
+        "reason": "闭爪和抬升已完成，录像确认抓空；后段超时不撤销前段证据，本轮先修正抓取偏差，10秒执行要求仍保留。"
+      },
+      "ball_xyz_mm": [
+        382.6126193601237,
+        -37.72655969175429,
+        -103.93131077275906
+      ],
+      "grasp_pitch_deg": 75.0,
+      "funnel_xyz_mm": [
+        335.3213764739375,
+        280.3932282155759,
+        -73.73816573212378
+      ]
+    }
+  ],
+  "statistics": {
+    "reviewed_trials": 16,
+    "successes": 0
+  }
+}

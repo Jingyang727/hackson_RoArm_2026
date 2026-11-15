@@ -1,0 +1,45 @@
+{
+  "created_at": "2026-11-15T15:05:49+08:00",
+  "git_head": "b1d3766412144e0f500b35d279389e66b3a65c27",
+  "git_status": "## HEAD (no branch)\n?? Log/\n",
+  "untracked_or_modified": "?? Log/\n",
+  "files": [
+    {
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+      "archive_path": "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+      "sha256": "0fe6f3b63d467e38cd7a8b692ed64f5744ef015898e2a8fbf5071edff0fe5b00",
+      "bytes": 35216
+    },
+    {
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/active-session.json",
+      "archive_path": "calibrations/bench-layout-v2/active-session.json",
+      "sha256": "21564027717d95719e3d7b202a40273c909bbfdb3450c8cd5cca13073d7dcdb2",
+      "bytes": 244
+    },
+    {
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.png",
+      "archive_path": "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.png",
+      "sha256": "cacdea30027ede9b866c9dbb68c9c592c40695c3725a45733f8e0da730b92818",
+      "bytes": 537429
+    },
+    {
+      "source": "/Users/jyang51/.evoarm/rsi/experiments/a7a3ea63fdd84775a0e7681bd8de1bf6/gemini_color_intrinsics.json",
+      "archive_path": "experiments/a7a3ea63fdd84775a0e7681bd8de1bf6/gemini_color_intrinsics.json",
+      "sha256": "f776e70ac523887ee786bcf20c7dbeddc9e9f604c0936948dc4d2919961064d6",
+      "bytes": 305
+    },
+    {
+      "source": "/Users/jyang51/.evoarm/rsi/pick_place_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "archive_path": "pick_place_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "sha256": "a173dc935fd9d193c72ed7ba028e9505d101f3813b0667962e1bfe5dcaf8da40",
+      "bytes": 109823
+    }
+  ],
+  "missing": {
+    "confirmed_successful_grasp": [
+      "最近试次均未保存用户确认“抓起来了”的字段或明确成功结果",
+      "最近三轮待确认：de19ff4f45584961b81b2277808929da、ea5ed86f93bf4a67ba0cb97846d19485、dd88fabc244b4f6e94c8ab6dd3f6de3d",
+      "因此未导出任何试次 state.json，避免猜测"
+    ]
+  }
+}

@@ -80,7 +80,7 @@ XYZ计划发送以下形状的T104；实际数值来自prepare，示例不是可
 
 计划在写串口前消耗；双击、刷新、错误响应和不确定写入不自动重放。控制反馈稳定但有偏差要如实记录，不要求夹爪角完全一致才确认XYZ，也不把HTTP成功或数值到位当作抓取成功。
 
-XYZ证据在 `~/.evoarm/rsi/coordinate_runs/<plan_id>/report.json`；复位防重放请求在 `~/.evoarm/rsi/factory_resets/<request_id>.json`，其中sent_not_verified仅表示发送，最终结果以反馈为准。标定、相机录像与这些本地数据不提交到仓库。
+XYZ证据在 `~/.evoarm/rsi/coordinate_runs/<plan_id>/report.json`；复位防重放请求在 `~/.evoarm/rsi/factory_resets/<request_id>.json`，其中sent_not_verified仅表示发送，最终结果以反馈为准。原始录像与运行授权保留在本机；用户明确要求归档的标定和经验策略快照保存于 `calibrations/`，不包含凭据，也不自动覆盖本机活动标定。
 
 ## 下一阶段RSI
 
