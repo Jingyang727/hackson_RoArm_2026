@@ -140,7 +140,10 @@ class AutoAPI(unittest.TestCase):
         import zipfile
         with zipfile.ZipFile(self.fixture.home/'.evoarm/rsi/backups'/f"{state['plan']['plan_id']}.zip") as archive:
             self.assertIn('trial/comparison.jpg',archive.namelist())
-            self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(contexts[-1]['comparison']['previous_frame']['path']).read_bytes())
+            self.assertNotIn('path',contexts[-1]['comparison']['previous_frame'])
+            stored=json.loads(archive.read('trial/grok-request.json'))
+            original=stored['context']['comparison']['previous_frame']['path']
+            self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(original).read_bytes())
 
     def test_real_review_pipeline_uses_improvement_to_shrink_and_remembers_successful_actual_policy(self):
         state,contexts,_=self.paired_run(opposite=False)
