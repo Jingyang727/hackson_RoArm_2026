@@ -37,7 +37,7 @@ class CameraRelativePolicy(unittest.TestCase):
 
     def test_camera_facing_robot_right_miss_requires_positive_robot_y(self):
         after,changes,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
-        self.assertAlmostEqual(after['pickup_xy_mm'][1],4.)
+        self.assertAlmostEqual(after['pickup_xy_mm'][1],10.)
         self.assertAlmostEqual(after['pickup_xy_mm'][0],0.)
         self.assertLess(proposal['predicted_pixel_delta'][0],0)
         self.assertEqual(proposal['correction_direction'],'image_left')
@@ -55,18 +55,18 @@ class CameraRelativePolicy(unittest.TestCase):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
         history=[self.entry(self.parameters,after,proposal)]
         second,_,decision=propose(after,self.scene,'grasp_missed','image_right','small',history=history,**self.evidence('unchanged'))
-        self.assertAlmostEqual(second['pickup_xy_mm'][1]-after['pickup_xy_mm'][1],8.)
+        self.assertAlmostEqual(second['pickup_xy_mm'][1]-after['pickup_xy_mm'][1],14.)
         self.assertEqual(decision['comparison'],'same_error_repeated')
         audit=application(second,copy.deepcopy(second),[self.entry(after,second,decision)])
         self.assertTrue(audit['parameters_verified']);self.assertEqual(audit['source_trial_id'],'a'*32)
         with self.assertRaises(ValueError):application(second,self.parameters,history)
         with self.assertRaises(ValueError):application(second,second,history)
 
-    def test_opposite_error_halves_previous_step_instead_of_oscillating(self):
+    def test_opposite_error_respects_the_requested_ten_mm_automatic_floor(self):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
         second,_,decision=propose(after,self.scene,'grasp_missed','image_left','small',history=[self.entry(self.parameters,after,proposal)],**self.evidence('overshot'))
-        self.assertEqual(decision['comparison'],'overshot');self.assertEqual(decision['step_mm'],2.)
-        self.assertAlmostEqual(second['pickup_xy_mm'][1],2.)
+        self.assertEqual(decision['comparison'],'overshot');self.assertEqual(decision['step_mm'],10.)
+        self.assertAlmostEqual(second['pickup_xy_mm'][1],0.)
 
     def test_worse_error_rolls_back_and_does_not_repeat_blindly(self):
         after,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
@@ -76,15 +76,15 @@ class CameraRelativePolicy(unittest.TestCase):
 
     def test_initial_obvious_error_uses_ball_scaled_step_and_improvement_reduces_it(self):
         first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','large')
-        self.assertAlmostEqual(first['pickup_xy_mm'][1],12.)
+        self.assertAlmostEqual(first['pickup_xy_mm'][1],16.)
         after,_,decision=propose(first,self.scene,'grasp_missed','image_right','medium',
                                 history=[self.entry(self.parameters,first,proposal)],**self.evidence('improved'))
-        self.assertEqual(decision['step_mm'],4.);self.assertEqual(after['pickup_xy_mm'][1],16.)
+        self.assertEqual(decision['step_mm'],10.);self.assertEqual(after['pickup_xy_mm'][1],26.)
 
     def test_repeated_direction_alone_does_not_prove_need_to_increase(self):
         first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right','small')
         _,_,decision=propose(first,self.scene,'grasp_missed','image_right','small',history=[self.entry(self.parameters,first,proposal)])
-        self.assertEqual(decision['step_mm'],4.);self.assertFalse(decision['effect_verified'])
+        self.assertEqual(decision['step_mm'],10.);self.assertFalse(decision['effect_verified'])
         self.assertNotEqual(decision['comparison'],'same_error_repeated')
 
     def test_opposite_motion_undoes_and_rejected_policy_is_not_forgotten(self):
@@ -125,8 +125,8 @@ class CameraRelativePolicy(unittest.TestCase):
         old=copy.deepcopy(self.parameters);old['pickup_xy_mm']=[0.,2.]
         history=[self.entry(self.parameters,old,{'step_mm':2.})]
         after,_,decision=propose(old,self.scene,'grasp_missed','image_right','small',history=history,**self.evidence('unchanged','no_visible_motion'))
-        self.assertEqual(decision['step_mm'],8.);self.assertTrue(decision['allow_retry'])
-        self.assertAlmostEqual(after['pickup_xy_mm'][1],10.)
+        self.assertEqual(decision['step_mm'],10.);self.assertTrue(decision['allow_retry'])
+        self.assertAlmostEqual(after['pickup_xy_mm'][1],12.)
 
     def test_wrong_projection_is_rejected_and_old_thirty_mm_clip_is_removed(self):
         wrong=copy.deepcopy(self.parameters);wrong['pickup_xy_mm']=[0.,-4.]
@@ -137,7 +137,7 @@ class CameraRelativePolicy(unittest.TestCase):
         self.assertNotIn('incorrect change',' '.join(changes))
         at_limit=copy.deepcopy(self.parameters);at_limit['pickup_xy_mm']=[0.,30.]
         after,_,decision=propose(at_limit,self.scene,'grasp_missed','image_right')
-        self.assertEqual(after['pickup_xy_mm'],[0.,38.]);self.assertTrue(decision['allow_retry'])
+        self.assertEqual(after['pickup_xy_mm'],[0.,42.]);self.assertTrue(decision['allow_retry'])
 
     def test_funnel_in_image_right_can_have_robot_negative_y(self):
         audit=target_audit(self.scene,self.parameters)

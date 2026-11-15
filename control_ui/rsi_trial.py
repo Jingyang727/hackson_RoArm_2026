@@ -22,7 +22,8 @@ from evoarm_rsi.bench_calibration import load_session,fit_points
 from evoarm_rsi.coordinate_test import fingerprint,calibrated_table
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
-from evoarm_rsi.pick_place import DEFAULT_PARAMETERS, observe_scene, build_plan, preview, detect_funnel
+from evoarm_rsi.pick_place import DEFAULT_PARAMETERS, observe_scene, build_plan, preview, detect_funnel,MIN_XY_STEP_MM
+from evoarm_rsi.xy_audit import audit as audit_xy
 from evoarm_rsi.rsi_policy import propose, target_audit, application, policy_id
 from evoarm_rsi.rsi_execution import execute, reservation
 from evoarm_rsi.browser_video import browser_video
@@ -156,7 +157,7 @@ def install(app,service_provider):
             raise ValueError('计划不在当前服务中，请重新观察；不会重放旧计划')
         return plans[key]
     def save(state):_write(root(state['id'])/'state.json',{k:v for k,v in state.items() if k not in ('created','geometry')})
-    def recent_trials(saved):
+    def recent_trials(saved,limit=3):
         scope=fingerprint(saved);rows=[]
         files=sorted((Path.home()/'.evoarm/rsi/pick_place_runs').glob('*/state.json'),key=lambda p:p.stat().st_mtime,reverse=True)
         for file in files[:30]:
@@ -166,7 +167,7 @@ def install(app,service_provider):
                 rows.append(value)
             except (OSError,ValueError,KeyError,TypeError):continue
         rows.sort(key=lambda r:r.get('result',{}).get('created_at_unix',r.get('created_at_unix',0)),reverse=True)
-        return rows[:3]
+        return rows[:limit]
     def compare(current,pol):
         prior=pol['reviews'][-1] if pol['reviews'] else None
         try:previous=known(prior['plan_id'],historical=True) if prior else None
@@ -219,7 +220,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'web_learning_version':2,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':10,'web_learning_version':3,'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -681,6 +682,15 @@ def install(app,service_provider):
                     'coordinate_reports':reports,
                     'instruction':'区分输入与反馈、相同姿态的物体接触点与球心。两组近似接触点不足以重新确定完整相机外参；不要自动拟合后覆盖标定。'}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.get('/diagnostics/xy')
+    def xy_diagnostics():
+        try:
+            with lock:rows=recent_trials(session(),limit=4)
+            return {'robot_moved':False,'robot_sampled':False,'minimum_xy_step_mm':MIN_XY_STEP_MM,
+                'trials':audit_xy(list(reversed(rows))),
+                'note':'本轮采用的补偿与本轮结束后为下一轮保存的补偿是两列；原始闭爪变化直接来自固件，扣除定位/姿态的值不是原始位移。'}
+        except (OSError,ValueError,KeyError,TypeError) as exc:fail(exc)
 
     @router.get('/history')
     def history():

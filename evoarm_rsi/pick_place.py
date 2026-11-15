@@ -21,7 +21,8 @@ from .image_directions import OPPOSITE,PIXEL_VECTOR
 BALL_RADIUS = 17.
 FUNNEL_RADIUS = 38.
 FUNNEL_HEIGHT = 45.4
-XY_STEPS_MM={'small':4.,'medium':8.,'large':12.,'unknown':8.}
+MIN_XY_STEP_MM=10.
+XY_STEPS_MM={'small':10.,'medium':12.,'large':16.,'unknown':12.}
 MAX_XY_STEP_MM=16.
 DEFAULT_PARAMETERS = {
     'pickup_xy_mm':[0.,0.], 'release_xy_mm':[0.,0.], 'grasp_z_offset_mm':3.,
@@ -211,7 +212,7 @@ def preview(image,plan,geometry):
     return result
 
 
-def image_correction(scene,direction,step_mm=8.,*,target='ball',center_robot_mm=None):
+def image_correction(scene,direction,step_mm=12.,*,target='ball',center_robot_mm=None):
     if direction not in PIXEL_VECTOR:return [0.,0.]
     geometry=scene['camera_geometry'];R=np.asarray(geometry['R'],float);K=np.asarray(geometry['K'],float)
     field='center_robot_mm' if target=='ball' else 'mouth_center_robot_mm'
@@ -227,7 +228,7 @@ def image_correction(scene,direction,step_mm=8.,*,target='ball',center_robot_mm=
 
 def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,step_override_mm=None):
     result={k:list(v) if isinstance(v,list) else v for k,v in parameters.items()};change=[]
-    step_mm=XY_STEPS_MM.get(magnitude,8.)
+    step_mm=XY_STEPS_MM.get(magnitude,12.)
     if step_override_mm is not None:
         if type(step_override_mm) not in (int,float) or not math.isfinite(step_override_mm) or step_override_mm<=0:
             raise ValueError('学习试验步长无效')

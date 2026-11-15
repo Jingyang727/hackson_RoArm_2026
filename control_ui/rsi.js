@@ -39,7 +39,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':(grok.reason||'正在检查公司Grok API配置。')+' 使用OpenCode /roarm-rsi时沿用已登录模型，无需本页API配置。';
-  const compatible=state?.api_version===10&&state?.web_learning_version===2;
+  const compatible=state?.api_version===10&&state?.web_learning_version===3;
   $('observeObjects').disabled=busy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
@@ -108,6 +108,20 @@ $('observeObjects').onclick=()=>action(async()=>{
   }catch(error){$('observationFacts').textContent='本次定位失败，当前没有可验证的新坐标；请查看错误信息。';throw error;}
 });
 $('confirmed').onchange=render;
+$('loadXYAudit').onclick=async()=>{
+  const button=$('loadXYAudit'),facts=$('xyAuditFacts');button.disabled=true;facts.textContent='正在读取已有记录，不采样或运动…';
+  try{
+    const data=await api(prefix+'/diagnostics/xy');facts.replaceChildren();
+    const note=document.createElement('p');note.textContent=data.note;facts.append(note);
+    if(!data.trials.length){facts.textContent='当前标定尚无可用的执行记录。';return;}
+    for(const trial of data.trials){
+      const row=document.createElement('p'),paired=trial.versus_previous;
+      row.className='facts';row.textContent=`试次 ${trial.plan_id.slice(0,10)} · 参数v${trial.policy_version}\n本轮采用XY补偿：[${xyz(trial.used_pickup_xy_mm)}] mm\n为下一轮保存：[${xyz(trial.saved_for_next_pickup_xy_mm)}] mm\n视觉球心XYZ：[${xyz(trial.ball_xyz_mm)}] mm；抓取俯仰 ${number(trial.grasp_pitch_deg)}°\n计划抓取XYZ：[${xyz(trial.nominal_grasp_xyz_mm)}] mm\n接近结束反馈XYZ：[${xyz(trial.approach_feedback_xyz_mm)}] mm\n下探实际下发XYZ：[${xyz(trial.descend_command_xyz_mm)}] mm\n下探结束反馈XYZ：[${xyz(trial.descend_feedback_xyz_mm)}] mm\n闭爪反馈XYZ：[${xyz(trial.close_feedback_xyz_mm)}] mm\n闭爪反馈减下探指令：[${xyz(trial.close_minus_descend_command_mm)}] mm`;
+      if(paired)row.textContent+=`\n与上一轮：采用的补偿变化[${xyz(paired.used_compensation_delta_mm)}] mm；计划抓取XYZ变化[${xyz(paired.nominal_grasp_delta_xyz_mm)}] mm\n原始闭爪XYZ变化：[${xyz(paired.raw_close_delta_xyz_mm)}] mm\n定位/姿态基线变化：[${xyz(paired.localization_and_pose_baseline_delta_mm)}] mm（计算值，不能认定物体真的移动）`;
+      facts.append(row);
+    }
+  }catch(error){facts.textContent='读取失败：'+error.message;}finally{button.disabled=false;}
+};
 $('start').onclick=()=>{if($('start').disabled)return;return action(async()=>{await api(prefix+'/learning/start','POST',{declaration,max_attempts:Number($('maxAttempts').value)});$('confirmed').checked=false;});};
 $('reset').onclick=()=>{if($('reset').disabled)return;return action(async()=>{await api(prefix+'/learning/reset','POST',{declaration});$('confirmed').checked=false;});};
 $('stop').onclick=async()=>{if($('stop').disabled)return;$('stop').disabled=true;try{if(state.learning?.status==='running')await api(prefix+'/learning/stop','POST',{});else await api(prefix+'/stop','POST',{plan_id:state.job.plan_id});await refresh();}catch(error){showError(error);}};

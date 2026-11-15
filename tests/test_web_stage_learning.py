@@ -52,7 +52,7 @@ class WebStageLearning(unittest.TestCase):
         before=project(a['scene'],center_target(a['scene'],a['parameters']))
         after=project(a['scene'],center_target(a['scene'],b['parameters']))
         self.assertGreater(after[1],before[1]);self.assertLess(abs(after[0]-before[0]),1.)
-        self.assertAlmostEqual(math.dist(a['parameters']['pickup_xy_mm'],b['parameters']['pickup_xy_mm']),8.)
+        self.assertAlmostEqual(math.dist(a['parameters']['pickup_xy_mm'],b['parameters']['pickup_xy_mm']),12.)
 
     def test_actual_height_error_changes_height_only_despite_late_transport_timeout(self):
         self.setup_failure();review=self.run_two({**verdict('grasp_missed','too_high'),'adjustment':'grasp_height'})

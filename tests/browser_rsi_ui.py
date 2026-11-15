@@ -13,6 +13,8 @@ from evoarm_rsi.browser_video import browser_video
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS
 from evoarm_rsi.rsi_learning import LEARNING_DECLARATION
 from evoarm_rsi.rsi_comparison import comparison_panel
+from evoarm_rsi.xy_audit import audit as audit_xy
+from tests.test_xy_audit import reported_states
 
 
 def check(url, output):
@@ -27,7 +29,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':10,'web_learning_version':2,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':10,'web_learning_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -71,6 +73,8 @@ def check(url, output):
             if path.endswith('/comparison'):return handler.fulfill(status=200,content_type='image/jpeg',body=pair_jpeg)
             return handler.fulfill(status=200,content_type='image/jpeg',body=jpeg.tobytes())
         if path=='/bench/rsi/state':data=model
+        elif path=='/bench/rsi/diagnostics/xy':data={'robot_moved':False,'robot_sampled':False,'trials':audit_xy(reported_states()),
+            'note':'本轮采用与为下一轮保存分别列出；原始反馈与扣除基线后的计算值分开。'}
         elif path=='/bench/rsi/history':data={'trials':history}
         elif path=='/bench/rsi/observe':
             assert body=={}
@@ -178,13 +182,15 @@ def check(url, output):
         paired={'available':True,'plan_id':key,'reference_plan_id':'1'*32,'panel_url':f'/api/bench/rsi/plans/{key}/comparison',
                 'parameter_changes':[{'name':'pickup_xy_mm','before':[0,0],'after':[0,-12]}],
                 'requested_xy_delta_mm':[0,-12],'expected_image_delta_px':[14,0],
-                'feedback':{'available':True,'status':'consistent','reported_xy_delta_mm':[0,-11.8]},'assessment':None}
+                'feedback':{'available':True,'status':'consistent','reported_xy_delta_mm':[0,-11.8],
+                    'raw_xy_delta_mm':[0,-9.8],'nominal_baseline_delta_mm':[0,2.]},'assessment':None}
         emit('comparison',comparison=paired,attempt=2,plan_id=key)
         model['learning']['phase']='analyzing';model['job'].update(status='completed',result=result)
         process['model_output']={'plan_id':key,'attempt':2,'preflight':False,'status':'generating','mode':'streaming','text':'第二轮夹爪更接近小球。'}
         page.locator('#comparisonFrame').wait_for(state='visible')
         page.locator('#comparisonFacts').filter(has_text='11.80').wait_for()
         assert '不是图像实测' in page.locator('#comparisonFacts').inner_text()
+        assert '固件原始闭爪' in page.locator('#comparisonFacts').inner_text()
         page.screenshot(path=str(output/'rsi-effect-comparison.png'),full_page=True)
         success={'outcome':'placed','source':'company_grok','note':'球随夹爪离桌，释放后留在漏斗内','changes':['保留成功策略。'],'after_version':3}
         success['comparison']={**paired,'assessment':{'reference_plan_id':'1'*32,'effect':'improved','movement':'as_expected','note':'前后实帧显示夹爪更接近并夹住了球'}}
@@ -219,6 +225,16 @@ def check(url, output):
         model['learning'].update(status='completed',phase='reset_completed')
         page.locator('#phase').filter(has_text='已恢复官方初始姿态').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/reset'])==1
+        posts=len([call for call in calls if call[0]=='POST'])
+        page.locator('summary').filter(has_text='核对最近4轮补偿').click()
+        page.locator('#loadXYAudit').click()
+        page.locator('#xyAuditFacts').filter(has_text='4621c7fb').wait_for()
+        page.locator('#xyAuditFacts').filter(has_text='7ce7aa5b').wait_for()
+        assert '为下一轮保存：[—]' in page.locator('#xyAuditFacts').inner_text()
+        assert '原始闭爪XYZ变化' in page.locator('#xyAuditFacts').inner_text()
+        assert len([call for call in calls if call[0]=='POST'])==posts
+        page.screenshot(path=str(output/'rsi-xy-audit.png'),full_page=True)
+        page.locator('summary').filter(has_text='核对最近4轮补偿').click()
         model['job']['result']={**result,'motion_completed':False,'motion_error':'transport clearance failure',
             'execution_diagnosis':{'category':'clearance_shortfall','lift':{
                 'actual_height_mm':56.,'required_transfer_height_mm':72.4,'actual_xyz_mm':[340,-10,-59]}}}
@@ -230,7 +246,7 @@ def check(url, output):
         model['web_learning_version']=1
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
-        model['web_learning_version']=2;model['api_version']=5
+        model['web_learning_version']=3;model['api_version']=5
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
         assert not errors,errors
@@ -248,6 +264,7 @@ def check(url, output):
     report['checks'].append('fresh object coordinates and snapshot without a grasp plan or motion; recapture replaces prior coordinates')
     report['checks'].append('execution clearance diagnosis uses plane-relative height rather than robot Z')
     report['checks'].append('late pickup learning, actual saved parameters, company API model and image-vs-height directions shown')
+    report['checks'].append('four-trial XY audit is GET-only and raw displacement is separate from adjusted attribution')
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

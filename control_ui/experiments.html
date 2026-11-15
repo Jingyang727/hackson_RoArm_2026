@@ -89,7 +89,7 @@
     <p id="backupStatus" class="quiet"></p>
     <details id="diagnostics"><summary>定位与深度诊断（可选）</summary><p id="sceneFacts" class="facts"></p><img id="depthFrame" class="depth-image" alt="到相机距离的深度伪彩图"/><p id="depthLegend" class="quiet"></p><p class="quiet">深度参与球心定位，无需人工解读此图。黑色区域表示未测到深度，不表示黑色物体。</p><p id="planFacts" class="facts"></p></details>
   </section>
-  <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
+  <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><details><summary>核对最近4轮补偿与实际落点</summary><p class="quiet">只读取已有记录；缺失项显示“—”。自动平面试验步长至少10mm。</p><button id="loadXYAudit" class="secondary">读取最近4轮（不运动）</button><div id="xyAuditFacts"></div></details><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
 <footer>录像、RGB-D、指令、反馈、Grok判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
 <script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>

@@ -113,13 +113,15 @@ def build_comparison(current,previous,review,experiments):
             # Remove target relocation / nominal pose changes before attributing
             # a difference to the learned XY parameter. Never call this video truth.
             baseline=(np.asarray(b[tip_key])[:2]-after[key])-(np.asarray(a[tip_key])[:2]-before[key])
-            reported=np.asarray(new)[:2]-np.asarray(old)[:2]-baseline
+            raw_delta=np.asarray(new)[:2]-np.asarray(old)[:2]
+            reported=raw_delta-baseline
             gain=float(reported@requested/(requested@requested))
             alignment=float(reported@requested/max(1e-8,np.linalg.norm(reported)*np.linalg.norm(requested)))
             status=('inconclusive' if np.linalg.norm(requested)<4 else 'opposite' if gain<-.25 and alignment<-.5
                     else 'too_small' if np.linalg.norm(reported)<np.linalg.norm(requested)*.25
                     else 'consistent' if gain>.25 and alignment>.5 else 'inconclusive')
             context['feedback'].update(available=True,status=status,requested_xy_delta_mm=requested.tolist(),
+                                       raw_xy_delta_mm=raw_delta.tolist(),nominal_baseline_delta_mm=baseline.tolist(),
                                        reported_xy_delta_mm=reported.tolist(),gain_along_command=gain,
                                        previous_tip_xyz_mm=old,current_tip_xyz_mm=new)
     prior_frame=evidence_frame(previous,experiments,target=target)

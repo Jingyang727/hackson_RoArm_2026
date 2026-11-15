@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-- [当前验收：网页抓放闭环](docs/rsi-web-first.md)：网页直接调用公司Grok，按已完成的执行阶段选择视觉或执行参数试验。后段超时不抹掉前段抓取证据；明确区分画面上下与离桌高度，展示实际保存参数并自动进入下一轮。状态新增web_learning_version=2。OpenCode和新增视觉API改造暂缓。
+- [当前验收：网页抓放闭环](docs/rsi-web-first.md)：网页直接调用公司Grok，按已完成的执行阶段选择视觉或执行参数试验。后段超时不抹掉前段抓取证据；明确区分画面上下与离桌高度，展示实际保存参数并自动进入下一轮。当前web_learning_version=3；自动平面步长至少10mm，并可[只读核对最近4轮累计补偿、下探指令和原始落点](docs/rsi-xy-trial-audit.md)。OpenCode和新增视觉API改造暂缓。
 
 - [一次多图的视觉复核](docs/rsi-vision-batch.md)：此前的OpenCode传输实验；标准1.19.0离线验证通过，用户实际环境尚未走通，当前不作为实机验收入口。
 
@@ -43,15 +43,15 @@
 
 ## 本机运行
 
-从现有独立worktree更新 `feature/rsi-pick-place-loop-v1`（基于main的`checkpoint-xyz-control-v1`），保留原工作目录、未提交改动与所有旧标定数据。代码更新后实际运行的服务也必须从新worktree启动。
+合并后从当前运行worktree更新 `origin/main`，保留原工作目录、未提交改动与所有旧标定数据。若main已在另一个worktree检出，可在当前分支快进到origin/main，无需切回旧目录。代码更新后实际运行的服务也必须从这个已更新的worktree重启。
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-vision.txt
-EVOARM_ENABLE_TEACH=1 EVOARM_ENABLE_MOTION=0 EVOARM_SETUP_ID=bench-layout-v2 \
+EVOARM_ENABLE_TEACH=1 EVOARM_ENABLE_MOTION=1 EVOARM_SETUP_ID=bench-layout-v2 \
 python -m uvicorn control_ui.main:app --host 127.0.0.1 --port 8765
 ```
 
-需要UI实际抓放时，将上述 `EVOARM_ENABLE_MOTION=0` 改为 `1` 后启动，打开 http://127.0.0.1:8765/experiments 。已经验收过的坐标控制和保存标定继续沿用，无需重新采点。开启实物模式本身不下发抓取；用户确认范围并启动后才进入自动任务。详见[浏览器操作说明](docs/rsi-effect-learning-v6.md)。
+上述命令启动网页实物模式，打开 http://127.0.0.1:8765/experiments 。只读观察时可将 `EVOARM_ENABLE_MOTION` 改为 `0`。已经验收过的坐标控制和保存标定继续沿用，无需重新采点。开启实物模式本身不下发抓取；用户确认范围并启动后才进入自动任务。状态应为api_version=10、web_learning_version=3、minimum_xy_step_mm=10。详见[当前网页操作说明](docs/rsi-web-first.md)。
 
 打开 http://127.0.0.1:8765/calibration 。页面不会自动连接串口或切换扭矩；连接操作可能触发固件初始化，需要现场看住机械臂。
 

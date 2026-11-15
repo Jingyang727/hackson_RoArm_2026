@@ -54,6 +54,8 @@ class PairedComparison(unittest.TestCase):
         self.assertEqual(value['reference_plan_id'],self.previous['id'])
         self.assertEqual(value['requested_xy_delta_mm'],[0.,8.])
         self.assertEqual(value['feedback']['reported_xy_delta_mm'],[0.,8.])
+        self.assertEqual(value['feedback']['raw_xy_delta_mm'],[0.,8.])
+        self.assertEqual(value['feedback']['nominal_baseline_delta_mm'],[0.,0.])
         self.assertEqual(value['feedback']['status'],'consistent')
         self.assertEqual(value['previous_frame']['role'],'previous')
         self.assertEqual(value['current_frame']['frame_index'],1)
@@ -64,6 +66,8 @@ class PairedComparison(unittest.TestCase):
         self.current['result']['feedback'][0]['status']['x']+=10
         value=self.comparison();self.assertTrue(value['available'])
         self.assertEqual(value['feedback']['reported_xy_delta_mm'],[0.,8.])
+        self.assertEqual(value['feedback']['raw_xy_delta_mm'],[10.,8.])
+        self.assertEqual(value['feedback']['nominal_baseline_delta_mm'],[10.,0.])
 
     def test_opposite_reported_motion_is_separate_evidence_and_rolls_back(self):
         self.current['result']['feedback'][0]['status']['y']=-8

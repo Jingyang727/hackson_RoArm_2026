@@ -75,7 +75,7 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(state['learning']['attempt'], 2)
         self.assertEqual(model.call_count, 3); self.assertEqual(recovery.call_count, 1)
         self.assertEqual(len(self.policies), 2)
-        self.assertAlmostEqual(math.hypot(*self.policies[1]['pickup_xy_mm']), 12.)
+        self.assertAlmostEqual(math.hypot(*self.policies[1]['pickup_xy_mm']), 16.)
         self.assertIsNone(self.fixture.service.automation_owner)
         pol = next((self.fixture.home / '.evoarm/rsi/pick_place_policies').glob('*/*.json'))
         saved = json.loads(pol.read_text())
@@ -146,8 +146,8 @@ class AutoAPI(unittest.TestCase):
         state,contexts,_=self.paired_run(opposite=False)
         self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
         self.assertEqual(len(self.policies),3)
-        self.assertAlmostEqual(math.dist(self.policies[0]['pickup_xy_mm'],self.policies[1]['pickup_xy_mm']),8.)
-        self.assertAlmostEqual(math.dist(self.policies[1]['pickup_xy_mm'],self.policies[2]['pickup_xy_mm']),4.)
+        self.assertAlmostEqual(math.dist(self.policies[0]['pickup_xy_mm'],self.policies[1]['pickup_xy_mm']),12.)
+        self.assertAlmostEqual(math.dist(self.policies[1]['pickup_xy_mm'],self.policies[2]['pickup_xy_mm']),10.)
         self.assertEqual(state['plan']['review']['proposal']['decision'],'keep')
         self.assertEqual(state['plan']['review']['after'],self.policies[-1])
 
@@ -159,8 +159,8 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(len(self.policies),3)
         first=np.asarray(self.policies[1]['pickup_xy_mm'])-self.policies[0]['pickup_xy_mm']
         second=np.asarray(self.policies[2]['pickup_xy_mm'])-self.policies[1]['pickup_xy_mm']
-        self.assertAlmostEqual(float(np.linalg.norm(first)),4.)
-        self.assertAlmostEqual(float(np.linalg.norm(second)),4.)
+        self.assertAlmostEqual(float(np.linalg.norm(first)),10.)
+        self.assertAlmostEqual(float(np.linalg.norm(second)),10.)
         _,state=self.request('state',method='GET')
         self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
         audit=state['plan']['policy_application'];self.assertTrue(audit['parameters_verified'])

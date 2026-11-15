@@ -8,7 +8,7 @@ import math
 
 import numpy as np
 
-from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS,XY_STEPS_MM,MAX_XY_STEP_MM
+from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS,XY_STEPS_MM,MAX_XY_STEP_MM,MIN_XY_STEP_MM
 from .rsi_comparison import validate_assessment
 from .image_directions import OPPOSITE,PIXEL_VECTOR
 
@@ -76,10 +76,11 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
             comparison_status='direction_disproved' if movement=='opposite' or feedback.get('status')=='opposite' else 'error_worsened'
             rollback=True;allow_retry=False;decision='undo'
             why.append('前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。')
-        elif movement=='no_visible_motion' and effect=='unchanged' and previous_step and previous_step<8:
+        elif (movement=='no_visible_motion' and effect=='unchanged' and previous_step and previous_step<MIN_XY_STEP_MM
+              and feedback.get('status') not in ('too_small','opposite')):
             requested=previous.get('proposal',{}).get('step_mm') or previous_step
             clipped=previous_step<requested*.9
-            step=min(MAX_XY_STEP_MM,max(8.,step,previous_step+4))
+            step=min(MAX_XY_STEP_MM,max(MIN_XY_STEP_MM,step,previous_step+4))
             comparison_status='invalid_previous_vector' if clipped else 'probe_too_small'
             decision='repair_step' if clipped else 'increase_step'
             why.append('上一轮申请与保存向量不一致，重新生成完整修正，不再把裁剪当成小步探测。' if clipped else
@@ -88,11 +89,11 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
             comparison_status='no_effective_motion';rollback=True;allow_retry=False;decision='undo'
             why.append('画面未显示相应变化，不把已修改的命令当成有效移动；撤销上一轮试验参数并回位。')
         elif previous_step and effect=='overshot':
-            step=max(2.,previous_step/2);comparison_status='overshot';decision='shrink_step'
-            why.append('前后对照显示越过目标，按本轮观察方向反向修正，步长减半。')
+            step=max(MIN_XY_STEP_MM,previous_step/2);comparison_status='overshot';decision='shrink_step'
+            why.append('前后对照显示越过目标，按本轮观察方向反向修正；自动试验步长保持至少10mm。')
         elif previous_step and effect=='improved':
-            step=max(2.,min(4.,step,previous_step/2));comparison_status='improved';decision='shrink_step'
-            why.append('前后实帧显示偏差缩小，保留有效方向并缩小步长收敛。')
+            step=max(MIN_XY_STEP_MM,min(step,previous_step/2));comparison_status='improved';decision='shrink_step'
+            why.append('前后实帧显示偏差缩小，保留有效方向，自动步长不再缩到2～4mm，保持至少10mm。')
         elif previous_step and effect=='unchanged' and movement=='as_expected' and feedback.get('status','missing') in ('consistent','missing'):
             step=min(MAX_XY_STEP_MM,max(step,previous_step+4));comparison_status='same_error_repeated';decision='increase_step'
             why.append('已观察到向预期方向移动，但偏差仍未明显改善，增大下一轮试验步长。')

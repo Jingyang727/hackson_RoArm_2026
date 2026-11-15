@@ -16,7 +16,7 @@
 
 页面显示决策依据、实际保存前后参数，以及标定计算的平面补偿变化。没有单项前后对照只表示不能归因上一轮效果，不妨碍依据本轮清晰画面开始一个新试验。没有可执行的新参数时，停止原因直接说明是路径不可达、速度上限、反馈不足或其他具体原因。
 
-接口 `/api/bench/rsi/state` 保持 `api_version=10`，新增 `web_learning_version=2`。新版页面检测此字段，避免把旧服务误当成已加载新逻辑。
+接口 `/api/bench/rsi/state` 保持 `api_version=10`。当前 `web_learning_version=3`、`minimum_xy_step_mm=10`，新版页面检测此字段，避免把旧服务误当成已加载新逻辑。[XY试验与落点审计](rsi-xy-trial-audit.md)说明至少10mm的自动步长、实际四轮数据和新的只读核对入口。
 
 本机更新运行中的同一worktree，只重启普通用户网页服务，保留相机进程、当前标定、参数和试次。沿用原Gemini Python与 `EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_TEACH=1 EVOARM_SETUP_ID=bench-layout-v2`。确认上面两个版本字段及运动开关后，由用户在网页点击开始，按页面选择的轮数继续，成功即停。已有旧决策不改写，新任务重新观察并使用新试次ID。
 

@@ -34,12 +34,12 @@ class FullVector(unittest.TestCase):
         for direction in ('image_left','image_right','image_up','image_down'):
             with self.subTest(direction=direction):
                 after,_,decision=propose(before,scene,'grasp_missed',direction,'medium')
-                self.assertAlmostEqual(math.dist(before['pickup_xy_mm'],after['pickup_xy_mm']),8.)
+                self.assertAlmostEqual(math.dist(before['pickup_xy_mm'],after['pickup_xy_mm']),12.)
                 self.assertGreater(decision['projection_direction_alignment'],.99999)
                 self.assertTrue(decision['projection_direction_verified'])
         after,_,_=propose(before,scene,'grasp_missed','image_right','large')
         self.assertGreater(after['pickup_xy_mm'][1],30.)
-        self.assertAlmostEqual(math.dist(before['pickup_xy_mm'],after['pickup_xy_mm']),12.)
+        self.assertAlmostEqual(math.dist(before['pickup_xy_mm'],after['pickup_xy_mm']),16.)
 
     def test_one_point_four_mm_with_tiny_correct_component_and_eighty_degree_error_rejected(self):
         before=legacy_policy()['parameters'];clipped=copy.deepcopy(before);clipped['pickup_xy_mm'][0]-=1.389

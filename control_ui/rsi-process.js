@@ -83,7 +83,11 @@
     const vector=v=>v.map(n=>Number(n).toFixed(2)).join(', ');
     if(paired.requested_xy_delta_mm)lines.push(`要求改变的 XY 补偿：[${vector(paired.requested_xy_delta_mm)}] mm`);
     if(paired.expected_image_delta_px)lines.push(`标定预测的画面位移：[${vector(paired.expected_image_delta_px)}] px（计算值）`);
-    if(feedback.available)lines.push(`固件报告的 XY 补偿变化：[${vector(feedback.reported_xy_delta_mm)}] mm（已扣除目标位置变化；不是图像实测）`);
+    if(feedback.available){
+      if(feedback.raw_xy_delta_mm)lines.push(`固件原始闭爪 XY 变化：[${vector(feedback.raw_xy_delta_mm)}] mm（未扣除任何项）`);
+      if(feedback.nominal_baseline_delta_mm)lines.push(`定位/姿态基线变化：[${vector(feedback.nominal_baseline_delta_mm)}] mm（计算值，不能认定物体真的移动）`);
+      lines.push(`扣除基线后的反馈变化：[${vector(feedback.reported_xy_delta_mm)}] mm（计算值；不是原始落点变化，也不是图像实测）`);
+    }
     else lines.push('对应动作的固件位移反馈不足，不把命令当成已经发生的移动。');
     if(assessment?.note)lines.push(`视频对照依据：${assessment.note}`);
     el('comparisonFacts').textContent=lines.join('\n');
