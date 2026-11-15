@@ -1,0 +1,148 @@
+{
+  "source": "archive (3).zip; learning session fb2ff1a788094ff2842b0c3476645d97",
+  "previous": {
+    "plan_id": "1df34c554c1a4d27aa5255d08c67fdc7",
+    "outcome": "grasp_missed",
+    "before": {
+      "pickup_xy_mm": [
+        15.52546860583743,
+        20.660650114370302
+      ],
+      "release_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 18.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 0.4,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "after": {
+      "pickup_xy_mm": [
+        15.52546860583743,
+        20.660650114370302
+      ],
+      "release_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "grasp_z_offset_mm": -1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 18.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 0.4,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "proposal": {
+      "observed_direction": "none",
+      "correction_direction": "none",
+      "frame": "unmirrored_rgb",
+      "step_mm": null,
+      "parameters_changed": [
+        "grasp_z_offset_mm"
+      ],
+      "before": {
+        "grasp_z_offset_mm": 1.0
+      },
+      "after": {
+        "grasp_z_offset_mm": -1.0
+      },
+      "comparison": "first_observation",
+      "allow_retry": true,
+      "decision": "directional_trial",
+      "comparison_evidence_bound": false,
+      "effect_assessed": false,
+      "effect_verified": false,
+      "improvement_confirmed": false,
+      "previous_motion_visual_check": "unknown",
+      "before_policy_id": "24200be74753",
+      "after_policy_id": "d0fb3082b3a5",
+      "source_trial_id": null,
+      "status": "applied",
+      "reason": "视觉模型确认抓空但方向不清，下一轮只探索降低抓取高度2mm；不把探索步长当作测量误差。"
+    }
+  },
+  "current": {
+    "plan_id": "5769be1f9de943a588284dd91c4f41f2",
+    "outcome": "grasp_missed",
+    "direction": "image_right",
+    "magnitude": "medium",
+    "adjustment": "pickup_xy",
+    "before": {
+      "pickup_xy_mm": [
+        15.52546860583743,
+        20.660650114370302
+      ],
+      "release_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "grasp_z_offset_mm": -1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 18.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 0.4,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "ball_xyz_mm": [
+      348.54996068811494,
+      -141.14430735894177,
+      -106.47978951713702
+    ],
+    "funnel_xyz_mm": [
+      342.6964016238837,
+      300.8476862833946,
+      -77.2963425223553
+    ],
+    "comparison": {
+      "available": true,
+      "reference_plan_id": "1df34c554c1a4d27aa5255d08c67fdc7",
+      "reason": "相同标定、相近位置、单项修正，提供对应动作的前后实帧",
+      "target": "ball",
+      "parameter_changes": [
+        {
+          "name": "grasp_z_offset_mm",
+          "before": 1.0,
+          "after": -1.0
+        }
+      ],
+      "expected_image_delta_px": null,
+      "feedback": {
+        "available": false,
+        "status": "missing",
+        "note": "固件反馈并非图像实测位移"
+      },
+      "previous_policy_version": 19,
+      "current_policy_version": 20,
+      "current_pitch_deg": 80.0,
+      "plan_id": "5769be1f9de943a588284dd91c4f41f2",
+      "assessment": {
+        "reference_plan_id": "1df34c554c1a4d27aa5255d08c67fdc7",
+        "effect": "worsened",
+        "movement": "unknown",
+        "note": "前次试验夹爪位置更靠近球心，本次试验夹爪明显偏右，导致抓取失败。"
+      },
+      "panel_url": "/api/bench/rsi/plans/5769be1f9de943a588284dd91c4f41f2/comparison"
+    }
+  }
+}

@@ -31,8 +31,12 @@
   <span id="connection" class="status-chip">正在读取状态</span>
 </header>
 <main>
-  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制20秒，视觉模型分析结果；失败后自动恢复并重试，成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
+  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制20秒，录像结束后先回位，再由视觉模型分析并调整；成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
   <p id="error" class="error-banner" role="alert" hidden></p>
+  <section id="successBanner" class="rsi-success" role="status" aria-live="polite" hidden>
+    <strong>✓ 抓取并投放成功，自动任务已结束</strong>
+    <p id="successDetails">已恢复官方初始姿态，成功策略已保存。</p>
+  </section>
   <section class="learning-grid">
     <div class="card">
       <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
@@ -62,7 +66,7 @@
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
       <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
-      <p class="limits-note">每轮录像20秒，抓放仍以10秒为性能目标；分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
+      <p class="limits-note">每轮录像20秒，抓放仍以10秒为性能目标；录像结束后回位，再分析，下一轮重新开始计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
     </div>
   </section>
   <section class="card process-card">

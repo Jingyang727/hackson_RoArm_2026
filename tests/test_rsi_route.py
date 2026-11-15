@@ -57,7 +57,7 @@ class Routes(unittest.TestCase):
         self.assertEqual(plan['steps'][-1]['stage'],'release');self.assertGreater(plan['steps'][-2]['settle_s'],0)
         mouth=self.world['funnel']['mouth_center_robot_mm'];center=geo['release_ball_center_xyz_mm']
         np.testing.assert_allclose(center[:2],mouth[:2],atol=1e-7)
-        self.assertAlmostEqual(height_above_plane(center,plane)-17.-height_above_plane(mouth,plane),18.)
+        self.assertAlmostEqual(height_above_plane(center,plane)-17.-plan['release_policy']['lip_height_mm'],DEFAULT_PARAMETERS['release_clearance_mm'])
 
     def test_runtime_vertical_descent_uses_measured_xy_after_tracking_offset(self):
         plan=self.plan(SimulatedArm().status());step=next(s for s in plan['steps'] if s['stage']=='descend')

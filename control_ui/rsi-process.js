@@ -3,13 +3,13 @@
   const el=id=>document.getElementById(id);
   const outcomes={placed:'已抓起并进入漏斗',grasp_missed:'没夹住',pushed_away:'球被推走',slipped:'球滑落',placement_missed:'投放偏了',bounced_out:'球弹出了漏斗',execution_failed:'动作未完成',unknown:'画面不足以判断'};
   const directions={image_left:'夹爪在目标的画面左侧',image_right:'夹爪在目标的画面右侧',image_up:'夹爪在目标的画面上方，应向画面下方修正平面位置',image_down:'夹爪在目标的画面下方，应向画面上方修正平面位置',too_high:'实际离桌高度过高，应降低抓取或投放高度',too_low:'实际离桌高度过低，应抬高抓取或投放高度',none:'没有明确偏差方向'};
-  const adjustments={keep:'保留当前策略',pickup_xy:'调整抓取平面偏移',grasp_height:'调整抓取高度',grip_tighten:'增加夹持预紧',transport_slower:'降低运输速度',release_xy:'调整投放平面偏移',release_height:'调整投放高度',unknown:'没有明确调整类别'};
+  const adjustments={keep:'保留当前策略',pickup_xy:'调整抓取平面偏移',grasp_height:'调整抓取高度',grip_tighten:'旧夹持建议（已停用）',transport_slower:'降低运输速度',release_xy:'调整投放平面偏移',release_height:'调整投放高度',unknown:'没有明确调整类别'};
   const ballStates={table:'桌面上',gripper:'夹爪中',funnel:'漏斗中',unknown:'无法确认'};
   const magnitudes={small:'小',medium:'中',large:'大',unknown:'不确定'};
   const effects={improved:'偏差缩小',worsened:'偏差变大',overshot:'越过目标',unchanged:'偏差没有明显变化',unknown:'看不清效果',not_comparable:'两轮不可直接比较',not_compared:'本轮没有可比前轮'};
   const movements={as_expected:'向预期方向移动',opposite:'与预期方向相反',no_visible_motion:'没有可见的相应移动',unknown:'移动方向无法确认'};
   const parameterNames={pickup_xy_mm:'抓取平面补偿XY（mm）',release_xy_mm:'投放平面补偿XY（mm）',grasp_z_offset_mm:'抓取高度补偿（mm）',travel_speed:'移动速度',approach_speed:'下探速度',lift_height_mm:'抬升离桌高度（mm）'};
-  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动20秒录像',raise_current:'原XY竖直抬升',clearance_adjust:'竖直到通行高度',orient_transport:'高处调整运输姿态',orient_clear:'高处调整姿态',align_above_ball:'球顶上方竖直对齐',lower_to_release:'竖直到漏斗上方并停稳',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
+  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动20秒录像',raise_current:'原XY竖直抬升',clearance_adjust:'竖直到通行高度',orient_transport:'高处调整运输姿态',orient_clear:'高处调整姿态',align_above_ball:'球顶上方竖直对齐',lower_to_release:'到漏斗高处投放点并停稳',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
   let session=null,started=0,sequence=-1,rows=[],output=null,source=null,paired=null;
   function verdict(value){
     if(!value)return '';

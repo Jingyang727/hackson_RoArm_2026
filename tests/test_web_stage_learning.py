@@ -38,7 +38,7 @@ class WebStageLearning(unittest.TestCase):
             self.start()
         _,state=self.request('state',method='GET')
         self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
-        self.assertEqual(len(self.plans),2);self.assertEqual(recovery.call_count,1)
+        self.assertEqual(len(self.plans),2);self.assertEqual(recovery.call_count,2)
         file=self.fixture.home/'.evoarm/rsi/pick_place_runs'/state['learning']['trials'][0]['plan_id']/'state.json'
         return json.loads(file.read_text())['review']
 

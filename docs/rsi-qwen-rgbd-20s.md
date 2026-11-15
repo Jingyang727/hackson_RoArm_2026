@@ -1,12 +1,14 @@
-# Qwen 视觉、大口沿定位与20秒录像
+# CN 视觉、大口沿定位与20秒录像
+
+当前默认模型已改为 `DeepSeek-V4.1-Flash`，参见 [高处投放、回位顺序和连续迭代修复](rsi-release-and-retry.md)。已存在的本机配置不会被 Git 修改，需要将其中 `EVOARM_COMPANY_LLM_MODEL` 改成这个 ID。
 
 基线：成功抓起过球的代码 `b1d3766` 已合入 main；PR #12 将当前标定和匹配的经验策略 v17 合入 main `9528c9d`。优化从该 main 新建 `feature/rsi-qwen-rgbd-20s`，没有覆盖基线。
 
 ## 模型与策略的分工
 
-- **Qwen3.8-27B-FP8** 接收实际图片，输出抓住与否、球在桌面/夹爪/漏斗、夹爪在目标的画面哪侧，以及定性的调整类别。
+- **DeepSeek-V4.1-Flash** 接收实际图片，输出抓住与否、球在桌面/夹爪/漏斗、夹爪在目标的画面哪侧，以及定性的调整类别。
 - **程序**依据相机到机械臂的标定，把画面方向转换为机器人 XY 修正，并选择单项试验参数，累计保存到对应标定的策略文件。
-- 程序继续使用已验收的 T104 XYZ、T106 开合、T1051 反馈和 T100 恢复链。Qwen 不生成绝对 XYZ，也不直接发运动指令；当前没有第二个决策大模型，因此不需要 DeepSeek 来改坐标。
+- 程序继续使用已验收的 T104 XYZ、T106 开合、T1051 反馈和 T100 恢复链。视觉模型不生成绝对 XYZ，也不直接发运动指令；当前没有第二个决策大模型，数值决策仍由程序完成。
 - 图像不镜像。画面方向通过标定换算，不向所有机器人指令额外施加 Y 取反。
 
 内部 `grok-*` 文件名、`company_grok` 来源名及事件名保留，便于读取历史记录。网页显示“视觉模型”和实际模型 ID。
@@ -26,7 +28,7 @@ export EVOARM_COMPANY_LLM_ENV_FILE="$HOME/.evoarm/company_llm.brcn.env"
 /Users/jyang51/miniconda3/envs/evoarm/bin/python -m evoarm_rsi.company_api
 ```
 
-模板模型为 `Qwen3.8-27B-FP8`，关闭 thinking，temperature=0.2。模型、地址、token 都来自本机配置，可以再换。进程中已有的 `EVOARM_COMPANY_LLM_BASE_URL`、`EVOARM_COMPANY_LLM_TOKEN`、`EVOARM_COMPANY_LLM_MODEL` 优先于文件，切换时应检查旧进程启动环境；不要输出 token 值。新网关不会自动继承 US OpenCode 登录 token。
+模板模型为 `DeepSeek-V4.1-Flash`，关闭 thinking，temperature=0.2。模型、地址、token 都来自本机配置，可以再换。进程中已有的 `EVOARM_COMPANY_LLM_BASE_URL`、`EVOARM_COMPANY_LLM_TOKEN`、`EVOARM_COMPANY_LLM_MODEL` 优先于文件，切换时应检查旧进程启动环境；不要输出 token 值。新网关不会自动继承 US OpenCode 登录 token。
 
 图像是 JPEG data-URI `image_url`，一次请求传全部时序帧。直接连接网关，不使用环境代理，不把凭据跟随 HTTP 重定向发送。流式回复继续展示；只在网关明确拒绝 stream 参数时改用一次非流式请求。认证失败不重试。
 
@@ -72,7 +74,7 @@ EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_TEACH=1 \
 
 ## 本机验收
 
-1. 打开 `/experiments`，确认页面显示选定 Qwen 模型；`/api/bench/rsi/state` 应含 `visual_pipeline_version=2`、`recording_duration_s=20`、`model_long_edge_px=768`。
+1. 打开 `/experiments`，确认页面显示选定视觉模型；`/api/bench/rsi/state` 应含 `visual_pipeline_version=2`、`recording_duration_s=20`、`model_long_edge_px=768`。
 2. 先点“重新定位黄球和漏斗”，不运动，检查大开口轮廓、圆心与深度来源。物体保持原位。
 3. 再从网页执行一轮，确认释放阶段、20秒录像和模型结论；比较实际模型图片与时序，不凭 planned 路径判断已执行。
 4. 新策略仍按原标定指纹保存，原标定文件不改写。归档的 v17 没有对应已确认成功试次，见 [标定快照说明](../calibrations/bench-layout-v2/2026-11-15/README.md)。

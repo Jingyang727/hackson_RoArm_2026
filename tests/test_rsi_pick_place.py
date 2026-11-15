@@ -108,7 +108,7 @@ class PickPlace(unittest.TestCase):
         folder,_,_=scene(self.home,self.session);world,_,_,_=observe_scene(folder,self.session);p=copy.deepcopy(DEFAULT_PARAMETERS)
         high,_=adapt(p,world,'grasp_missed','too_high');self.assertEqual(high['grasp_z_offset_mm'],1)
         slip,_=adapt(p,world,'slipped','none');self.assertLess(slip['travel_speed'],p['travel_speed'])
-        bounced,_=adapt(p,world,'bounced_out','none');self.assertEqual(bounced['release_clearance_mm'],14)
+        bounced,_=adapt(p,world,'bounced_out','none');self.assertEqual(bounced['release_clearance_mm'],96)
         self.assertEqual(adapt(p,world,'unknown','none')[0],p)
         self.assertEqual(adapt(p,world,'placed','none')[0],p)
 

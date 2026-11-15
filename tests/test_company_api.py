@@ -63,9 +63,9 @@ class CompanyAPI(unittest.TestCase):
             self.company_env('EVOARM_COMPANY_LLM_BASE_URL='+base+'\nEVOARM_COMPANY_LLM_MODEL=Qwen3.8-27B-FP8\n')
             self.assertFalse(api.configuration()['configured'])
 
-    def test_cn_process_key_defaults_to_selected_qwen_and_can_change_model(self):
+    def test_cn_process_key_defaults_to_deepseek_and_can_change_model(self):
         os.environ.update(EVOARM_COMPANY_LLM_BASE_URL=api.BRCN_BASE_URL,BRCN_API_KEY='fake-fallback-key')
-        self.assertEqual(api.settings().model,'Qwen3.8-27B-FP8')
+        self.assertEqual(api.settings().model,'DeepSeek-V4.1-Flash')
         os.environ['EVOARM_COMPANY_LLM_MODEL']='another-vision-model'
         self.assertEqual(api.settings().model,'another-vision-model')
 

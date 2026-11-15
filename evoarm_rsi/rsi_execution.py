@@ -16,6 +16,7 @@ from evoarm.limits import GRIPPER_MAX_RAD
 from .rsi_route import execution_target
 from .execution_diagnosis import diagnose
 from .rsi_settings import RECORDING_SECONDS, DISPATCH_BUDGET_SECONDS, TARGET_DURATION_SECONDS
+from .release_geometry import verify_release
 MIN_VERIFIED_STEP_GAP_S=.12
 
 
@@ -112,7 +113,8 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                 cam=camera(home,'GET','/health')
                 stamp=cam.get('recording_started_monotonic_ns')
                 if (cam.get('recording') is True and cam.get('phase')=='recording' and cam.get('recording_request_id')==request_id
-                        and type(stamp) is int and 0<=(time.monotonic_ns()-stamp)/1e9<1.5):capture_start=stamp
+                        and type(stamp) is int and 0<=(time.monotonic_ns()-stamp)/1e9<1.5):
+                    capture_start=stamp;report['recording_started_monotonic_ns']=stamp;persist()
                 if time.monotonic()>until:raise RuntimeError('本轮录像未能开始，没有发送运动')
                 if capture_start is None:time.sleep(.04)
             for index,stage in enumerate(plan['steps']):
@@ -146,6 +148,9 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                             'status':'moving','feedback':[],'report_file':str(root/f'stage-{index:02d}.json')}
                         next_pending={'stage_kind':'cartesian','report':stage_report}
                     else:
+                        if stage['stage']=='release':
+                            report['release_clearance_check']=verify_release(actual,plan)
+                            persist()
                         command={'T':106,'cmd':stage['gripper_rad'],'spd':stage['spd'],'acc':stage['acc']}
                         next_pending={'stage_kind':'close' if stage['stage']=='close' else 'open',
                                       'start':actual['g'],'target':stage['gripper_rad']}
@@ -217,6 +222,7 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                 if len(stamps)<3 or any(b<=a for a,b in zip(stamps,stamps[1:])) or (stamps[-1]-stamps[0])/1e9<RECORDING_SECONDS-1:
                     raise ValueError(f'录像未保留完整{RECORDING_SECONDS}秒观察证据')
                 if not (trial/'depth_samples.npz').is_file():raise ValueError('本轮录像缺少深度样本')
+                report['recording_finished_monotonic_ns']=stamps[-1]
                 report['recording_covers_motion']=bool(report['dispatches'] and stamps[0]<=report['dispatches'][0]['host_monotonic_ns'] and report['events'][-1]['host_monotonic_ns']<=stamps[-1])
                 report['keyframes_file']=export_keyframes(trial,report['events'],stages=('close_completed','lift_completed','transport_completed','release_completed','finish','fault'),sample_count=6)
                 _write(trial/'rsi-plan.json',plan);_write(trial/'rsi-trial.json',report)

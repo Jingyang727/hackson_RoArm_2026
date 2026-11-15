@@ -817,3 +817,16 @@ footer {
   white-space: normal;
   text-align: left;
 }
+
+.rsi-success {
+  margin: 0 0 24px;
+  padding: 24px 28px;
+  border: 2px solid #168369;
+  border-radius: 16px;
+  background: #e5f5ec;
+  color: #145c47;
+  box-shadow: 0 4px 18px #16836918;
+}
+.rsi-success[hidden] { display: none; }
+.rsi-success strong { display: block; font-size: clamp(20px, 2.5vw, 28px); }
+.rsi-success p { margin: 10px 0 0; }

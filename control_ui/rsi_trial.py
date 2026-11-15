@@ -39,6 +39,7 @@ from evoarm_rsi.rsi_events import stream_events
 from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
 from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
 from evoarm_rsi.policy_repair import repair_clipped_policy
+from evoarm_rsi.release_geometry import upgrade_release_policy
 from evoarm_rsi import agent_vision
 from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZATION_CONTRACT
 from evoarm_rsi.execution_diagnosis import diagnose
@@ -144,6 +145,11 @@ def install(app,service_provider):
                 _write(backup,value)
                 record['backup_file']=str(backup)
                 _write(path,repaired);value=repaired
+            updated,record=upgrade_release_policy(value)
+            if record:
+                backup=path.with_name(path.stem+f".before-high-release-{record['id']}.json")
+                _write(backup,value);record['backup_file']=str(backup)
+                _write(path,updated);value=updated
         return value
     def known(key,*,historical=False):
         if key not in plans:
@@ -212,6 +218,7 @@ def install(app,service_provider):
                     'scene':p['scene'],'parameters':p['parameters'],'policy_version':current['policy_version'],
                     'target_audit':p.get('target_audit'),'policy_application':p.get('policy_application'),
                     'route_policy':p.get('route_policy'),'object_geometry':p.get('object_geometry'),
+                    'release_policy':p.get('release_policy'),
                     'steps':[s['stage'] for s in p['steps']],'pitch_deg':p['grasp_pitch_deg'],
                     'release_pitch_deg':p.get('release_pitch_deg',p['grasp_pitch_deg']),'warnings':p['warnings'],
                     'review':current.get('review')}
@@ -222,7 +229,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':2,
+        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
@@ -391,7 +398,7 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
-                if current['plan'].get('route_policy',{}).get('version')!=4:
+                if current['plan'].get('route_policy',{}).get('version')!=5 or not current['plan'].get('release_policy'):
                     raise ValueError('请重新观察，使用抓取与运输/投放独立姿态的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:

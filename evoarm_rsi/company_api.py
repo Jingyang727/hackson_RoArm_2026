@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 DEFAULT_COMPANY_BASE_URL='https://inference.tesla.com/v1'
 BRCN_BASE_URL='https://inference-bottlerocket.tesla.cn/v1'
-BRCN_MODEL='Qwen3.8-27B-FP8'
+BRCN_MODEL='DeepSeek-V4.1-Flash'
 
 
 def _company_env():

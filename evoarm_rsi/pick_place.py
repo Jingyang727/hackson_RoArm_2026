@@ -15,10 +15,12 @@ from .coordinate_test import gripper_hold
 from .roarm_geometry import forward, inverse, height_above_plane,MotionConstraintError
 from .task_scene import load_rgbd
 from control_ui.vision import yellow_ball_mask
+from control_ui.safety import JOINTS
 from evoarm.limits import GRIPPER_MAX_RAD
 from .image_directions import OPPOSITE,PIXEL_VECTOR
 from .funnel_geometry import detect_funnel,draw_mouth,RADIUS_MM as FUNNEL_RADIUS,HEIGHT_MM as FUNNEL_HEIGHT
 from .rsi_settings import RECORDING_SECONDS,TARGET_DURATION_SECONDS
+from .release_geometry import DEFAULT_RELEASE_CLEARANCE_MM,MIN_RELEASE_CLEARANCE_MM,MAX_RELEASE_CLEARANCE_MM,MIN_VERIFIED_TIP_CLEARANCE_MM,release_reference
 
 BALL_RADIUS = 17.
 MIN_XY_STEP_MM=10.
@@ -27,7 +29,7 @@ MAX_XY_STEP_MM=16.
 DEFAULT_PARAMETERS = {
     'pickup_xy_mm':[0.,0.], 'release_xy_mm':[0.,0.], 'grasp_z_offset_mm':3.,
     'finger_offset_mm':19., 'hover_height_mm':70., 'lift_height_mm':100.,
-    'release_clearance_mm':18., 'open_deg':110., 'close_deg':180.,
+    'release_clearance_mm':DEFAULT_RELEASE_CLEARANCE_MM, 'open_deg':110., 'close_deg':180.,
     'travel_speed':.65, 'approach_speed':.30, 'gripper_speed':1000, 'gripper_acc':20,'squeeze_deg':2.,
 }
 
@@ -104,14 +106,19 @@ def build_plan(session,status,scene,parameters):
     if not 1<=p['gripper_speed']<=4095 or not 1<=p['gripper_acc']<=254:raise ValueError('夹爪速度或加速度参数无效')
     if not 0<=p['squeeze_deg']<=5:raise ValueError('接触后夹角预紧参数需在0～5度内')
     if not math.degrees(1.08)<=p['open_deg']<p['close_deg']<=180:raise ValueError('夹爪开合参数超出官方范围或顺序无效')
-    if not 0<=p['finger_offset_mm']<=50 or not -10<=p['grasp_z_offset_mm']<=15 or not 5<=p['release_clearance_mm']<=45:
+    if not 0<=p['finger_offset_mm']<=50 or not -10<=p['grasp_z_offset_mm']<=15 or not MIN_RELEASE_CLEARANCE_MM<=p['release_clearance_mm']<=MAX_RELEASE_CLEARANCE_MM:
         raise ValueError('本轮高度或指尖偏移超出实验参数搜索域')
     if not 40<=p['hover_height_mm']<=150 or not 80<=p['lift_height_mm']<=180:raise ValueError('抓放过渡高度参数无效')
     if math.dist(forward(status)['xyz_mm'],[status[k] for k in 'xyz'])>3:
         raise ValueError('当前固件XYZ与原装夹爪FK不一致')
     hold=gripper_hold(status);initial={**status,'g':hold['command_rad']}
     opening=math.radians(p['open_deg']);closing=min(math.radians(p['close_deg']),GRIPPER_MAX_RAD)
-    ball=np.asarray(scene['ball']['center_robot_mm']);mouth=np.asarray(scene['funnel']['mouth_center_robot_mm'])
+    ball=np.asarray(scene['ball']['center_robot_mm']);mouth,lip_height=release_reference(scene);mouth=np.asarray(mouth)
+    release_policy={'version':1,'lip_height_mm':lip_height,
+                    'ball_bottom_clearance_mm':p['release_clearance_mm'],
+                    'minimum_tip_height_mm':lip_height+MIN_VERIFIED_TIP_CLEARANCE_MM,
+                    'minimum_tip_clearance_mm':MIN_VERIFIED_TIP_CLEARANCE_MM,
+                    'height_reference':'above_calibrated_table_not_robot_z'}
     from .rsi_route import build_route
     failures=[]
     for pitch_deg in (80.,75.,85.,70.,90.,65.,60.):
@@ -125,6 +132,16 @@ def build_plan(session,status,scene,parameters):
             tip=release_center-_opening_direction(mouth,drop_pitch,roll)*p['finger_offset_mm']
             tip[:2]+=p['release_xy_mm']
             release_candidates.append({'pitch_rad':drop_pitch,'xyz_mm':tip.tolist()})
+        def joint_margin(candidate):
+            try:
+                raw=inverse(candidate['xyz_mm'],candidate['pitch_rad'],roll,closing)
+                return min(min(math.degrees(raw[JOINTS[j][1]])-JOINTS[j][2],
+                               JOINTS[j][3]-math.degrees(raw[JOINTS[j][1]]))/(JOINTS[j][3]-JOINTS[j][2])
+                           for j in (2,3,4))
+            except ValueError:return -math.inf
+        # Prefer room for real tracking offsets. This changes candidate order,
+        # not the official limits, and retains every fallback/full-path check.
+        release_candidates.sort(key=joint_margin,reverse=True)
         release=release_candidates[0]['xyz_mm']
         grasp[:2]+=p['pickup_xy_mm']
         try:
@@ -132,11 +149,11 @@ def build_plan(session,status,scene,parameters):
                 ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,
                 # Depth may see the inner edge below the lip. Preserve the
                 # measured lip height as the minimum transit obstacle height.
-                funnel_height=max(FUNNEL_HEIGHT,scene['funnel'].get('height_mm',FUNNEL_HEIGHT)),ball_radius=BALL_RADIUS,
+                funnel_height=lip_height,ball_radius=BALL_RADIUS,
                 release_candidates=release_candidates)
             release=route['release_tip_xyz_mm']
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
-                    'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,'route_policy':route,
+                    'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,'route_policy':route,'release_policy':release_policy,
                     'object_geometry':{'ball_diameter_mm':2*BALL_RADIUS,'ball_top_xyz_mm':(ball+normal*BALL_RADIUS).tolist(),
                         'grasp_center_xyz_mm':(grasp_center+np.array([*p['pickup_xy_mm'],0.])).tolist(),
                         'release_ball_center_xyz_mm':(release_center+np.array([*p['release_xy_mm'],0.])).tolist(),
@@ -197,7 +214,7 @@ def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unkn
     if outcome in ('grasp_missed','placement_missed') and direction.startswith('image_'):
         key='pickup_xy_mm' if outcome=='grasp_missed' else 'release_xy_mm'
         target='ball' if outcome=='grasp_missed' else 'funnel'
-        center=np.asarray(scene[target]['center_robot_mm' if target=='ball' else 'mouth_center_robot_mm'],float).copy()
+        center=np.asarray(scene['ball']['center_robot_mm'] if target=='ball' else release_reference(scene)[0],float).copy()
         height=result['grasp_z_offset_mm'] if target=='ball' else BALL_RADIUS+result['release_clearance_mm']
         center+=np.asarray(scene['table_plane']['normal_up'])*height;center[:2]+=result[key]
         delta=image_correction(scene,direction,step_mm,target=target,center_robot_mm=center)
@@ -208,24 +225,19 @@ def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unkn
         result['grasp_z_offset_mm']=max(-10.,min(15.,result['grasp_z_offset_mm']+delta))
         change.append(f'下一轮抓取高度调整{delta:+d}mm。')
     elif outcome=='grasp_missed' and direction=='none':
-        result['grasp_z_offset_mm']=max(-10.,result['grasp_z_offset_mm']-2)
-        change.append('视觉模型确认抓空但方向不清，下一轮只探索降低抓取高度2mm；不把探索步长当作测量误差。')
+        change.append('抓空但没有明确位置或高度方向；不凭空降低抓取高度，也不增加夹爪力度。')
     elif outcome=='pushed_away':
         result['grasp_z_offset_mm']=min(15.,result['grasp_z_offset_mm']+2)
         change.append('下降时推走了球，下一轮先提高抓取高度2mm，再用录像验证。')
     elif outcome=='slipped':
-        if adjustment=='grip_tighten' and result['squeeze_deg']<5:
-            result['squeeze_deg']=min(5.,result['squeeze_deg']+1)
-            change.append('视觉模型建议加强夹持，下一轮接触后角度预紧增加1°；这是位置控制试验，不是测得的夹持力。')
-        else:
-            result['travel_speed']=max(.2,round(result['travel_speed']*.85,3))
-            change.append('发生滑落，下一轮快速移动速度降低15%，先隔离运动造成的滑落。')
+        result['travel_speed']=max(.2,round(result['travel_speed']*.85,3))
+        change.append('画面报告抓起后滑落，下一轮运输速度降低15%；不把角度预紧当作夹持力控制。')
     elif outcome=='bounced_out':
-        result['release_clearance_mm']=max(5.,result['release_clearance_mm']-4)
+        result['release_clearance_mm']=max(MIN_RELEASE_CLEARANCE_MM,result['release_clearance_mm']-4)
         change.append('下一轮降低投放高度4mm，保留漏斗口上方间隙。')
     elif outcome=='placement_missed' and direction in ('too_high','too_low'):
         delta=-4 if direction=='too_high' else 4
-        result['release_clearance_mm']=max(5.,min(45.,result['release_clearance_mm']+delta))
+        result['release_clearance_mm']=max(MIN_RELEASE_CLEARANCE_MM,min(MAX_RELEASE_CLEARANCE_MM,result['release_clearance_mm']+delta))
         change.append(f'下一轮投放高度调整{delta:+d}mm。')
     else:change.append('证据不足或方向不明确，保留参数，重新观察后再试。')
     return result,change
