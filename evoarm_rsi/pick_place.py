@@ -17,10 +17,10 @@ from .task_scene import load_rgbd
 from control_ui.vision import yellow_ball_mask
 from evoarm.limits import GRIPPER_MAX_RAD
 from .image_directions import OPPOSITE,PIXEL_VECTOR
+from .funnel_geometry import detect_funnel,draw_mouth,RADIUS_MM as FUNNEL_RADIUS,HEIGHT_MM as FUNNEL_HEIGHT
+from .rsi_settings import RECORDING_SECONDS,TARGET_DURATION_SECONDS
 
 BALL_RADIUS = 17.
-FUNNEL_RADIUS = 38.
-FUNNEL_HEIGHT = 45.4
 MIN_XY_STEP_MM=10.
 XY_STEPS_MM={'small':10.,'medium':12.,'large':16.,'unknown':12.}
 MAX_XY_STEP_MM=16.
@@ -69,57 +69,15 @@ def sphere_center(ball, frame, geometry):
     return center,evidence
 
 
-def detect_funnel(image, geometry):
-    """Find a dark, approximately circular opening; never use hole depth as rim Z."""
-    gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-    mask=cv2.inRange(gray,0,85)
-    mask=cv2.morphologyEx(mask,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
-    contours=cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[-2]
-    candidates=[]
-    for contour in contours:
-        area=cv2.contourArea(contour);perimeter=cv2.arcLength(contour,True)
-        if area<80 or perimeter<=0:continue
-        x,y,w,h=cv2.boundingRect(contour)
-        if min(x,y)<2 or x+w>=image.shape[1]-2 or y+h>=image.shape[0]-2 or not .4<w/max(h,1)<2.5:continue
-        circularity=4*math.pi*area/perimeter**2
-        if circularity<.38:continue
-        moments=cv2.moments(contour);pixel=[moments['m10']/moments['m00'],moments['m01']/moments['m00']]
-        center,camera=pixel_at_height(pixel,FUNNEL_HEIGHT,geometry)
-        expected=2*FUNNEL_RADIUS*math.sqrt(geometry['K'][0,0]*geometry['K'][1,1])/camera[2]
-        diameter=2*math.sqrt(area/math.pi);ratio=diameter/expected
-        if not .4<ratio<1.8:continue
-        score=circularity*math.exp(-abs(math.log(ratio)))
-        candidates.append({'pixel_center':pixel,'mouth_center_robot_mm':center.tolist(),
-                           'contour':contour,'bbox_px':[x,y,w,h],'score':score,'observed_diameter_px':diameter,
-                           'expected_diameter_px':expected,'radius_mm':FUNNEL_RADIUS,'height_mm':FUNNEL_HEIGHT})
-    if not candidates:raise ValueError('当前没有找到黑色漏斗开口；请让开口完整出现在画面中后重新观察。')
-    candidates.sort(key=lambda c:c['score'],reverse=True)
-    selected=candidates[0];selected['candidate_count']=len(candidates)
-    selected['ambiguous']=len(candidates)>1 and candidates[1]['score']>.8*selected['score']
-    return selected
-
-
 def observe_scene(folder, session):
     ball,geometry,image=observe_ball(folder,session)
     frame=load_rgbd(folder,frame_index=ball['frame_index'])
     center,depth=sphere_center(ball,frame,geometry)
     ball.update(center_robot_mm=center.tolist(),depth_evidence=depth)
-    funnel=detect_funnel(image,geometry)
-    contour=funnel.pop('contour')
-    ring=np.zeros(image.shape[:2],np.uint8);cv2.drawContours(ring,[contour],-1,255,5)
-    ys,xs=np.nonzero((ring>0)&(frame['depth_mm']>0))
-    rim={'valid_samples':len(xs),'method':'rgb_opening_center_and_measured_45.4mm_height',
-         'hole_depth_used_as_rim':False,'median_rim_height_mm':None}
-    if len(xs):
-        rays=np.c_[xs,ys,np.ones(len(xs))]@geometry['inverse_K'].T
-        points=(rays*frame['depth_mm'][ys,xs,None])@geometry['R'].T+geometry['t']
-        heights=points@np.asarray(geometry['plane']['normal_up'])+geometry['plane']['d_mm']
-        plausible=heights[np.abs(heights-FUNNEL_HEIGHT)<12]
-        if len(plausible)>=12:
-            rim['median_rim_height_mm']=float(np.median(plausible));rim['rim_samples']=len(plausible)
-    funnel['depth_evidence']=rim
+    funnel=detect_funnel(image,geometry,frame['depth_mm'])
     warnings=[w for w in ball.get('warnings',[]) if not (depth['depth_used'] and w.startswith('黄球表面深度稀疏'))]
     if not depth['depth_used']:warnings.append('球面有效深度不足或拟合不可靠；本轮明确使用保存桌面与34mm球径估计球心。')
+    if not funnel['depth_evidence']['depth_used']:warnings.append('漏斗口沿深度不足或不可靠；使用RGB口沿拟合与实测45.4mm高度。')
     if funnel['ambiguous']:warnings.append('画面有多个相近的黑色圆形候选；请核对预览中标出的漏斗。')
     scene={'ball':ball,'funnel':funnel,'warnings':warnings,'source_trial_id':frame['trial_id'],
            'frame_index':frame['frame_index'],'host_monotonic_ns':frame['host_monotonic_ns'],
@@ -171,7 +129,10 @@ def build_plan(session,status,scene,parameters):
         grasp[:2]+=p['pickup_xy_mm']
         try:
             steps,route=build_route(initial,grasp,release,pitch,plane,p,
-                ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,funnel_height=FUNNEL_HEIGHT,ball_radius=BALL_RADIUS,
+                ball_top_height=height_above_plane(ball,plane)+BALL_RADIUS,
+                # Depth may see the inner edge below the lip. Preserve the
+                # measured lip height as the minimum transit obstacle height.
+                funnel_height=max(FUNNEL_HEIGHT,scene['funnel'].get('height_mm',FUNNEL_HEIGHT)),ball_radius=BALL_RADIUS,
                 release_candidates=release_candidates)
             release=route['release_tip_xyz_mm']
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
@@ -182,7 +143,7 @@ def build_plan(session,status,scene,parameters):
                         'finger_offset_mm':p['finger_offset_mm'],'reference':'stock_fixed_fingertip_is_not_ball_center'},
                     'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':list(release),
                     'grasp_pitch_deg':pitch_deg,'release_pitch_deg':math.degrees(route['release_pitch_rad']),
-                    'target_duration_s':10,'board_required':False,
+                    'target_duration_s':TARGET_DURATION_SECONDS,'recording_duration_s':RECORDING_SECONDS,'board_required':False,
                     'camera_frame':'unmirrored_rgb','warnings':scene['warnings'],
                     'timing_verified':False,'pose_reference':'stock_firmware_fixed_fingertip'}
         except ValueError as exc:
@@ -200,9 +161,8 @@ def preview(image,plan,geometry):
         return tuple(np.round(uv[:2]/uv[2]).astype(int))
     ball=tuple(np.round(plan['scene']['ball']['pixel_center']).astype(int))
     funnel=tuple(np.round(plan['scene']['funnel']['pixel_center']).astype(int))
-    cv2.circle(result,ball,22,(0,210,255),2);cv2.circle(result,funnel,40,(220,100,30),2)
+    cv2.circle(result,ball,22,(0,210,255),2);draw_mouth(result,plan['scene']['funnel'])
     cv2.putText(result,'BALL',ball,cv2.FONT_HERSHEY_SIMPLEX,.5,(0,180,220),2)
-    cv2.putText(result,'FUNNEL',funnel,cv2.FONT_HERSHEY_SIMPLEX,.5,(220,100,30),2)
     previous=pixel([plan['initial_status'][k] for k in 'xyz'])
     for index,step in enumerate(plan['steps']):
         if step['kind']!='cartesian':continue

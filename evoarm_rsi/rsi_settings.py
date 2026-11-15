@@ -1,0 +1,7 @@
+"""Separate the recording/dispatch budget from the ten-second performance goal."""
+RECORDING_SECONDS = 20
+DISPATCH_BUDGET_SECONDS = RECORDING_SECONDS - .4
+TARGET_DURATION_SECONDS = 10
+MODEL_LONG_EDGE = 768
+MODEL_JPEG_QUALITY = 82
+MODEL_REVIEW_FRAMES = 6

@@ -57,7 +57,8 @@ class PickPlace(unittest.TestCase):
         self.assertEqual(world['ball']['depth_evidence']['method'],'rgbd_known_radius_sphere_fit')
         np.testing.assert_allclose(world['ball']['center_robot_mm'],[330,0,-98],atol=2.)
         self.assertFalse(world['funnel']['depth_evidence']['hole_depth_used_as_rim'])
-        self.assertAlmostEqual(height_above_plane(world['funnel']['mouth_center_robot_mm'],geometry['plane']),FUNNEL_HEIGHT)
+        self.assertAlmostEqual(height_above_plane(world['funnel']['mouth_center_robot_mm'],geometry['plane']),FUNNEL_HEIGHT,delta=1.)
+        self.assertTrue(world['funnel']['depth_evidence']['depth_used'])
         self.assertLess(math.dist(world['funnel']['mouth_center_robot_mm'][:2],[290,-110]),3.)
         self.assertFalse(world['ball']['board_check']['board_required'])
 

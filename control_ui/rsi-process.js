@@ -9,32 +9,32 @@
   const effects={improved:'偏差缩小',worsened:'偏差变大',overshot:'越过目标',unchanged:'偏差没有明显变化',unknown:'看不清效果',not_comparable:'两轮不可直接比较',not_compared:'本轮没有可比前轮'};
   const movements={as_expected:'向预期方向移动',opposite:'与预期方向相反',no_visible_motion:'没有可见的相应移动',unknown:'移动方向无法确认'};
   const parameterNames={pickup_xy_mm:'抓取平面补偿XY（mm）',release_xy_mm:'投放平面补偿XY（mm）',grasp_z_offset_mm:'抓取高度补偿（mm）',travel_speed:'移动速度',approach_speed:'下探速度',lift_height_mm:'抬升离桌高度（mm）'};
-  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动10秒录像',raise_current:'原XY竖直抬升',clearance_adjust:'竖直到通行高度',orient_transport:'高处调整运输姿态',orient_clear:'高处调整姿态',align_above_ball:'球顶上方竖直对齐',lower_to_release:'竖直到漏斗上方并停稳',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
+  const phases={starting:'任务开始',observing:'观察与规划',scene_check:'核对球与漏斗',executing:'执行本轮抓放',analyzing:'分析本轮录像',learning:'更新经验参数',recovering:'恢复官方姿态',replanning:'回位后重新定位',reset_completed:'官方复位已确认',completed:'本轮成功，策略已保存',exhausted:'尝试结束，记录已保存',failed:'任务停止',stopping:'收到停止指令',stopped:'已停止',recording_warmup:'启动20秒录像',raise_current:'原XY竖直抬升',clearance_adjust:'竖直到通行高度',orient_transport:'高处调整运输姿态',orient_clear:'高处调整姿态',align_above_ball:'球顶上方竖直对齐',lower_to_release:'竖直到漏斗上方并停稳',open:'张爪',align:'调整接近姿态',approach_ball:'接近黄球并张爪',descend:'下降',close:'合抓',lift:'提升',transit_arc:'经过过渡点',transport:'运输至漏斗',release:'释放',saving_recording:'保存录像',finished:'本轮动作与录像已结束'};
   let session=null,started=0,sequence=-1,rows=[],output=null,source=null,paired=null;
   function verdict(value){
     if(!value)return '';
     if(typeof value.ready==='boolean')return `场景检查：${value.ready?'已确认球与漏斗':'暂不能确认'}\n${value.note||''}`;
-    const lines=[`${value.source==='human'?'人工记录':'Grok判断'}：${outcomes[value.outcome]||value.outcome}`];
+    const lines=[`${value.source==='human'?'人工记录':'视觉模型判断'}：${outcomes[value.outcome]||value.outcome}`];
     if(value.ball_state)lines.push(`球的位置：${ballStates[value.ball_state]||value.ball_state}`);
     if(value.direction)lines.push(`${directions[value.direction]||value.direction}${value.magnitude?'；粗略偏差：'+(magnitudes[value.magnitude]||value.magnitude):''}`);
-    if(value.adjustment)lines.push(`Grok建议：${adjustments[value.adjustment]||value.adjustment}`);
+    if(value.adjustment)lines.push(`视觉模型建议：${adjustments[value.adjustment]||value.adjustment}`);
     const comparison=value.comparison?.assessment||value.comparison;
     if(comparison?.effect)lines.push(`前后对照：${effects[comparison.effect]||comparison.effect}；${movements[comparison.movement]||comparison.movement}\n${comparison.note||''}`);
     if(typeof value.confidence==='number')lines.push(`模型自报置信度：${Math.round(value.confidence*100)}%`);
     if(value.visual_review){
-      lines.push(`Grok画面依据：${value.visual_review.note||''}`);
+      lines.push(`视觉模型画面依据：${value.visual_review.note||''}`);
       if(value.note)lines.push(`执行Agent决策：${value.note}`);
     }else if(value.note)lines.push(`画面依据：${value.note}`);
-    if(value.execution_diagnosis?.category==='time_budget')lines.push('执行依据：10秒窗口内未完成，速度试验与抓取坐标修正分别记录。');
+    if(value.execution_diagnosis?.category==='time_budget')lines.push('执行依据：录像窗口内未完成，速度试验与抓取坐标修正分别记录。');
     if(value.execution_diagnosis?.category==='clearance_shortfall')lines.push(`执行依据：实测离桌${Number(value.execution_diagnosis.lift.actual_height_mm).toFixed(1)}mm，运输要求${Number(value.execution_diagnosis.lift.required_transfer_height_mm).toFixed(1)}mm。`);
     return lines.join('\n');
   }
   function describe(row){
     if(row.kind==='phase'||row.kind==='motion')return (phases[row.phase]||row.phase)+(row.error?'：'+row.error:row.message?'：'+row.message:'');
     if(row.kind==='plan')return `本轮规划完成 · 策略 v${row.policy_version} · ${row.depth_used?'使用球面深度':'使用保存桌面与球径估计'}${row.policy_application?.parameters_verified?' · 参数已核对':''}`;
-    if(row.kind==='grok_started')return `Grok开始${row.preflight?'核对当前场景':'复核本轮录像'} · ${row.frame_count} 张图${row.model?' · '+row.model:''} · 公司API`;
+    if(row.kind==='grok_started')return `视觉模型开始${row.preflight?'核对当前场景':'复核本轮录像'} · ${row.frame_count} 张图${row.model?' · '+row.model:''} · 公司API`;
     if(row.kind==='grok_validated')return verdict(row.verdict);
-    if(row.kind==='grok_failed'||row.kind==='grok_stopped')return row.error||'Grok回复未完成';
+    if(row.kind==='grok_failed'||row.kind==='grok_stopped')return row.error||'视觉模型回复未完成';
     if(row.kind==='policy'){
       const review=row.review||{},proposal=review.proposal||{},lines=['程序采用的修正：',...(row.changes||[])];
       if(review.learning_basis?.reason)lines.push('本轮决策依据：'+review.learning_basis.reason);
@@ -69,8 +69,8 @@
     el('grokLive').hidden=!output;
     if(output){
       const status=output.status,mode=output.mode;
-      el('grokLiveTitle').textContent=`Grok${output.preflight?'场景检查':'录像复核'} · 第 ${output.attempt} 轮`;
-      el('grokReplyStatus').textContent=status==='validated'?'回复已完成并通过校验':status==='failed'?'回复未完成或未通过校验，未采用':status==='stopped'?'已停止，未采用部分回复':mode==='streaming'?'正在流式回复，本轮结论尚未确认':mode==='buffered_fallback'?'接口不支持流式，等待完整回复':mode==='buffered'?'等待接口返回完整回复':'等待Grok开始回复…';
+      el('grokLiveTitle').textContent=`视觉模型${output.preflight?'场景检查':'录像复核'} · 第 ${output.attempt} 轮`;
+      el('grokReplyStatus').textContent=status==='validated'?'回复已完成并通过校验':status==='failed'?'回复未完成或未通过校验，未采用':status==='stopped'?'已停止，未采用部分回复':mode==='streaming'?'正在流式回复，本轮结论尚未确认':mode==='buffered_fallback'?'接口不支持流式，等待完整回复':mode==='buffered'?'等待接口返回完整回复':'等待视觉模型开始回复…';
       el('grokLiveText').textContent=publicText(output.text)||output.verdict?.note||'分析开始后，公开观察与建议会显示在这里。';
       el('grokRawText').textContent=output.text||'';
     }
@@ -78,7 +78,7 @@
   function showComparison(value){
     paired=value||null;el('effectComparison').hidden=!paired;if(!paired)return;
     const assessment=paired.assessment,feedback=paired.feedback||{};
-    el('comparisonSummary').textContent=paired.available?`前轮 ${paired.reference_plan_id?.slice(0,10)} → 本轮 ${paired.plan_id?.slice(0,10)}；${assessment?effects[assessment.effect]+'；'+movements[assessment.movement]:'Grok正在对照两轮实帧。'}`:paired.reason||'本轮没有可比前轮。';
+    el('comparisonSummary').textContent=paired.available?`前轮 ${paired.reference_plan_id?.slice(0,10)} → 本轮 ${paired.plan_id?.slice(0,10)}；${assessment?effects[assessment.effect]+'；'+movements[assessment.movement]:'视觉模型正在对照两轮实帧。'}`:paired.reason||'本轮没有可比前轮。';
     const lines=(paired.parameter_changes||[]).map(row=>`${row.name}：${JSON.stringify(row.before)} → ${JSON.stringify(row.after)}`);
     const vector=v=>v.map(n=>Number(n).toFixed(2)).join(', ');
     if(paired.requested_xy_delta_mm)lines.push(`要求改变的 XY 补偿：[${vector(paired.requested_xy_delta_mm)}] mm`);

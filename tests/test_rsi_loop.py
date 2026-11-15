@@ -207,12 +207,13 @@ class Execution(unittest.TestCase):
         for now in (.3,.5,.7):observe_pending(service,pending,raw,now)
         self.assertTrue(pending['contact_candidate']);self.assertEqual(service.arm.commands,[])
 
-    def test_complete_pick_place_and_real_ten_second_recording_contract(self):
+    def test_complete_pick_place_after_ten_seconds_with_twenty_second_recording(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);home=Path(temp.name);saved=layout(home)
         folder,image,depth=scene(home,saved);world,_,_,_=observe_scene(folder,saved)
         phase={'name':None}
         class OffsetArm(InstantArm):
             def send(self,command):
+                if command['T']==104 and phase['name']=='approach_ball':time.sleep(10.2)
                 super().send(command)
                 if command['T']==104 and phase['name'] in ('approach_ball','transport'):
                     self.raw=inverse([command['x']+9.,command['y']-5.,command['z']],command['t'],command['r'],command['g'])
@@ -223,14 +224,15 @@ class Execution(unittest.TestCase):
             if method=='GET':return dict(camera_state)
             stamp=time.monotonic_ns();camera_state.update(recording=True,phase='recording',recording_request_id=payload['request_id'],recording_started_monotonic_ns=stamp)
             camera_started.set()
-            time.sleep(10)
+            self.assertEqual(payload['seconds'],20)
+            time.sleep(payload['seconds'])
             trial=home/'.evoarm/rsi/experiments'/uuid.uuid4().hex;trial.mkdir(parents=True)
             writer=cv2.VideoWriter(str(trial/'rgb.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),10,(1280,720))
-            for _ in range(101):writer.write(image)
-            writer.release();stamps=[stamp+i*100_000_000 for i in range(101)]
+            for _ in range(201):writer.write(image)
+            writer.release();stamps=[stamp+i*100_000_000 for i in range(201)]
             (trial/'frames.jsonl').write_text('\n'.join(json.dumps({'host_monotonic_ns':s}) for s in stamps))
             (trial/'manifest.json').write_text(json.dumps({'trial_id':trial.name,'status':'recorded','simulated':False}))
-            np.savez_compressed(trial/'depth_samples.npz',depth_mm=np.stack([depth]*3),monotonic_ns=[stamp,stamp+5_000_000_000,stamp+10_000_000_000])
+            np.savez_compressed(trial/'depth_samples.npz',depth_mm=np.stack([depth]*3),monotonic_ns=[stamp,stamp+10_000_000_000,stamp+20_000_000_000])
             return {'trial_id':trial.name,'request_id':payload['request_id']}
         def publish(phase,**values):
             # Route stage names are provided before the one motor write.
@@ -242,7 +244,8 @@ class Execution(unittest.TestCase):
             result=execute(service,plan,root,threading.Event(),publish,camera=camera)
         self.assertTrue(result['motion_completed'],result.get('motion_error'))
         self.assertTrue(result['placement_attempted']);self.assertTrue(result['recording_covers_motion'])
-        self.assertTrue(result['within_10s']);self.assertIsNone(result['visual_success'])
+        self.assertFalse(result['within_10s']);self.assertGreater(result['physical_elapsed_s'],10)
+        self.assertEqual(result['recording_duration_s'],20);self.assertIsNone(result['visual_success'])
         self.assertEqual(arm.commands[-1]['T'],106);self.assertAlmostEqual(arm.commands[-1]['cmd'],math.radians(110))
         self.assertTrue(any(c['T']==104 and c['spd']==.65 for c in arm.commands))
         self.assertTrue(any(c['T']==106 and c['spd']==1000 and c['acc']==20 for c in arm.commands))

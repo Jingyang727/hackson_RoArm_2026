@@ -23,6 +23,8 @@ from evoarm_rsi.coordinate_test import fingerprint,calibrated_table
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS, observe_scene, build_plan, preview, detect_funnel,MIN_XY_STEP_MM
+from evoarm_rsi.funnel_geometry import draw_mouth
+from evoarm_rsi.rsi_settings import RECORDING_SECONDS,MODEL_LONG_EDGE,MODEL_REVIEW_FRAMES
 from evoarm_rsi.xy_audit import audit as audit_xy
 from evoarm_rsi.rsi_policy import propose, target_audit, application, policy_id
 from evoarm_rsi.rsi_execution import execute, reservation
@@ -195,7 +197,7 @@ def install(app,service_provider):
         if not ball or math.dist(ball['center_px'],expected['pixel_center'])>max(6.,expected['radius_px']*.4):
             raise ValueError('黄球位置已改变，请重新观察本轮目标')
         funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
-        if math.dist(funnel['pixel_center'],old['pixel_center'])>max(6.,old['expected_diameter_px']*.15):
+        if math.dist(funnel['rgb_pixel_center'],old.get('rgb_pixel_center',old['pixel_center']))>max(6.,old['expected_diameter_px']*.15):
             raise ValueError('漏斗位置已改变，请重新观察本轮目标')
 
     @router.get('/state')
@@ -220,7 +222,9 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'web_learning_version':3,'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':2,
+                'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
+                'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -247,9 +251,10 @@ def install(app,service_provider):
             folder=Path.home()/'.evoarm/rsi/pick_place_observations'/key;folder.mkdir(parents=True,exist_ok=True)
             if not cv2.imwrite(str(folder/'observation.jpg'),image):raise ValueError('定位原图保存失败')
             marked=image.copy()
-            for name,color in (('ball',(0,210,255)),('funnel',(100,230,100))):
+            for name,color in (('ball',(0,210,255)),):
                 pixel=tuple(np.round(scene[name]['pixel_center']).astype(int))
                 cv2.circle(marked,pixel,25,color,3);cv2.putText(marked,name.upper(),pixel,cv2.FONT_HERSHEY_SIMPLEX,.6,color,2)
+            draw_mouth(marked,scene['funnel'])
             if not cv2.imwrite(str(folder/'preview.jpg'),marked):raise ValueError('定位预览保存失败')
             result={'observation_id':key,'observed_at_unix':time.time(),'scene':scene,
                     'calibration_fingerprint':fingerprint(saved),'frame':'robot_firmware_mm','units':'mm',

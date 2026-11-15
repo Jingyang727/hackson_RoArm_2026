@@ -507,7 +507,7 @@ class GrokAdapter(unittest.TestCase):
         index=[{'label':'sample','frame_index':i} for i in range(20)]
         for i,label in ((0,'before'),(4,'close'),(6,'lift'),(17,'release'),(19,'last')):index[i]['label']=label
         selected=grok_review.select_frames(index)
-        self.assertEqual(len(selected),8)
+        self.assertEqual(len(selected),6)
         self.assertTrue({'before','close','lift','release','last'}<=set(r['label'] for r in selected))
         self.assertEqual([r['frame_index'] for r in selected],sorted(r['frame_index'] for r in selected))
 

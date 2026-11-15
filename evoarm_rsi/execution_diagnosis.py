@@ -2,6 +2,7 @@
 import math
 
 from .roarm_geometry import height_above_plane
+from .rsi_settings import TARGET_DURATION_SECONDS
 
 
 def stage_timings(result):
@@ -33,7 +34,7 @@ def diagnose(result,plan):
     floor=plan.get('route_policy',{}).get('minimum_transfer_height_mm')
     category=('complete' if result.get('motion_completed') and not error else
         'not_started' if not error and not result.get('events') and not result.get('dispatches') else
-        'time_budget' if error and ('10秒录像窗口' in error or '录像已结束' in error) else
+        'time_budget' if error and ('秒录像窗口' in error or '录像已结束' in error) else
         'clearance_shortfall' if (failure.get('code')=='tip_clearance' and failure.get('progress')==0 or error and '路径0.0%' in error and '指尖低于' in error) and actual is not None and floor is not None and actual<floor else
         'camera_error' if result.get('camera_error') and not result.get('motion_error') else 'execution_error')
     options={'time_budget':['travel_speed','approach_speed'],'clearance_shortfall':['lift_height_mm']}.get(category,[])
@@ -47,7 +48,9 @@ def diagnose(result,plan):
     events=result.get('events') or []
     started=next((e['host_monotonic_ns'] for e in events if e.get('stage')=='start'),None)
     value['elapsed_s']=round((events[-1]['host_monotonic_ns']-started)/1e9,3) if started is not None else None
-    value['target_duration_s']=10
+    value['target_duration_s']=plan.get('target_duration_s',TARGET_DURATION_SECONDS)
+    value['recording_duration_s']=result.get('recording_duration_s')
+    value['execution_budget_s']=result.get('execution_budget_s')
     if target is not None and actual is not None and floor is not None:
         value['lift']['undershoot_mm']=max(0.,target-actual)
         if category=='clearance_shortfall':
