@@ -119,9 +119,10 @@ class ReleaseDispatch(unittest.TestCase):
         original=json.dumps({'version':21,'parameters':p,'reviews':[]})
         path.write_text(original)
         response,data=self.request('prepare');self.assertEqual(response['status'],200,data)
-        saved=json.loads(path.read_text());self.assertEqual(saved['version'],22)
+        saved=json.loads(path.read_text());self.assertEqual(saved['version'],23)
         self.assertEqual(saved['parameters']['release_clearance_mm'],100.)
-        self.assertEqual(json.loads(Path(saved['baseline_resets'][-1]['backup_file']).read_text()),json.loads(original))
+        high=next(r for r in saved['baseline_resets'] if r['kind']=='high_release_clearance')
+        self.assertEqual(json.loads(Path(high['backup_file']).read_text()),json.loads(original))
 
 
 class RecoveryOrder(unittest.TestCase):

@@ -224,7 +224,8 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                 if not (trial/'depth_samples.npz').is_file():raise ValueError('本轮录像缺少深度样本')
                 report['recording_finished_monotonic_ns']=stamps[-1]
                 report['recording_covers_motion']=bool(report['dispatches'] and stamps[0]<=report['dispatches'][0]['host_monotonic_ns'] and report['events'][-1]['host_monotonic_ns']<=stamps[-1])
-                report['keyframes_file']=export_keyframes(trial,report['events'],stages=('close_completed','lift_completed','transport_completed','release_completed','finish','fault'),sample_count=6)
+                report['keyframes_file']=export_keyframes(trial,report['events'],stages=('close_completed','lift_completed','transport_completed','release_completed','finish','fault'),sample_count=6,
+                                                         release_attempted=report['placement_attempted'])
                 _write(trial/'rsi-plan.json',plan);_write(trial/'rsi-trial.json',report)
                 manifest=json.loads((trial/'manifest.json').read_text())
                 if manifest.get('trial_id')!=trial_id or manifest.get('simulated') is not False or manifest.get('status')!='recorded':

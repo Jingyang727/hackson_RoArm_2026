@@ -45,7 +45,9 @@ class SceneFacts(unittest.TestCase):
         observed=[]
         def model(system,content,stop,**kwargs):
             observed.append(system)
-            return json.dumps(facts(ready=False)) if system==grok_review.SCENE_SYSTEM else json.dumps(fixtures.verdict())
+            if system==grok_review.SCENE_SYSTEM:return json.dumps(facts(ready=False))
+            frames=json.loads(content[0]['text'])['reviewed_frames']
+            return json.dumps({**fixtures.verdict(),'phases':fixtures.phase_facts('placed',frames[-1]['frame_index'])})
         with (patch.object(grok_review,'configuration',return_value={'configured':True,'model':'DeepSeek-V4.1-Flash','backend':'company_api'}),
               patch.object(grok_review,'complete_content',side_effect=model),
               patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'})):
@@ -53,6 +55,7 @@ class SceneFacts(unittest.TestCase):
         _,state=case.request('state',method='GET')
         self.assertEqual(len(case.policies),1)
         self.assertEqual(state['learning']['phase'],'completed',state['learning'].get('error'))
+        self.assertEqual(state['plan']['review']['phases']['release']['result'],'entered')
         scene=json.loads((case.fixture.home/'.evoarm/rsi/pick_place_runs'/state['learning']['trials'][0]['plan_id']/'grok-scene-review.json').read_text())
         self.assertEqual(scene['verdict']['gripper_state'],'unknown');self.assertTrue(scene['verdict']['ready'])
 

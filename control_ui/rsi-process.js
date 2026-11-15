@@ -17,8 +17,14 @@
       const gripper={unknown:'夹爪状态未知；无需在画面中看见空爪',empty:'画面显示夹爪为空',holding_ball:'画面显示夹爪已有球'};
       return `场景检查：${value.ready?'已确认球与漏斗':'暂不能确认'}\n${value.note||''}${gripper[value.gripper_state]?'\n'+gripper[value.gripper_state]:''}`;
     }
-    const lines=[`${value.source==='human'?'人工记录':'视觉模型判断'}：${outcomes[value.outcome]||value.outcome}`];
+    const lines=[`${value.source==='human'?'人工记录':value.reported_outcome?'阶段证据复核':'视觉模型判断'}：${outcomes[value.outcome]||value.outcome}`];
+    if(value.reported_outcome)lines.push(`模型总标签“${outcomes[value.reported_outcome]||value.reported_outcome}”与阶段依据冲突，已按阶段证据归类；未沿用跨阶段的方向建议。`);
     if(value.ball_state)lines.push(`球的位置：${ballStates[value.ball_state]||value.ball_state}`);
+    if(value.phases){
+      const phaseNames={pickup:'抓起',transport:'运输',release:'入漏斗'};
+      const results={held:'确认持球',missed:'未成功',dropped:'途中掉落',entered:'确认进入',bounced_out:'进入后弹出',unknown:'画面无法确认'};
+      for(const [name,fact] of Object.entries(value.phases))lines.push(`${phaseNames[name]||name}：${results[fact.result]||fact.result}${fact.frames?.length?' · 实帧 '+fact.frames.join(', '):''}；${fact.note||''}`);
+    }
     if(value.direction)lines.push(`${directions[value.direction]||value.direction}${value.magnitude?'；粗略偏差：'+(magnitudes[value.magnitude]||value.magnitude):''}`);
     if(value.adjustment)lines.push(`视觉模型建议：${adjustments[value.adjustment]||value.adjustment}`);
     const comparison=value.comparison?.assessment||value.comparison;

@@ -14,6 +14,8 @@ from evoarm_rsi.ball_trial import check_segment
 from evoarm_rsi.pick_place import build_plan,DEFAULT_PARAMETERS,_opening_direction
 from evoarm_rsi.roarm_geometry import inverse,MotionConstraintError,height_above_plane
 from evoarm_rsi.release_geometry import release_reference
+from evoarm_rsi.rsi_policy import project
+from tests.test_rsi_policy import facing_scene
 from tests import test_rsi_loop as fixtures
 
 DATA=json.loads((Path(__file__).parent/'fixtures/reported_rsi_layout.json').read_text())
@@ -22,6 +24,10 @@ DATA=json.loads((Path(__file__).parent/'fixtures/reported_rsi_layout.json').read
 def world(case):
     return {'ball':{'center_robot_mm':case['ball_center_mm']},
         'funnel':{'mouth_center_robot_mm':case['funnel_center_mm']},
+        # The old numeric fixture did not retain a camera. Supply an explicit
+        # synthetic opposing camera for testing the NEW image-side reference;
+        # do not present it as calibration recovered from that old recording.
+        'camera_geometry':facing_scene()['camera_geometry'],
         'table_plane':case['table_plane'],'warnings':[]}
 
 
@@ -51,12 +57,17 @@ class RecordedLayout(unittest.TestCase):
             self.assertLess(names.index('close'),names.index('lift'))
             self.assertEqual(names[-2:],['lower_to_release','release'])
 
-    def test_changed_drop_pitch_recalculates_fingertip_to_keep_ball_over_mouth(self):
+    def test_drop_pitch_keeps_height_and_user_side_reference_separate(self):
         case=DATA['cases'][0];plan=build_plan({'setup_id':'replay'},case['initial_status'],world(case),copy.deepcopy(DEFAULT_PARAMETERS))
         roll=case['initial_status']['r'];pitch=math.radians(plan['release_pitch_deg'])
         opening=_opening_direction(case['funnel_center_mm'],pitch,roll)
-        center=np.asarray(plan['release_tip_xyz_mm'])+opening*DEFAULT_PARAMETERS['finger_offset_mm']
-        np.testing.assert_allclose(center,plan['object_geometry']['release_ball_center_xyz_mm'],atol=1e-7)
+        tip=np.asarray(plan['release_tip_xyz_mm'])
+        center=np.asarray(plan['object_geometry']['release_ball_center_xyz_mm'])
+        self.assertAlmostEqual(tip[2]+opening[2]*DEFAULT_PARAMETERS['finger_offset_mm'],center[2])
+        same_height=center.copy();same_height[2]=tip[2]
+        shift=np.subtract(project(world(case),tip),project(world(case),same_height))
+        self.assertGreater(shift[0],0.);self.assertAlmostEqual(shift[1],0.)
+        self.assertAlmostEqual(math.dist(tip[:2],center[:2]),19.)
         expected=np.asarray(release_reference(world(case))[0])+np.asarray(case['table_plane']['normal_up'])*(17.+DEFAULT_PARAMETERS['release_clearance_mm'])
         np.testing.assert_allclose(center,expected,atol=1e-7)
 

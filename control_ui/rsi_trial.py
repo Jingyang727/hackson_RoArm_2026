@@ -39,7 +39,7 @@ from evoarm_rsi.rsi_events import stream_events
 from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
 from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
 from evoarm_rsi.policy_repair import repair_clipped_policy
-from evoarm_rsi.release_geometry import upgrade_release_policy
+from evoarm_rsi.release_geometry import upgrade_release_policy,upgrade_release_reference,RELEASE_REFERENCE_VERSION
 from evoarm_rsi import agent_vision
 from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZATION_CONTRACT
 from evoarm_rsi.execution_diagnosis import diagnose
@@ -98,6 +98,8 @@ class Review(PlanID):
     magnitude:str=Field(default='medium',pattern=r'^(small|medium|large|unknown)$')
     adjustment:str=Field(default='unknown',pattern=r'^(keep|pickup_xy|grasp_height|grip_tighten|transport_slower|release_xy|release_height|unknown)$')
     comparison:ComparisonReview|None=None
+    phases:dict|None=None
+    reported_outcome:str|None=None
 
 
 class Learn(Empty):
@@ -128,7 +130,8 @@ def install(app,service_provider):
     def policy_path(saved):return Path.home()/'.evoarm/rsi/pick_place_policies'/saved['setup_id']/f'{fingerprint(saved)}.json'
     def policy(saved,*,repair=False):
         path=policy_path(saved)
-        if not path.exists():return {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
+        if not path.exists():return {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[],
+                                     'release_reference_version':RELEASE_REFERENCE_VERSION}
         value=json.loads(path.read_text())
         if set(value['parameters'])-set(DEFAULT_PARAMETERS):raise ValueError('本地RSI参数版本不兼容')
         missing=set(DEFAULT_PARAMETERS)-set(value['parameters'])
@@ -148,6 +151,11 @@ def install(app,service_provider):
             updated,record=upgrade_release_policy(value)
             if record:
                 backup=path.with_name(path.stem+f".before-high-release-{record['id']}.json")
+                _write(backup,value);record['backup_file']=str(backup)
+                _write(path,updated);value=updated
+            updated,record=upgrade_release_reference(value)
+            if record:
+                backup=path.with_name(path.stem+f".before-release-reference-{record['id']}.json")
                 _write(backup,value);record['backup_file']=str(backup)
                 _write(path,updated);value=updated
         return value
@@ -229,7 +237,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
+        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':4,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
@@ -476,10 +484,18 @@ def install(app,service_provider):
                 comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
                 execution_diagnosis=diagnose(result,current['plan'])
                 evidence=learning_basis(result,execution_diagnosis,outcome=req.outcome,ball_state=req.ball_state)
+                phase_facts=None
+                if req.phases is not None:
+                    verified=grok_review.validate_verdict({k:getattr(req,k) for k in
+                        ('outcome','direction','ball_state','magnitude','confidence','note','adjustment','phases')})
+                    if any(verified[k]!=getattr(req,k) for k in ('outcome','direction','adjustment')):
+                        raise ValueError('最终判断与分阶段实帧依据矛盾，请先复核再更新参数')
+                    phase_facts=verified['phases']
                 if req.visual_review is not None:
                     if req.source!='opencode_agent' or not req.vision_packet_id:raise ValueError('视觉子Agent结论需要本轮图片包编号')
                     agent_vision.validate_binding(current,root(req.plan_id),req.vision_packet_id)
                     visual=grok_review.validate_verdict(req.visual_review)
+                    phase_facts=visual.get('phases',phase_facts)
                     for field in ('outcome','direction','ball_state','magnitude','confidence','adjustment'):
                         if visual.get(field,'unknown')!=getattr(req,field):raise ValueError('主Agent不得改写视觉子Agent的定性结论：'+field)
                     if visual.get('comparison')!=(assessment or None):raise ValueError('前后比较结论与视觉子Agent不一致')
@@ -553,6 +569,8 @@ def install(app,service_provider):
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
                        'comparison':public_comparison(comparison,assessment,plan_id=req.plan_id,panel=(root(req.plan_id)/'comparison.jpg').is_file())}
                 entry.update(confidence=req.confidence,ball_state=req.ball_state,magnitude=req.magnitude,adjustment=req.adjustment)
+                if phase_facts is not None:entry['phases']=phase_facts
+                if req.reported_outcome is not None:entry['reported_outcome']=req.reported_outcome
                 entry['execution_diagnosis']=execution_diagnosis
                 entry['learning_basis']=evidence
                 if req.visual_review is not None:entry.update(vision_packet_id=req.vision_packet_id,visual_review=req.visual_review)

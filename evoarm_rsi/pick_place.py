@@ -17,10 +17,10 @@ from .task_scene import load_rgbd
 from control_ui.vision import yellow_ball_mask
 from control_ui.safety import JOINTS
 from evoarm.limits import GRIPPER_MAX_RAD
-from .image_directions import OPPOSITE,PIXEL_VECTOR
+from .image_directions import OPPOSITE,PIXEL_VECTOR,robot_xy_for_image_motion
 from .funnel_geometry import detect_funnel,draw_mouth,RADIUS_MM as FUNNEL_RADIUS,HEIGHT_MM as FUNNEL_HEIGHT
 from .rsi_settings import RECORDING_SECONDS,TARGET_DURATION_SECONDS
-from .release_geometry import DEFAULT_RELEASE_CLEARANCE_MM,MIN_RELEASE_CLEARANCE_MM,MAX_RELEASE_CLEARANCE_MM,MIN_VERIFIED_TIP_CLEARANCE_MM,release_reference
+from .release_geometry import DEFAULT_RELEASE_CLEARANCE_MM,MIN_RELEASE_CLEARANCE_MM,MAX_RELEASE_CLEARANCE_MM,MIN_VERIFIED_TIP_CLEARANCE_MM,release_reference,RELEASE_REFERENCE_VERSION,RELEASE_SIDE_OFFSET_MM
 
 BALL_RADIUS = 17.
 MIN_XY_STEP_MM=10.
@@ -114,7 +114,9 @@ def build_plan(session,status,scene,parameters):
     hold=gripper_hold(status);initial={**status,'g':hold['command_rad']}
     opening=math.radians(p['open_deg']);closing=min(math.radians(p['close_deg']),GRIPPER_MAX_RAD)
     ball=np.asarray(scene['ball']['center_robot_mm']);mouth,lip_height=release_reference(scene);mouth=np.asarray(mouth)
-    release_policy={'version':1,'lip_height_mm':lip_height,
+    release_policy={'version':RELEASE_REFERENCE_VERSION,'lip_height_mm':lip_height,
+                    'endpoint_side':'image_right','endpoint_side_offset_mm':RELEASE_SIDE_OFFSET_MM,
+                    'offset_reference':'half_funnel_radius_in_unmirrored_camera',
                     'ball_bottom_clearance_mm':p['release_clearance_mm'],
                     'minimum_tip_height_mm':lip_height+MIN_VERIFIED_TIP_CLEARANCE_MM,
                     'minimum_tip_clearance_mm':MIN_VERIFIED_TIP_CLEARANCE_MM,
@@ -130,6 +132,11 @@ def build_plan(session,status,scene,parameters):
         for angle in dict.fromkeys((pitch_deg,80.,75.,70.,65.,60.,50.,40.,30.,20.,10.,0.)):
             drop_pitch=math.radians(angle)
             tip=release_center-_opening_direction(mouth,drop_pitch,roll)*p['finger_offset_mm']
+            # Preserve the pitch-dependent vertical clearance, but replace the
+            # old radial XY tool assumption with the observed one-sided opening
+            # reference: physical left = right in this calibrated camera view.
+            tip[:2]=release_center[:2]
+            tip[:2]+=robot_xy_for_image_motion(scene,tip,'image_right',RELEASE_SIDE_OFFSET_MM)
             tip[:2]+=p['release_xy_mm']
             release_candidates.append({'pitch_rad':drop_pitch,'xyz_mm':tip.tolist()})
         def joint_margin(candidate):
@@ -157,6 +164,7 @@ def build_plan(session,status,scene,parameters):
                     'object_geometry':{'ball_diameter_mm':2*BALL_RADIUS,'ball_top_xyz_mm':(ball+normal*BALL_RADIUS).tolist(),
                         'grasp_center_xyz_mm':(grasp_center+np.array([*p['pickup_xy_mm'],0.])).tolist(),
                         'release_ball_center_xyz_mm':(release_center+np.array([*p['release_xy_mm'],0.])).tolist(),
+                        'release_center_is_desired_not_measured':True,
                         'finger_offset_mm':p['finger_offset_mm'],'reference':'stock_fixed_fingertip_is_not_ball_center'},
                     'gripper_hold':hold,'grasp_tip_xyz_mm':grasp.tolist(),'release_tip_xyz_mm':list(release),
                     'grasp_pitch_deg':pitch_deg,'release_pitch_deg':math.degrees(route['release_pitch_rad']),
@@ -179,6 +187,9 @@ def preview(image,plan,geometry):
     ball=tuple(np.round(plan['scene']['ball']['pixel_center']).astype(int))
     funnel=tuple(np.round(plan['scene']['funnel']['pixel_center']).astype(int))
     cv2.circle(result,ball,22,(0,210,255),2);draw_mouth(result,plan['scene']['funnel'])
+    drop=pixel(plan['release_tip_xyz_mm'])
+    cv2.circle(result,drop,8,(230,180,0),2)
+    cv2.putText(result,'RELEASE TIP +19mm CAMERA RIGHT',drop,cv2.FONT_HERSHEY_SIMPLEX,.4,(230,160,0),1)
     cv2.putText(result,'BALL',ball,cv2.FONT_HERSHEY_SIMPLEX,.5,(0,180,220),2)
     previous=pixel([plan['initial_status'][k] for k in 'xyz'])
     for index,step in enumerate(plan['steps']):
@@ -191,16 +202,9 @@ def preview(image,plan,geometry):
 
 def image_correction(scene,direction,step_mm=12.,*,target='ball',center_robot_mm=None):
     if direction not in PIXEL_VECTOR:return [0.,0.]
-    geometry=scene['camera_geometry'];R=np.asarray(geometry['R'],float);K=np.asarray(geometry['K'],float)
     field='center_robot_mm' if target=='ball' else 'mouth_center_robot_mm'
-    center=np.asarray(center_robot_mm if center_robot_mm is not None else scene[target][field],float)
-    camera=R.T@(center-np.asarray(geometry['t'],float));uv=K@camera
-    if uv[2]<=0:raise ValueError('当前补偿参考点位于相机后方')
-    derivative=np.vstack([(K[i]*uv[2]-uv[i]*K[2])/uv[2]**2 for i in (0,1)])
-    jacobian=derivative@R.T[:,:2]
-    if not np.all(np.isfinite(jacobian)) or np.linalg.cond(jacobian)>1e8:raise ValueError('当前相机到机器人XY方向映射退化')
-    delta=np.linalg.solve(jacobian,np.asarray(PIXEL_VECTOR[OPPOSITE[direction]],float))
-    return (delta/np.linalg.norm(delta)*step_mm).tolist()
+    center=center_robot_mm if center_robot_mm is not None else scene[target][field]
+    return robot_xy_for_image_motion(scene,center,OPPOSITE[direction],step_mm)
 
 
 def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unknown',*,step_override_mm=None):

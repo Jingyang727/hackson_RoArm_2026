@@ -10,7 +10,7 @@ from evoarm_rsi.grasp_once import export_keyframes
 from evoarm_rsi.rsi_policy import center_target,project
 from tests.test_execution_learning import failed_report
 from tests import test_rsi_learning as learning_fixture
-from tests.test_rsi_learning import verdict
+from tests.test_rsi_learning import verdict,phase_facts
 
 
 class WebStageLearning(unittest.TestCase):
@@ -87,6 +87,10 @@ class WebStageLearning(unittest.TestCase):
         requests=[]
         def opened(request,**kwargs):
             requests.append(json.loads(request.data));reply=replies[len(requests)-1]
+            if 'outcome' in reply:
+                metadata=json.loads(requests[-1]['messages'][-1]['content'][0]['text'])
+                frame=next(f['frame_index'] for f in metadata['reviewed_frames'] if f.get('role')=='current')
+                reply={**reply,'phases':phase_facts(reply['outcome'],frame)}
             response=MagicMock();response.__enter__.return_value=response;response.headers={'Content-Type':'application/json'}
             response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(reply)}}]}).encode()
             return response

@@ -38,7 +38,7 @@ def evidence_frame(state,experiments,*,target='ball',lift=False):
     if not file.is_file() or file.is_symlink():return None
     try:rows=json.loads(file.read_text()).get('frames',[])
     except (OSError,ValueError,AttributeError):return None
-    labels=('lift_review','lift') if lift else ('release_review','release') if target=='funnel' else ('close_review','close')
+    labels=('lift_review','lift') if lift else ('carry_review','release_review','release') if target=='funnel' else ('close_review','close')
     for label in labels:
         for row in rows:
             if label not in row.get('labels',row.get('label','').split('/')):continue
@@ -70,6 +70,8 @@ def build_comparison(current,previous,review,experiments):
     a=previous['plan'];b=current['plan'];before=a['parameters'];after=b['parameters']
     if a.get('route_policy',{}).get('version')!=b.get('route_policy',{}).get('version'):
         context['reason']='执行路径版本已变化，先验证新流程，不把变化归因于单项参数';return context
+    if a.get('release_policy',{}).get('version')!=b.get('release_policy',{}).get('version'):
+        context['reason']='投放端点参考已变化，先验证新参考，不归因于旧补偿';return context
     context['parameter_changes']=[{'name':k,'before':before[k],'after':after[k]} for k in before if before[k]!=after.get(k)]
     if current['id']==previous['id'] or previous['id']!=review['plan_id']:
         context['reason']='前轮ID不对应本次已应用的修正';return context

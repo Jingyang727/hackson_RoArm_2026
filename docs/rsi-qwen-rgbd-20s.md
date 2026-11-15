@@ -2,6 +2,8 @@
 
 当前默认模型已改为 `DeepSeek-V4.1-Flash`，参见 [高处投放、回位顺序和连续迭代修复](rsi-release-and-retry.md)。已存在的本机配置不会被 Git 修改，需要将其中 `EVOARM_COMPANY_LLM_MODEL` 改成这个 ID。
 
+单边开爪端点偏置、最新选帧和分阶段结果见 [投放参考与视觉证据](rsi-one-sided-release-and-phases.md)。当前视觉协议版本为4。
+
 基线：成功抓起过球的代码 `b1d3766` 已合入 main；PR #12 将当前标定和匹配的经验策略 v17 合入 main `9528c9d`。优化从该 main 新建 `feature/rsi-qwen-rgbd-20s`，没有覆盖基线。
 
 ## 模型与策略的分工
@@ -62,19 +64,19 @@ EVOARM_ENABLE_MOTION=1 EVOARM_ENABLE_TEACH=1 \
 
 运输路径使用的漏斗障碍高度至少保留实测45.4mm，避免深度采到略低的内沿后降低通行间隙。
 
-`scene.funnel` 保存 `mouth_boundary_px`、`rim_fit`、`depth_evidence`，网页诊断显示是否实际用了深度。自动投放目标仍是**球心在大开口中心上方**；固件 XYZ 是指尖坐标，因此会按姿态扣除指尖到球心的偏移，不能直接把球心 XYZ 当指尖 XYZ。
+`scene.funnel` 保存 `mouth_boundary_px`、`rim_fit`、`depth_evidence`，网页诊断显示是否实际用了深度。目标是让球落入大开口；固件XYZ是指尖参考。当前投放端点采用用户指定的单边开爪偏置：在中心上空向未镜像画面右侧偏19mm，再叠加新参考下的学习残差。
 
 ## 录像和模型图片
 
 - 每轮完整 RGB-D 录像 **20秒**。停止发送后续动作的窗口改为 **19.6秒**；10秒保留为性能目标及 `within_10s` 指标，超过10秒不会因此截掉释放阶段。
 - 定位、深度与标定继续用原始 **1280×720** profile；相机未降分辨率。
 - 只缩小模型输入副本，含方向说明边框的最终图片**长边最多768px**，JPEG quality=82。常见全景从1280×720变为768×432内容，加边框后为768×550；局部对照图保留清晰细节。
-- 场景检查通常1–2张。结果分析一次最多**6张**，优先闭爪、抬升、释放、前/末帧。对照时使用1张前轮对应动作图，加最多5张本轮图；恢复后的补充图也占用同一预算。
+- 场景检查通常1–2张。结果分析一次最多**6张**，优先覆盖闭爪、抬升、开爪前持球、开爪过程和末帧，再补动作前。对照时使用1张前轮对应动作图，加最多5张本轮图；恢复后的补充图也占用同一预算。
 - `model-frames/raw-*` 保留原始证据副本；`scene/review-*` 是实际发给模型的压缩副本，记录尺寸、缩放、质量。`vision-*-metrics.json` / `vision-metrics.json` 记录准备耗时、输入大小、首段文本耗时和 API 总耗时。
 
 ## 本机验收
 
-1. 打开 `/experiments`，确认页面显示选定视觉模型；`/api/bench/rsi/state` 应含 `visual_pipeline_version=2`、`recording_duration_s=20`、`model_long_edge_px=768`。
+1. 打开 `/experiments`，确认页面显示选定视觉模型；`/api/bench/rsi/state` 应含 `visual_pipeline_version=4`、`recording_duration_s=20`、`model_long_edge_px=768`。
 2. 先点“重新定位黄球和漏斗”，不运动，检查大开口轮廓、圆心与深度来源。物体保持原位。
 3. 再从网页执行一轮，确认释放阶段、20秒录像和模型结论；比较实际模型图片与时序，不凭 planned 路径判断已执行。
 4. 新策略仍按原标定指纹保存，原标定文件不改写。归档的 v17 没有对应已确认成功试次，见 [标定快照说明](../calibrations/bench-layout-v2/2026-11-15/README.md)。
