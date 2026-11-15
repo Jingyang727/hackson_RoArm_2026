@@ -39,6 +39,7 @@ from evoarm_rsi.policy_repair import repair_clipped_policy
 from evoarm_rsi import agent_vision
 from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZATION_CONTRACT
 from evoarm_rsi.execution_diagnosis import diagnose
+from evoarm_rsi.learning_basis import basis as learning_basis,execution_proposal
 from evoarm_rsi.roarm_geometry import MotionConstraintError
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
@@ -218,7 +219,7 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':10,'web_learning_version':2,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -461,6 +462,7 @@ def install(app,service_provider):
                 if pol['parameters']!=current['plan']['parameters']:raise ValueError('本轮实际参数与当前策略不一致，不能重复应用旧试次修正')
                 comparison=compare(current,pol);assessment=req.comparison.model_dump() if req.comparison else None
                 execution_diagnosis=diagnose(result,current['plan'])
+                evidence=learning_basis(result,execution_diagnosis,outcome=req.outcome,ball_state=req.ball_state)
                 if req.visual_review is not None:
                     if req.source!='opencode_agent' or not req.vision_packet_id:raise ValueError('视觉子Agent结论需要本轮图片包编号')
                     agent_vision.validate_binding(current,root(req.plan_id),req.vision_packet_id)
@@ -469,7 +471,7 @@ def install(app,service_provider):
                         if visual.get(field,'unknown')!=getattr(req,field):raise ValueError('主Agent不得改写视觉子Agent的定性结论：'+field)
                     if visual.get('comparison')!=(assessment or None):raise ValueError('前后比较结论与视觉子Agent不一致')
                 if req.requested_step_mm is not None and req.source!='opencode_agent':raise ValueError('数值试验步长只接受执行Agent工具，不接受视觉模型测量值')
-                if req.requested_step_mm is not None and execution_diagnosis['category'] in ('time_budget','clearance_shortfall'):
+                if req.requested_step_mm is not None and not evidence['allow_visual']:
                     raise ValueError('先解决执行预算或抬升不足；XY补偿不用于修复这类执行故障')
                 if req.correction_direction is not None and req.correction_direction!=OPPOSITE.get(req.direction):
                     raise ValueError('纠正方向必须与原图观察偏差相反；不要再次镜像机械臂坐标')
@@ -478,7 +480,7 @@ def install(app,service_provider):
                     raise ValueError('XY试验步长必须对应图像XY偏差与相应调整项')
                 parameters,changes,proposal=propose(pol['parameters'],current['plan']['scene'],req.outcome,req.direction,
                     req.magnitude,req.adjustment,history=pol['reviews'],comparison=comparison,assessment=assessment,requested_step_mm=req.requested_step_mm)
-                execution_fault=execution_diagnosis['category'] in ('time_budget','clearance_shortfall')
+                execution_fault=not evidence['allow_visual']
                 if execution_fault and not req.parameter_trial:
                     # Keep the visual finding, but do not let automatic visual
                     # adaptation silently turn an execution failure into XY learning.
@@ -488,6 +490,9 @@ def install(app,service_provider):
                         'projection_direction_verified','projection_direction_alignment','requested_step_preserved','candidate_robot_delta_mm','candidate_pixel_delta','rejected_policy_id')}
                     proposal.update(status='unchanged',decision='execution_change_required',parameters_changed=[],before={},after={},
                         step_mm=None,allow_retry=False,after_policy_id=policy_id(parameters),reason=changes[0])
+                    if req.source=='company_grok':
+                        parameters,changes,proposal=execution_proposal(pol['parameters'],execution_diagnosis)
+                        proposal.update(before_policy_id=policy_id(pol['parameters']),after_policy_id=policy_id(parameters))
                 if req.parameter_trial:
                     if req.source!='opencode_agent' or req.visual_review is None:raise ValueError('标量参数试验需要视觉子Agent结论与执行Agent决策')
                     if req.requested_step_mm is not None:raise ValueError('每轮只选择XY步长或一个标量参数')
@@ -514,19 +519,29 @@ def install(app,service_provider):
                 if execution_diagnosis['category'] in ('time_budget','clearance_shortfall') and parameters==pol['parameters']:
                     updated_recipe=current['plan'].get('route_policy',{}).get('version',0)<4
                     proposal.update(allow_retry=updated_recipe,decision='updated_execution_recipe' if updated_recipe else 'execution_change_required')
-                    changes.append('下一轮验证新的合并接近/运输姿态抬升路径。' if updated_recipe else '执行问题未解决，不重复相同参数。')
-                if req.source=='opencode_agent' and parameters!=pol['parameters']:
+                    if updated_recipe:changes.append('下一轮验证新的合并接近/运输姿态抬升路径。')
+                    elif not any('未重复' in s for s in changes):changes.append('执行问题未解决，不重复相同参数。')
+                if req.source in ('opencode_agent','company_grok') and parameters!=pol['parameters']:
                     # Check the complete candidate recipe with real IK before persisting an Agent trial.
                     service=service_provider()
                     with service.lock:
                         fresh=service.status();_ready(service.health())
-                        build_plan(saved,fresh,current['plan']['scene'],parameters)
+                        try:build_plan(saved,fresh,current['plan']['scene'],parameters)
+                        except ValueError as exc:
+                            if req.source!='company_grok':raise
+                            parameters=copy.deepcopy(pol['parameters'])
+                            changes=['候选修正未通过完整路径检查，未保存或执行：'+str(exc)]
+                            for key in ('robot_delta_mm','predicted_pixel_delta','saved_xy_step_mm','candidate_robot_delta_mm','candidate_pixel_delta'):
+                                proposal.pop(key,None)
+                            proposal.update(status='unchanged',decision='candidate_path_rejected',parameters_changed=[],before={},after={},
+                                step_mm=None,allow_retry=False,after_policy_id=policy_id(parameters),reason=changes[0])
                 entry={'plan_id':req.plan_id,'outcome':req.outcome,'direction':req.direction,'source':req.source,
                        'note':req.note,'before_version':pol['version'],'after_version':pol['version']+1,
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
                        'comparison':public_comparison(comparison,assessment,plan_id=req.plan_id,panel=(root(req.plan_id)/'comparison.jpg').is_file())}
                 entry.update(confidence=req.confidence,ball_state=req.ball_state,magnitude=req.magnitude,adjustment=req.adjustment)
                 entry['execution_diagnosis']=execution_diagnosis
+                entry['learning_basis']=evidence
                 if req.visual_review is not None:entry.update(vision_packet_id=req.vision_packet_id,visual_review=req.visual_review)
                 if req.parameter_trial:entry['parameter_trial']=req.parameter_trial.model_dump()
                 entry.update(ball_xyz_mm=current['plan']['scene']['ball']['center_robot_mm'],

@@ -27,7 +27,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':10,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':10,'web_learning_version':2,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -148,6 +148,8 @@ def check(url, output):
         review['proposal']={'parameters_changed':['pickup_xy_mm'],'before':{'pickup_xy_mm':[0,0]},
                             'after':{'pickup_xy_mm':[0,-12]},'robot_delta_mm':[0,-12],
                             'predicted_pixel_delta':[14,0],'allow_retry':True}
+        review.update(before={'pickup_xy_mm':[0,0]},after={'pickup_xy_mm':[0,-12]},
+            learning_basis={'scope':'visual_pickup','reason':'闭爪和抬升已完成，后段超时仍可修正抓取偏差。'})
         model['plan']['review']=review;model['plan']['backup_url']=f'/api/bench/rsi/plans/{key}/archive'
         model['learning'].update(phase='recovering',review=review,changes=review['changes'])
         process['model_output'].update(status='validated',verdict=review)
@@ -160,6 +162,9 @@ def check(url, output):
         assert 'Grok画面依据' in page.locator('#grokVerdict').inner_text()
         assert '执行Agent决策' in page.locator('#grokVerdict').inner_text()
         page.locator('#processEvents').filter(has_text='程序采用的修正').wait_for()
+        page.locator('#processEvents').filter(has_text='实际保存 抓取平面补偿XY').wait_for()
+        page.locator('#processEvents').filter(has_text='后段超时仍可修正抓取偏差').wait_for()
+        assert '公司API' in page.locator('#processEvents').inner_text()
         count=page.locator('#processEvents li').count()
         page.evaluate('window.RSIProcess.close();window.RSIProcess.connect()')
         page.wait_for_timeout(450);assert page.locator('#processEvents li').count()==count
@@ -219,7 +224,13 @@ def check(url, output):
                 'actual_height_mm':56.,'required_transfer_height_mm':72.4,'actual_xyz_mm':[340,-10,-59]}}}
         page.locator('#resultText').filter(has_text='实测离桌 56.0 mm，运输要求 72.4 mm').wait_for()
         assert '这里的高度不是机器人Z' in page.locator('#resultText').inner_text()
-        model['api_version']=5
+        emit('grok_validated',verdict={'outcome':'grasp_missed','direction':'image_up','ball_state':'table',
+            'magnitude':'medium','adjustment':'pickup_xy','note':'闭爪时位于球的画面上方'},attempt=2,plan_id=key)
+        page.locator('#processEvents').filter(has_text='应向画面下方修正平面位置').wait_for()
+        model['web_learning_version']=1
+        page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
+        assert page.locator('#start').is_disabled()
+        model['web_learning_version']=2;model['api_version']=5
         page.locator('#grokStatus').filter(has_text='网页服务仍是旧版').wait_for()
         assert page.locator('#start').is_disabled()
         assert not errors,errors
@@ -236,6 +247,7 @@ def check(url, output):
         '390px layout','no page errors']}
     report['checks'].append('fresh object coordinates and snapshot without a grasp plan or motion; recapture replaces prior coordinates')
     report['checks'].append('execution clearance diagnosis uses plane-relative height rather than robot Z')
+    report['checks'].append('late pickup learning, actual saved parameters, company API model and image-vs-height directions shown')
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

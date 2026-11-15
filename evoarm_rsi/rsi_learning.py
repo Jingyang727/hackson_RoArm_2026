@@ -219,7 +219,8 @@ class LearningLoop:
                 if verdict['outcome']=='unknown':
                     raise ResetHandledError(RuntimeError('Grok无法可靠判断本轮，已保留证据'),current['recovery'])
                 if decision.get('proposal',{}).get('allow_retry') is False:
-                    raise ResetHandledError(RuntimeError('本轮没有可验证的新修正，停止重复原策略；请查看学习记录中的原因。'),current['recovery'])
+                    reason=decision.get('proposal',{}).get('reason') or '当前画面与反馈不足以选择新参数。'
+                    raise ResetHandledError(RuntimeError('本轮没有可验证的新修正：'+reason),current['recovery'])
             self.publish('exhausted',status='completed',finished_at_unix=time.time(),message='尝试次数已用完，机械臂已恢复官方姿态，策略与证据已保存')
         except Exception as exc:
             report=exc.report if isinstance(exc,ResetHandledError) else None

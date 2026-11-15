@@ -12,7 +12,9 @@
 
 ## 当前状态
 
-- [一次多图的视觉复核](docs/rsi-vision-batch.md)：OpenCode Task首次请求一次附上全部时序图片，视觉子Agent无需逐张调用read。视觉模型单独配置，默认试用公司grok-4.7-build-fast；主执行Agent保持grok-4.7-build。真实官方1.19.0二进制已离线验证6图同请求、0次视觉工具调用与完整JSON回传。
+- [当前验收：网页抓放闭环](docs/rsi-web-first.md)：网页直接调用公司Grok，按已完成的执行阶段选择视觉或执行参数试验。后段超时不抹掉前段抓取证据；明确区分画面上下与离桌高度，展示实际保存参数并自动进入下一轮。状态新增web_learning_version=2。OpenCode和新增视觉API改造暂缓。
+
+- [一次多图的视觉复核](docs/rsi-vision-batch.md)：此前的OpenCode传输实验；标准1.19.0离线验证通过，用户实际环境尚未走通，当前不作为实机验收入口。
 
 - [RSI v10：执行诊断与防重复学习](docs/rsi-execution-learning-v10.md)：CLI默认输出摘要；合并高处接近、抬升时切换运输姿态。超时和抬升不足可按时序/反馈做单项执行试验；未复核或未解决的同策略失败不原样重试。10秒窗口与几何检查保留。
 

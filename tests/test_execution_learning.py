@@ -95,10 +95,14 @@ class AgentExecutionLearning(unittest.TestCase):
     setUp=fixtures.RSIApi.setUp
     request=fixtures.RSIApi.request
 
-    def failed(self,category='time_budget'):
+    def failed(self,category='time_budget',*,pickup_complete=True):
         def execute(service,plan,root,stop,publish,**kw):
             service.pending=None;service.disarm()
-            return {**failed_report(plan,category),'capture_trial_id':self.folder.name,'recording_covers_motion':True}
+            result={**failed_report(plan,category),'capture_trial_id':self.folder.name,'recording_covers_motion':True}
+            if not pickup_complete:
+                result['events']=[e for e in result['events'] if e['stage']!='lift_completed']
+                result['failure']['stage']='lift'
+            return result
         self.execute_mock.side_effect=execute
         response,prepared=self.request('prepare',{'source':'opencode_agent'})
         self.assertEqual(response['status'],200,prepared);key=prepared['plan_id']
@@ -154,18 +158,19 @@ class AgentExecutionLearning(unittest.TestCase):
         _,context=self.request('agent/context',method='GET');self.assertEqual(context['policy']['parameters'],DEFAULT_PARAMETERS)
         self.assertEqual(self.arm.commands,[])
 
-    def test_visible_miss_does_not_hide_timeout_with_automatic_xy_learning(self):
+    def test_completed_pickup_miss_remains_learnable_after_late_timeout(self):
         key=self.failed();v={**visual(),'outcome':'grasp_missed','direction':'image_right',
             'ball_state':'table','magnitude':'medium','adjustment':'pickup_xy'}
         response,value=self.review(key,verdict=v)
         self.assertEqual(response['status'],200,value)
         self.assertEqual(value['visual_review'],v)
-        self.assertEqual(value['before'],value['after'])
-        self.assertFalse(value['proposal']['allow_retry'])
-        self.assertNotIn('robot_delta_mm',value['proposal'])
+        self.assertNotEqual(value['before']['pickup_xy_mm'],value['after']['pickup_xy_mm'])
+        self.assertEqual(value['before']['travel_speed'],value['after']['travel_speed'])
+        self.assertTrue(value['proposal']['allow_retry'])
+        self.assertEqual(value['learning_basis']['scope'],'visual_pickup')
 
-    def test_visible_miss_does_not_grant_unrelated_trial_before_timeout_is_resolved(self):
-        key=self.failed();v={**visual(),'outcome':'grasp_missed','direction':'image_right',
+    def test_unfinished_pickup_does_not_grant_unrelated_trial_before_timeout_is_resolved(self):
+        key=self.failed(pickup_complete=False);v={**visual(),'outcome':'grasp_missed','direction':'image_right',
             'ball_state':'table','magnitude':'medium','adjustment':'pickup_xy'}
         response,error=self.review(key,{'parameter':'finger_offset_mm','value':25.},v)
         self.assertEqual(response['status'],409,error)
