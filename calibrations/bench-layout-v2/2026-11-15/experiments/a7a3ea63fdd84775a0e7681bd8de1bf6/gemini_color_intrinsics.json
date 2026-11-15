@@ -1,0 +1,12 @@
+{
+  "fx": 609.1817016601562,
+  "fy": 609.0792236328125,
+  "cx": 638.2649536132812,
+  "cy": 361.9005126953125,
+  "width": 1280,
+  "height": 720,
+  "aligned_to": "color",
+  "verified": false,
+  "source": "orbbec_sdk_active_color_profile",
+  "note": "SDK-provided candidate; verify alignment before 3D use"
+}
