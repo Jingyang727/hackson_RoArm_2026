@@ -1,0 +1,9 @@
+{
+  "source": "User-reported four chronological trials; IDs are prefixes and coordinates are rounded as supplied.",
+  "trials": [
+    {"id":"4621c7fb","used":[0.188,-7.998],"next":[0.094,-3.999],"ball":[370.037,-9.377,-104.507],"pitch":80,"goal":[351.400,-16.967,-104.808],"approach":[345.618,-10.076,-52.344],"descend":[345.618,-10.076,-105.018],"close":[340.267,-12.010,-113.917],"direction":"image_left","decision":"shrink_step"},
+    {"id":"ac8624ed","used":[0.094,-3.999],"next":[0.094,-3.999],"ball":[369.829,-9.507,-104.383],"pitch":80,"goal":[351.098,-13.092,-104.684],"approach":[345.096,-6.353,-51.357],"descend":[345.096,-6.353,-104.903],"close":[340.498,-7.836,-113.134],"direction":"too_high","decision":"increase_step"},
+    {"id":"270ba69b","used":[0.094,-3.999],"next":[4.089,-3.786],"ball":[371.886,-6.809,-104.398],"pitch":80,"goal":[353.232,-10.497,-106.698],"approach":[347.627,-3.200,-51.179],"descend":[347.627,-3.200,-106.900],"close":[342.376,-4.727,-115.634],"direction":"image_up","decision":"directional_trial"},
+    {"id":"7ce7aa5b","used":[4.089,-3.786],"next":null,"ball":[371.825,-6.561,-104.372],"pitch":80,"goal":[357.164,-10.078,-106.672],"approach":[351.426,-2.156,-51.900],"descend":[351.426,-2.156,-106.877],"close":[345.771,-3.713,-116.082],"direction":null,"decision":null}
+  ]
+}

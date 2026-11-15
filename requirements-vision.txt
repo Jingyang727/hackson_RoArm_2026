@@ -1,3 +1,5 @@
 # The independent camera service uses OpenCV for JPEG preview and RGB-D video.
 # Also used by snapshot analysis and chessboard/ball detection.
 opencv-python-headless>=4.10,<5
+# Includes an offline H.264 encoder for browser playback; raw RGB-D is retained.
+imageio-ffmpeg>=0.5,<0.7

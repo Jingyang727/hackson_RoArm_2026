@@ -133,6 +133,7 @@ def _overlay(session, path):
     if not ok:
         raise CalibrationError("无法读取原录像生成采点图")
     corners = session["reference"]["corners_px"]
+    cv2.drawChessboardCorners(frame,(9,6),np.asarray(corners,dtype=np.float32).reshape(-1,1,2),True)
     for key, grid in session["points"].items():
         x, y = [round(v) for v in corners[grid[1]*9+grid[0]]]
         color = (0, 200, 255) if key == "V1" else (30, 30, 240)
@@ -170,17 +171,19 @@ def start_session(trial, *, setup_id, square_mm, output):
 
 
 def capture_point(path, point_id, *, aligned=False, controller="http://127.0.0.1:8765", replace=False,
-                  arm_service=None, allow_manual=False):
+                  arm_service=None, allow_manual=False,expected_session_id=None):
     if aligned is not True:
         raise CalibrationError("先现场对准图中角点，再以 --aligned 声明已对准；程序不会移动机械臂")
     with _session_lock(path):
         with arm_service.lock if arm_service is not None else nullcontext():
             return _capture_point(path, point_id, controller=controller, replace=replace,
-                                  arm_service=arm_service, allow_manual=allow_manual)
+                                  arm_service=arm_service, allow_manual=allow_manual,expected_session_id=expected_session_id)
 
 
-def _capture_point(path, point_id, *, controller, replace, arm_service, allow_manual):
+def _capture_point(path, point_id, *, controller, replace, arm_service, allow_manual,expected_session_id=None):
     path, session = load_session(path)
+    if expected_session_id is not None and session['session_id']!=expected_session_id:
+        raise CalibrationError('标定会话已切换，请刷新页面再采点；没有读取或替换其他会话的点')
     if point_id not in POINTS:
         raise CalibrationError("未知采点ID")
     if point_id in session["records"] and not replace:
@@ -210,18 +213,29 @@ def _capture_point(path, point_id, *, controller, replace, arm_service, allow_ma
         if pitch_delta > 5:
             warnings.append(f"俯仰与 {others[0]['id']} 相差 {pitch_delta:.1f}°；已保留真实XYZ，可尽量保持一致")
     grid = session["points"][point_id]
-    record = {"id": point_id, "grid": grid, "role": "validate" if point_id == "V1" else "train",
+    capture_id=uuid.uuid4().hex;previous=session['records'].get(point_id);old_fit=session.get('fit')
+    record = {"id": point_id,"capture_id":capture_id, "grid": grid, "role": "validate" if point_id == "V1" else "train",
               "board_mm": [v*session["reference"]["square_mm"] for v in grid],
               "pixel_xy": session["reference"]["corners_px"][grid[1]*9+grid[0]],
               "captured_at": datetime.now(timezone.utc).isoformat(),
               "operator_confirmed_endpoint_on_board": True, **measured, "pose_warnings": warnings, "raw_feedback": sample}
     # Save every raw sample before updating the resumable session. Never erase
     # an earlier attempt, even when --replace is explicitly requested.
-    archive = path.parent / (path.stem + "-samples") / (point_id + "-" + uuid.uuid4().hex + ".json")
+    archive = path.parent / (path.stem + "-samples") / (point_id + "-" + capture_id + ".json")
     _write_json_atomic(archive, record)
     if point_id in session["records"]:
         session["history"].append(session["records"][point_id])
     session["records"][point_id] = record
+    session['capture_revision']=session.get('capture_revision',0)+1
+    delta=(np.asarray(record['robot_xyz_mm'])-previous['robot_xyz_mm']).tolist() if previous else None
+    session['last_capture']={'point_id':point_id,'capture_id':capture_id,'captured_at':record['captured_at'],
+        'capture_revision':session['capture_revision'],'sample_file':str(archive),'query_count':len(sample['samples']),
+        'previous_capture_id':previous.get('capture_id') if previous else None,
+        'previous_captured_at':previous.get('captured_at') if previous else None,
+        'previous_xyz_mm':previous['robot_xyz_mm'] if previous else None,'xyz_mm':record['robot_xyz_mm'],
+        'xyz_change_mm':delta,'change_norm_mm':float(np.linalg.norm(delta)) if delta is not None else None,
+        'xyz_unchanged':bool(delta is not None and not np.any(np.abs(delta)>1e-9)),
+        'previous_validation_error_mm':old_fit.get('validation_error_mm') if old_fit else None}
     session.pop("fit", None)
     _write_json_atomic(path, session)
     return session_status(path)
@@ -255,9 +269,27 @@ def fit_points(records):
     if normal[2] < 0:
         normal = -normal
     passed = rms <= TRAIN_RMS_LIMIT_MM and largest <= TRAIN_MAX_LIMIT_MM and validation <= VALIDATION_LIMIT_MM
+    diagnostics=[]
+    for key in POINTS:
+        record=records[key];expected=rotation@np.asarray(record['board_mm']+[0.])+offset
+        actual=np.asarray(record['robot_xyz_mm']);delta=actual-expected;local=rotation.T@delta
+        diagnostics.append({'id':key,'role':'validate' if key=='V1' else 'train','grid':POINTS[key],
+            'capture_id':record.get('capture_id'),'captured_at':record.get('captured_at'),
+            'recorded_xyz_mm':actual.tolist(),'predicted_xyz_mm':expected.tolist(),
+            'recorded_minus_predicted_mm':delta.tolist(),'board_xy_error_mm':local[:2].tolist(),
+            'height_error_mm':float(delta@normal),'error_mm':float(np.linalg.norm(delta))})
+    failures=[]
+    for metric,value,limit,label in (('train_rms_mm',rms,TRAIN_RMS_LIMIT_MM,'四点拟合RMS'),
+                                   ('train_max_mm',largest,TRAIN_MAX_LIMIT_MM,'拟合点最大误差'),
+                                   ('validation_error_mm',validation,VALIDATION_LIMIT_MM,'V1独立验证')):
+        if value>limit:failures.append({'metric':metric,'value_mm':value,'limit_mm':limit,'label':label})
+    training_ok=rms<=TRAIN_RMS_LIMIT_MM and largest<=TRAIN_MAX_LIMIT_MM
+    suggested='V1' if not passed and training_ok else train[int(np.argmax(errors))]['id'] if not passed else None
     return {"board_to_robot_rotation_3x3": rotation.tolist(), "board_to_robot_translation_mm": offset.tolist(),
             "train_rms_mm": rms, "train_max_mm": largest, "validation_error_mm": validation,
             "train_errors_mm": dict(zip((r["id"] for r in train), errors.tolist())),
+            'point_diagnostics':diagnostics,'failure_reasons':failures,'suggested_recheck':suggested,
+            'limits_mm':{'train_rms_mm':TRAIN_RMS_LIMIT_MM,'train_max_mm':TRAIN_MAX_LIMIT_MM,'validation_error_mm':VALIDATION_LIMIT_MM},
             "table_plane_robot": {"normal_up": normal.tolist(), "d_mm": -float(normal @ offset)},
             "planar_fit_validated": bool(passed), "motion_authorized": False,
             "scope": "board_plane_firmware_endpoint",
@@ -270,9 +302,15 @@ def session_status(path):
                "robot_xyz_mm": session["records"].get(key, {}).get("robot_xyz_mm"),
                "pose_warnings": session["records"].get(key, {}).get("pose_warnings", [])}
               for key, grid in session["points"].items()]
-    return {"setup_id": session["setup_id"], "session": str(path), "alignment_image": str(path.with_suffix(".png")),
+    fit=session.get('fit')
+    # Upgrade diagnostics from the actual saved records, including old sessions,
+    # without requiring another physical capture or rewriting the candidate.
+    if fit is not None:fit={**fit,**fit_points(session['records']),
+                           'input_capture_revision':session.get('capture_revision',0)}
+    return {"setup_id": session["setup_id"],'session_id':session['session_id'], "session": str(path), "alignment_image": str(path.with_suffix(".png")),
             "points": points, "next_point": next((p["id"] for p in points if not p["captured"]), None),
-            "reference_trial_id": session["reference"]["source_trial_id"], "fit": session.get("fit"),
+            "reference_trial_id": session["reference"]["source_trial_id"], "fit": fit,
+            'capture_revision':session.get('capture_revision',0),'last_capture':session.get('last_capture'),
             "motion_authorized": False}
 
 
@@ -281,7 +319,7 @@ def fit_session(path):
         path, session = load_session(path)
         result = {"kind": "bench_calibration_candidate_v1", "setup_id": session["setup_id"],
                   "session_id": session["session_id"], "reference_sha256": session["reference_sha256"],
-                  "source_session": str(path), **fit_points(session["records"])}
+                  "source_session": str(path),'input_capture_revision':session.get('capture_revision',0), **fit_points(session["records"])}
         output = path.parent/("candidate-"+uuid.uuid4().hex+".json")
         _write_json_atomic(output, result)
         session["fit"] = {**result, "output_file": str(output)}

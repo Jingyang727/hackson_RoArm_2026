@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import time
 from typing import Literal
+import threading
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from evoarm_rsi import bench_calibration as bench
 from evoarm_rsi.task_memory import valid_id, summary
+from evoarm_rsi.bench_layout import active_session,begin_revision,calibration_root
 
 
 def setup_id():
@@ -24,7 +26,7 @@ def experiment_root():
 
 
 def session_path():
-    return Path.home()/".evoarm/rsi/calibrations"/setup_id()/"session.json"
+    return active_session(Path.home(),setup_id())
 
 
 class NewSession(BaseModel):
@@ -32,10 +34,15 @@ class NewSession(BaseModel):
     square_mm: float = Field(gt=0, le=200)
 
 
+class Recalibrate(BaseModel):
+    square_mm: float = Field(ge=0.1,le=200,allow_inf_nan=False)
+
+
 class CaptureRequest(BaseModel):
     point_id: Literal["P1", "P2", "P3", "P4", "V1"]
     aligned_and_supported: bool
     replace: bool = False
+    session_id: str|None = Field(default=None,max_length=128)
 
 
 def _call(function, *args, **kwargs):
@@ -47,7 +54,8 @@ def _call(function, *args, **kwargs):
 
 def state(service):
     path = session_path()
-    result = {"setup_id": setup_id(), "session_exists": path.is_file(), "health": service.health(),
+    result = {"bench_api_version":3,"setup_id": setup_id(), "session_exists": path.is_file(), "health": service.health(),
+              "recalibration_required":not path.is_file() and (calibration_root(Path.home(),setup_id())/'active-session.json').exists(),
               "current_image_available": path.is_file() and path.with_name("current.png").is_file()}
     if path.is_file():
         _, session = bench.load_session(path)
@@ -55,6 +63,7 @@ def state(service):
             raise ValueError("标定会话与当前布置不匹配")
         result.update(bench.session_status(path))
         result["square_mm"] = session["reference"]["square_mm"]
+        result['corner_count']=len(session['reference']['corners_px'])
         result["image_size"] = session["reference"]["image_size"]
         result["overlay_points"] = [{"id": key, "grid": grid,
                                      "pixel_xy": session["reference"]["corners_px"][grid[1]*9+grid[0]]}
@@ -66,6 +75,7 @@ def state(service):
 
 def install(app, service_provider):
     router = APIRouter(prefix="/api/bench")
+    recalibrating=threading.Lock()
 
     @router.get("/status")
     def status():
@@ -97,6 +107,36 @@ def install(app, service_provider):
         return _call(bench.start_session, experiment_root()/req.trial_id, setup_id=setup_id(),
                      square_mm=req.square_mm, output=session_path())
 
+    @router.post('/recalibrate')
+    def recalibrate(req:Recalibrate):
+        from evoarm_rsi.camera_service import client_request
+        if not recalibrating.acquire(blocking=False):raise HTTPException(status_code=409,detail='正在采集棋盘并检测角点，请等待')
+        service=service_provider()
+        try:
+            with service.lock:
+                if service.pending or service.automation_owner:
+                    raise ValueError('请先结束当前运动或自动任务，再开始新标定')
+                target=begin_revision(Path.home(),setup_id())
+                cam=client_request(Path.home(),'GET','/health')
+                if cam.get('camera_service')!='ready' or cam.get('robot_control') is not False or cam.get('recording'):
+                    raise ValueError('独立相机服务需空闲并处于ready状态；新布局已启用，请恢复相机后重新检测')
+                capture=client_request(Path.home(),'POST','/record',{'seconds':2})
+                key=capture.get('trial_id')
+                if not isinstance(key,str) or not re.fullmatch('[a-f0-9]{32}',key):raise ValueError('相机未返回有效的新录像ID')
+                bench.start_session(experiment_root()/key,setup_id=setup_id(),square_mm=req.square_mm,output=target)
+                result=state(service)
+                result.update(motion_commands_sent=False,corner_count=54,
+                              message='已检测到完整9×6、54个角点；新五点记录已建立，旧标定保留。')
+                return result
+        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
+            detail=str(exc)
+            if 'not enough real full-board frames' in detail:
+                detail='当前未稳定检测到完整9×6、54个内角点；请让棋盘完整可见并保持静止，再重新采集'
+            elif 'checkerboard was not stable' in detail:
+                detail='采集时棋盘或相机发生移动，请固定后重新采集'
+            raise HTTPException(status_code=409,detail=f'新标定尚未完成：{detail}') from exc
+        finally:recalibrating.release()
+
     @router.get("/robot")
     def robot():
         service = service_provider()
@@ -111,10 +151,11 @@ def install(app, service_provider):
             raise HTTPException(status_code=409, detail="请持续支撑机械臂，确认触点对准角点且静止，再采点")
         service = service_provider()
         # Lock acquisition order is session -> serial, matching the CLI.
-        result = _call(bench.capture_point, session_path(), req.point_id, aligned=True,
-                       replace=req.replace, arm_service=service, allow_manual=True)
+        path=session_path()
+        result = _call(bench.capture_point, path, req.point_id, aligned=True,
+                       replace=req.replace, arm_service=service, allow_manual=True,expected_session_id=req.session_id)
         if result["next_point"] is None:
-            result = _call(bench.fit_session, session_path())
+            result = _call(bench.fit_session, path)
         return result
 
     @router.get("/frame")
@@ -127,7 +168,6 @@ def install(app, service_provider):
     @router.post("/live/start")
     def live_start():
         from evoarm_rsi.camera_service import client_request
-        _call(bench.load_session, session_path())
         try:
             return client_request(Path.home(), "POST", "/preview/start", {})
         except (OSError, RuntimeError, ValueError) as exc:
@@ -136,12 +176,13 @@ def install(app, service_provider):
     @router.get("/live-frame")
     def live_frame(after: int = Query(0, ge=0, le=2**53)):
         from evoarm_rsi.camera_service import preview_frame
-        _, session = _call(bench.load_session, session_path())
+        path=session_path()
+        session=_call(bench.load_session,path)[1] if path.is_file() else None
         try:
             frame = preview_frame(Path.home(), after)
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=503, detail="相机没有返回新画面，实时预览已暂停。请检查相机服务和USB连接。") from exc
-        if [frame["width"], frame["height"]] != session["reference"]["image_size"]:
+        if session and [frame["width"], frame["height"]] != session["reference"]["image_size"]:
             raise HTTPException(status_code=409, detail="实时画面分辨率与标定参考不同，不能叠加旧标记；请核对相机配置。")
         local_age = (time.monotonic_ns()-frame["stamp_ns"])/1e6
         age = max(frame["age_ms"], local_age)

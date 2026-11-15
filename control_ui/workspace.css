@@ -802,3 +802,18 @@ footer {
   color: #6a7f72;
   font-size: 11px;
 }
+.result-card .facts,
+.capture-card .facts {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.7;
+}
+.point-error-row {
+  border-top: 1px solid #e1e8e2;
+  padding: 10px 0;
+}
+.point-error-row .text-button {
+  white-space: normal;
+  text-align: left;
+}
