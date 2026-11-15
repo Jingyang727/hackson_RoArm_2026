@@ -458,7 +458,7 @@ def install(app,service_provider):
                 pushed_before_close=req.outcome=='pushed_away' and any(d.get('stage')=='descend' for d in result.get('dispatches',[]))
                 if req.outcome not in ('unknown','execution_failed') and not result.get('grasp_attempted') and not pushed_before_close:raise ValueError('本轮未执行闭爪，先记录控制/录像故障')
                 if req.source in ('company_grok','opencode_agent') and req.outcome=='placed' and (result.get('camera_error') or not result.get('recording_covers_motion')):
-                    raise ValueError('录像证据不完整，Grok不能据此宣称投放成功')
+                    raise ValueError('录像证据不完整，视觉模型不能据此宣称投放成功')
                 saved=session()
                 if fingerprint(saved)!=current['calibration_fingerprint']:raise ValueError('标定已变化，不能把旧轮次修正应用到新坐标系')
                 pol=policy(saved)
@@ -611,7 +611,7 @@ def install(app,service_provider):
                     if agent_stream is None or learner.events.session_id!=agent_stream:
                         agent_stream=uuid.uuid4().hex;agent_phase=None;learner.events.reset(agent_stream)
                     learner.events.emit('phase',phase='scene_check' if packet['phase']=='scene' else 'analyzing',
-                                        plan_id=plan_id,message='图片包已准备，等待只读Grok视觉子Agent复核')
+                                        plan_id=plan_id,message='图片包已准备，等待只读视觉模型视觉子Agent复核')
                 return packet
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
 

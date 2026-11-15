@@ -202,21 +202,21 @@ def adapt(parameters,scene,outcome,direction,magnitude='medium',adjustment='unkn
         center+=np.asarray(scene['table_plane']['normal_up'])*height;center[:2]+=result[key]
         delta=image_correction(scene,direction,step_mm,target=target,center_robot_mm=center)
         result[key]=[v+d for v,d in zip(result[key],delta)]
-        change.append(f'{key}按Grok判断的方向和幅度调整{step_mm:g}mm；数值是试验步长，不是Grok测得的绝对误差。')
+        change.append(f'{key}按视觉模型判断的方向和幅度调整{step_mm:g}mm；数值是试验步长，不是视觉模型测得的绝对误差。')
     elif outcome=='grasp_missed' and direction in ('too_high','too_low'):
         delta=-2 if direction=='too_high' else 2
         result['grasp_z_offset_mm']=max(-10.,min(15.,result['grasp_z_offset_mm']+delta))
         change.append(f'下一轮抓取高度调整{delta:+d}mm。')
     elif outcome=='grasp_missed' and direction=='none':
         result['grasp_z_offset_mm']=max(-10.,result['grasp_z_offset_mm']-2)
-        change.append('Grok确认抓空但方向不清，下一轮只探索降低抓取高度2mm；不把探索步长当作测量误差。')
+        change.append('视觉模型确认抓空但方向不清，下一轮只探索降低抓取高度2mm；不把探索步长当作测量误差。')
     elif outcome=='pushed_away':
         result['grasp_z_offset_mm']=min(15.,result['grasp_z_offset_mm']+2)
         change.append('下降时推走了球，下一轮先提高抓取高度2mm，再用录像验证。')
     elif outcome=='slipped':
         if adjustment=='grip_tighten' and result['squeeze_deg']<5:
             result['squeeze_deg']=min(5.,result['squeeze_deg']+1)
-            change.append('Grok建议加强夹持，下一轮接触后角度预紧增加1°；这是位置控制试验，不是测得的夹持力。')
+            change.append('视觉模型建议加强夹持，下一轮接触后角度预紧增加1°；这是位置控制试验，不是测得的夹持力。')
         else:
             result['travel_speed']=max(.2,round(result['travel_speed']*.85,3))
             change.append('发生滑落，下一轮快速移动速度降低15%，先隔离运动造成的滑落。')

@@ -191,7 +191,7 @@ class LearningLoop:
                                  depth_used=current['plan']['scene']['ball']['depth_evidence']['depth_used'])
                 if attempt==1 or current['plan']['scene']['funnel'].get('ambiguous'):
                     assessment=self._review(key,preflight=True)
-                    if not assessment['ready']:raise RuntimeError('Grok无法确认当前球与漏斗：'+assessment['note'])
+                    if not assessment['ready']:raise RuntimeError('视觉模型无法确认当前球与漏斗：'+assessment['note'])
                 self._guard();phase='executing';self.publish('executing');self.run_trial(key)
                 until=time.monotonic()+150
                 while current['status'] in ('starting','active') or not current.get('worker_finished',True):
@@ -217,7 +217,7 @@ class LearningLoop:
                 if current.get('recovery',{}).get('status')!='completed':self._recover_trial(current,verdict,session_id)
                 self.archive(current)
                 if verdict['outcome']=='unknown':
-                    raise ResetHandledError(RuntimeError('Grok无法可靠判断本轮，已保留证据'),current['recovery'])
+                    raise ResetHandledError(RuntimeError('视觉模型无法可靠判断本轮，已保留证据'),current['recovery'])
                 if decision.get('proposal',{}).get('allow_retry') is False:
                     reason=decision.get('proposal',{}).get('reason') or '当前画面与反馈不足以选择新参数。'
                     raise ResetHandledError(RuntimeError('本轮没有可验证的新修正：'+reason),current['recovery'])
