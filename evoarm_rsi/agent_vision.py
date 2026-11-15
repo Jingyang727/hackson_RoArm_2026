@@ -71,8 +71,12 @@ def packet(current,comparison,root,capture_root):
             raise ValueError('视觉图片保存失败')
         images.append({**source[i],'url':f"/api/bench/rsi/plans/{current['id']}/vision-{key}-{i}",
                        'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
-    instructions=('只读取本包实际图片，确认标记的是黄球与黑色漏斗开口、夹爪为空。路径叠加只是计划。'
-                  '不猜机器人摆放或数值坐标，返回JSON {"ready":true或false,"note":"中文可见依据"}。') if scene else INSTRUCTIONS
+    instructions=('只读取本包实际图片，确认标记的是黄球与黑色漏斗大开口。路径叠加只是计划。'
+                  '官方初始姿态的夹爪可能在画面外；不要求看见夹爪，也不能把不可见当作确认空爪。'
+                  '夹爪不可见、遮挡或看不清内容时记unknown；仅实际看见夹爪持球时记holding_ball。'
+                  '不猜数值坐标，返回JSON {"ball_visible":true或false,"funnel_visible":true或false,'
+                  '"gripper_state":"empty|holding_ball|unknown","note":"中文可见依据"}。'
+                  '目标可见且未看见持球即可；unknown不否决开始。') if scene else INSTRUCTIONS
     value={'vision_packet_version':2,'vision_packet_id':key,'plan_id':current['id'],'phase':identity['phase'],'frame':'unmirrored_rgb',
            'instructions':instructions,'comparison':comparison_info,'images':images,
            'execution':{'grasp_attempted':bool(result.get('grasp_attempted')),'placement_attempted':bool(result.get('placement_attempted')),

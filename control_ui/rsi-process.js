@@ -13,7 +13,10 @@
   let session=null,started=0,sequence=-1,rows=[],output=null,source=null,paired=null;
   function verdict(value){
     if(!value)return '';
-    if(typeof value.ready==='boolean')return `场景检查：${value.ready?'已确认球与漏斗':'暂不能确认'}\n${value.note||''}`;
+    if(typeof value.ready==='boolean'){
+      const gripper={unknown:'夹爪状态未知；无需在画面中看见空爪',empty:'画面显示夹爪为空',holding_ball:'画面显示夹爪已有球'};
+      return `场景检查：${value.ready?'已确认球与漏斗':'暂不能确认'}\n${value.note||''}${gripper[value.gripper_state]?'\n'+gripper[value.gripper_state]:''}`;
+    }
     const lines=[`${value.source==='human'?'人工记录':'视觉模型判断'}：${outcomes[value.outcome]||value.outcome}`];
     if(value.ball_state)lines.push(`球的位置：${ballStates[value.ball_state]||value.ball_state}`);
     if(value.direction)lines.push(`${directions[value.direction]||value.direction}${value.magnitude?'；粗略偏差：'+(magnitudes[value.magnitude]||value.magnitude):''}`);

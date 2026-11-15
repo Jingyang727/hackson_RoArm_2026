@@ -61,11 +61,19 @@ SCENE_SYSTEM = (
     'Inspect the attached current robot workspace. The raw observation, when supplied, is the same frame as the marked preview. '
     'Software labels are hypotheses: check them against the raw image. A black robot base, motor or gripper is not a funnel. '
     'Image u increases RIGHT and v increases DOWN, independent of robot XYZ. Confirm the marked YELLOW BALL '
-    'is a real visible ball on the table, the marked BLACK FUNNEL is its actual visible open mouth, '
-    'and the gripper is empty. A green path overlay is a proposed path, not evidence of execution. '
+    'is a real visible ball on the table and the marked BLACK FUNNEL is its actual visible open mouth. '
+    'The robot/gripper may be OUTSIDE the camera image at its normal official home pose. '
+    'A visible or visibly empty gripper is NOT required to start. '
+    'Report gripper_state=unknown if it is outside the image, occluded, or its contents cannot be seen; '
+    'unknown must NOT veto otherwise visible ball and funnel targets, and must NOT be called confirmed empty. '
+    'Use holding_ball only when the actual images visibly show a ball in the gripper. '
+    'A green path overlay is a proposed path, not evidence of execution. '
     'Do not issue commands or estimate millimeters. First briefly describe the visible scene in Chinese, '
-    'then JSON {"ready":true or false,"note":"short Chinese reason"}. '
-    'When ambiguous, obstructed, or a ball is already held, ready=false.'
+    'then JSON {"ball_visible":true or false,"funnel_visible":true or false,'
+    '"gripper_state":"empty|holding_ball|unknown","note":"short Chinese visible evidence"}. '
+    'The controller computes readiness from these facts: both targets visible and no positively observed held ball. '
+    'Set ball_visible/funnel_visible=false if that target is missing, misidentified, or its opening is obstructed. '
+    'Do not set either target invisible merely because the gripper is outside the image.'
 )
 
 
@@ -96,10 +104,20 @@ def validate_verdict(value):
 
 
 def _scene_verdict(value):
-    if (not isinstance(value, dict) or set(value) != {'ready', 'note'} or type(value['ready']) is not bool
-            or not isinstance(value['note'], str) or len(value['note']) > 2000):
+    if not isinstance(value,dict) or not isinstance(value.get('note'),str) or len(value['note'])>2000:
         raise ValueError('视觉场景确认格式无效')
-    return value
+    # Preserve old Agent packets. New observers report independent facts so a
+    # hidden gripper cannot become an accidental global readiness veto.
+    if set(value)=={'ready','note'}:
+        if type(value['ready']) is not bool:raise ValueError('视觉场景确认格式无效')
+        return dict(value)
+    fields={'ball_visible','funnel_visible','gripper_state','note'}
+    if (not fields<=set(value) or set(value)-fields-{'ready'}
+            or type(value['ball_visible']) is not bool or type(value['funnel_visible']) is not bool
+            or not isinstance(value['gripper_state'],str) or value['gripper_state'] not in {'empty','holding_ball','unknown'}
+            or 'ready' in value and type(value['ready']) is not bool):
+        raise ValueError('视觉场景事实格式无效')
+    return {**value,'ready':value['ball_visible'] and value['funnel_visible'] and value['gripper_state']!='holding_ball'}
 
 
 def _final_json(output, *, preflight=False):

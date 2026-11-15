@@ -31,9 +31,9 @@ permission:
 - `observe`：只采当前 RGB-D，返回当前球心/漏斗口 XYZ 和带标记快照，无需机械臂连接或抓放路径可达；只想验证物体坐标时用它。之后保持物体原位再做触碰测试，不使用历史试次坐标去验证已移动的物体。
 - `coordinate-evidence`：只读保存的坐标测试输入、实际反馈、俯仰和五点记录，不采样、不移动。用户报告触碰位置与视觉 XYZ 大幅不符时先用此工具核对；这是定位链诊断，不应持续累计 RSI 补偿或凭两点覆盖完整外参。
 - `prepare`：采集当前 RGB-D、定位和检查完整路径，不移动。返回本轮 plan_id。再读 `objects`、`context <32位ID>`，检查目标与路径。上一执行轮尚未复核/决策时不能准备下一轮；先完成那一轮闭环。
-- `vision PLAN_ID`：生成并下载只含本轮/可比前轮实际图片的视觉任务包。将返回的vision_task原样交给Task工具的roarm-vision子Agent，包括每行@图片引用；OpenCode会在首次模型请求前一次附上全部图片。不要删除引用、转为普通路径列表、逐张调用read或让子Agent读目录。每轮新建任务，不传父上下文、机器人坐标、外参或摆放关系。它只按画面给定性判断。scene阶段确认ready后才执行。
+- `vision PLAN_ID`：生成并下载只含本轮/可比前轮实际图片的视觉任务包。将返回的vision_task原样交给Task工具的roarm-vision子Agent，包括每行@图片引用；OpenCode会在首次模型请求前一次附上全部图片。不要删除引用、转为普通路径列表、逐张调用read或让子Agent读目录。每轮新建任务，不传父上下文、机器人坐标、外参或摆放关系。它只按画面给定性判断。scene阶段两目标可见且未明确观察到持球即可进入run，由后端计算ready；夹爪unknown不否决。
 - `evidence PLAN_ID`：下载实际预览、动作关键帧、前后对照到本机，返回图片路径。必须用图像读取工具打开图片；没有图像或遮挡返回 unknown，不用到位反馈冒充视觉成功。
-- `run PLAN_ID --execute --vision-packet-id 场景包编号 --scene-json '场景子Agent原始JSON'`：用户已授权的任务内执行一次完整抓放；必须附上本轮ready=true的场景复核。`wait --seconds 30`等待完成，--timeout为兼容别名；超时后先state，绝不重发同一动作。
+- `run PLAN_ID --execute --vision-packet-id 场景包编号 --scene-json '场景子Agent原始JSON'`：用户已授权的任务内执行一次完整抓放；附上本轮场景事实JSON，后端根据ball_visible、funnel_visible及gripper_state计算ready。目标可见且未明确观察到持球时可开始，夹爪unknown不否决；不要求原JSON含ready字段，也不自行改写子Agent事实。`wait --seconds 30`等待完成，--timeout为兼容别名；超时后先state，绝不重发同一动作。
 - `diagnosis PLAN_ID`：只读本轮执行分类、各阶段相对用时、lift目标与实测XYZ/离桌高度、允许的执行参数试验。72.4mm等要求是离标定桌面的高度，不能直接当成机器人Z坐标。
 - `decision --json 'JSON对象'`：提交plan_id、vision_packet_id、visual_review（子Agent原始JSON）、reason（你的决策理由），以及requested_step_mm或parameter_trial之一。不得改写视觉子Agent的定性结论。你自行选择明确的试验幅度，这是实验值；工具转换坐标、检查完整IK并保存。旧review工具只用于兼容，不用于本闭环。
 - `remember --plan-id PLAN_ID --note '有证据的经验'`：保存经验、结果与待验证假设。不要把猜测写成已确认事实。策略和记忆按标定指纹保存，每轮重新读入。
