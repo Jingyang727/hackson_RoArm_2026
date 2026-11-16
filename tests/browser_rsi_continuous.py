@@ -13,7 +13,7 @@ def check(url,output):
     image=np.full((360,640,3),220,np.uint8)
     cv2.putText(image,'SIMULATED / NO HARDWARE',(20,170),cv2.FONT_HERSHEY_SIMPLEX,.7,(50,80,50),2)
     _,jpeg=cv2.imencode('.jpg',image)
-    state={'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,'continuous_learning_version':1,
+    state={'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,'continuous_learning_version':1,'route_policy_version':7,
         'workspace_preview_version':1,'speed_settings_version':1,
         'speed_settings':{'policy_version':1,'calibration_fingerprint':'fixture','travel_speed':1.,'approach_speed':.5},
         'setup_id':'bench-layout-v2','job':{'status':'idle'},'learning':{'status':'idle'},'plan':None,

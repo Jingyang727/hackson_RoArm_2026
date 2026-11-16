@@ -71,7 +71,7 @@ class Routes(unittest.TestCase):
         actual=inverse(at_height([300.,0.,0.],30.,plan['table_plane']),step['pitch_rad'],0.,math.pi)
         with self.assertRaises(ValueError):check_segment(actual,step,plan['table_plane'])
 
-    def test_an_unused_taller_release_candidate_does_not_change_the_selected_route(self):
+    def test_transfer_height_restores_main_shared_high_corridor(self):
         raw=SimulatedArm().status();plan=self.plan(raw);p=copy.deepcopy(DEFAULT_PARAMETERS)
         grasp=plan['grasp_tip_xyz_mm'];drop=plan['release_tip_xyz_mm'];pitch=math.radians(plan['grasp_pitch_deg'])
         low={'xyz_mm':drop,'pitch_rad':math.radians(plan['release_pitch_deg'])}
@@ -79,6 +79,12 @@ class Routes(unittest.TestCase):
         options={'ball_top_height':34.,'funnel_height':plan['release_policy']['lip_height_mm'],'ball_radius':17.}
         baseline,route=build_route(raw,grasp,drop,pitch,plan['table_plane'],p,release_candidates=[low],**options)
         with_alternative,other=build_route(raw,grasp,drop,pitch,plan['table_plane'],p,release_candidates=[low,taller],**options)
-        self.assertEqual(with_alternative,baseline)
-        self.assertEqual(route['transfer_height_mm'],other['transfer_height_mm'])
+        expected=max(p['lift_height_mm'],other['minimum_transfer_height_mm']+10.,
+                     max(height_above_plane(c['xyz_mm'],plan['table_plane']) for c in (low,taller))+10.)
+        self.assertAlmostEqual(other['transfer_height_mm'],expected)
+        self.assertGreater(other['transfer_height_mm'],route['transfer_height_mm'])
         self.assertEqual(other['release_tip_xyz_mm'],drop)
+        self.assertEqual(other['transfer_height_policy'],'main_shared_candidate_max')
+        for step in with_alternative:
+            if step['stage'] in ('lift','transport','transit_arc'):
+                self.assertAlmostEqual(height_above_plane(step['xyz_mm'],plan['table_plane']),expected)

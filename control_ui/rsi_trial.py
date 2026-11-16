@@ -47,7 +47,7 @@ from evoarm_rsi.learning_basis import basis as learning_basis,execution_proposal
 from evoarm_rsi.roarm_geometry import MotionConstraintError
 from evoarm_rsi.planning_diagnostics import explain as explain_planning
 from evoarm_rsi.workspace_preview import compute_workspace
-from evoarm_rsi.rsi_route import ROUTE_VERSION,LIFT_DEPARTURE_VERSION
+from evoarm_rsi.rsi_route import ROUTE_VERSION,LIFT_DEPARTURE_VERSION,TRANSFER_HEIGHT_POLICY
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -277,6 +277,7 @@ def install(app,service_provider):
                 'workspace_preview_version':1,
                 'continuous_learning_version':1,
                 'lift_departure_version':LIFT_DEPARTURE_VERSION,
+                'route_policy_version':ROUTE_VERSION,'transfer_height_policy':TRANSFER_HEIGHT_POLICY,
                 'speed_settings_version':1,'speed_settings':speeds,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,

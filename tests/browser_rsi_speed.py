@@ -15,7 +15,7 @@ def check(url,output):
     cv2.putText(image,'SIMULATED / NO HARDWARE',(20,330),cv2.FONT_HERSHEY_SIMPLEX,.6,(70,80,70),2)
     _,jpeg=cv2.imencode('.jpg',image)
     settings={'policy_version':4,'calibration_fingerprint':'fixture','travel_speed':.65,'approach_speed':.3}
-    state={'api_version':10,'web_learning_version':3,'continuous_learning_version':1,'visual_pipeline_version':3,'speed_settings_version':1,
+    state={'api_version':10,'web_learning_version':3,'continuous_learning_version':1,'route_policy_version':7,'visual_pipeline_version':3,'speed_settings_version':1,
         'speed_settings':settings,'workspace_preview_version':1,'setup_id':'bench-layout-v2',
         'health':{'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None},
         'job':{'status':'idle'},'learning':{'status':'idle'},'grok':{'configured':True,'model':'test-vlm'},'plan':None}

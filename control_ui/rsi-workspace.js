@@ -45,6 +45,8 @@
   function configure(data,externalBusy=false){
     snapshot=data;
     checkbox.disabled=externalBusy||data?.learning?.status==='running'||data?.job?.status==='running'||data?.workspace_preview_version!==1;
+    if(!busy&&result&&Number.isInteger(data?.route_policy_version)&&result.route_policy_version!==data.route_policy_version)
+      invalidate('运输路径版本已变化，请重新计算区域。');
     if(!busy&&result?.parameters&&data?.speed_settings&&['travel_speed','approach_speed'].some(k=>
       typeof data.speed_settings[k]==='number'&&data.speed_settings[k]!==result.parameters[k]))
       invalidate('抓放速度已变化，请重新计算区域。');

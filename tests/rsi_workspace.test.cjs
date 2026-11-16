@@ -64,6 +64,14 @@ test('saved speed changes invalidate a displayed workspace even without a new pl
   assert.match(p.elements.get('workspaceStatus').textContent,/抓放速度已变化/);assert.equal(p.calls.length,3);
 });
 
+test('a route policy change invalidates a workspace computed for a lower corridor',async()=>{
+  const p=page();p.result.route_policy_version=6;
+  p.elements.get('workspaceVisible').checked=true;p.elements.get('workspaceVisible').onchange();await flush();
+  p.api.configure({...p.state,route_policy_version:7});
+  assert.equal(p.elements.get('workspaceOverlay').hidden,true);assert.equal(p.elements.get('workspaceVisible').checked,false);
+  assert.match(p.elements.get('workspaceStatus').textContent,/运输路径版本已变化/);assert.equal(p.calls.length,3);
+});
+
 test('a changed funnel or starting pose hides a workspace computed under different conditions',async()=>{
   for(const change of ['funnel','pose']){
     const p=page();p.result.initial_pitch_deg=0;p.result.initial_roll_rad=0;p.result.funnel_xyz_mm=[300,200,-70];

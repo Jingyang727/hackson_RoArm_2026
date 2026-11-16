@@ -53,7 +53,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?`视觉模型 ${grok.model} · API直接调用`:(grok.reason||'正在检查视觉模型API配置。');
-  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3&&state?.continuous_learning_version===1;
+  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3&&state?.continuous_learning_version===1&&state?.route_policy_version===7;
   $('observeObjects').disabled=busy||workspaceBusy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   const limit=attemptLimit(),validLimit=limit===null||Number.isSafeInteger(limit)&&limit>=1;
@@ -95,7 +95,7 @@ function render(){
     if($('depthFrame').getAttribute('src')!==p.depth_url)$('depthFrame').src=p.depth_url;
     const scale=p.scene.depth_scale;$('depthLegend').textContent=scale?`颜色范围：到相机 ${number(scale.near_mm)} ～ ${number(scale.far_mm)} mm；黑色表示深度缺失。`:'颜色表示表面到相机的距离，单位毫米。';
     const release=p.release_policy;
-    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version>=4?(p.route_policy.merged_high_approach?'先保证离桌间隙；高处合并接近与姿态调整，再竖直下探，抬升时切换运输姿态。':'先竖直抬升，再分段高处接近、竖直下探；抬升时切换运输姿态。'):''}\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n${release?`投放球底距口沿 ${number(release.ball_bottom_clearance_mm)} mm；开爪前实测指尖间隙至少 ${number(release.minimum_tip_clearance_mm)} mm。`:''}\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
+    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version>=4?(p.route_policy.merged_high_approach?'先保证离桌间隙；高处合并接近与姿态调整，再竖直下探，抬升时切换运输姿态。':'先竖直抬升，再分段高处接近、竖直下探；抬升时切换运输姿态。'):''}\n抓后运输离桌高度（规划）：${number(p.route_policy?.transfer_height_mm)} mm。\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n${release?`投放球底距口沿 ${number(release.ball_bottom_clearance_mm)} mm；开爪前实测指尖间隙至少 ${number(release.minimum_tip_clearance_mm)} mm。`:''}\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
     $('archiveLink').hidden=!p.backup_url;if(p.backup_url)$('archiveLink').href=p.backup_url;
     $('backupStatus').textContent=p.backup_url?'完整试次已备份；Langfuse待同步记录已生成。':r?'正在整理本轮备份…':'观察数据已保存；动作结束后生成完整备份。';
   }

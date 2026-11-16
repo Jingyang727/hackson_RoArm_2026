@@ -10,7 +10,7 @@ def check(url,data_dir,image,output):
     data_dir=Path(data_dir);output=Path(output);output.mkdir(parents=True,exist_ok=True)
     scene=json.loads((data_dir/'scene.json').read_text());workspace=json.loads((data_dir/'workspace.json').read_text())
     jpeg=Path(image).read_bytes();calls=[];errors=[];sequence=[0]
-    state={'api_version':10,'web_learning_version':3,'continuous_learning_version':1,'visual_pipeline_version':3,'workspace_preview_version':1,
+    state={'api_version':10,'web_learning_version':3,'continuous_learning_version':1,'route_policy_version':7,'visual_pipeline_version':3,'workspace_preview_version':1,
            'setup_id':'bench-layout-v2','health':{'connected':True,'motion_enabled':False,'torque_status':[1]*6,'pending':None,'fault':None},
            'grok':{'configured':True,'model':'DeepSeek-V4.1-Flash'},'job':{'status':'idle'},
            'learning':{'status':'idle','phase':'idle'},'plan':None}

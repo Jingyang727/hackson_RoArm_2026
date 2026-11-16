@@ -7,8 +7,9 @@ from .ball_trial import check_segment
 from .roarm_geometry import height_above_plane,inverse,MotionConstraintError
 from .planning_diagnostics import search_summary
 
-ROUTE_VERSION=6
+ROUTE_VERSION=7
 LIFT_DEPARTURE_VERSION=1
+TRANSFER_HEIGHT_POLICY='main_shared_candidate_max'
 
 
 def at_height(point,height,plane):
@@ -47,11 +48,8 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
     # An object-derived transit clearance, not a restriction on selectable XYZ.
     floor=max(funnel_height,2*ball_radius)+ball_radius+10.
     releases=release_candidates or [{'xyz_mm':list(release),'pitch_rad':pitch}]
-    def transfer_height(candidate):
-        return max(p['lift_height_mm'],floor+10.,height_above_plane(candidate['xyz_mm'],plane)+10.)
-    # A rejected high-pitch candidate must not force every other candidate to
-    # lift to its height. Check each release at its own required clearance.
-    travel=min(transfer_height(candidate) for candidate in releases)
+    # Restore main's shared high corridor, as requested by the operator.
+    travel=max(p['lift_height_mm'],floor+10.,max(height_above_plane(r['xyz_mm'],plane) for r in releases)+10.)
     checker=segment_checker or check_segment
     hover=max(p['hover_height_mm'],ball_top_height+p['finger_offset_mm']+5.)
     start_height=height_above_plane([initial[k] for k in 'xyz'],plane)
@@ -102,14 +100,13 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
             picked=current.copy();prefix=list(steps);selected=None
             for candidate in releases:
                 drop=candidate['xyz_mm'];drop_pitch=candidate['pitch_rad']
-                candidate_travel=transfer_height(candidate)
                 for mode in ('direct','orient','arc'):
                     current=picked.copy();steps=list(prefix)
                     try:
                         # Change to the transport pitch WHILE lifting, at
                         # measured XY. Keeping a steep grasp pitch until
                         # after lift needlessly loads the extended wrist.
-                        move('lift',at_height(grasp,candidate_travel,plane),drop_pitch,p['travel_speed'],0.,vertical=True)
+                        move('lift',at_height(grasp,travel,plane),drop_pitch,p['travel_speed'],0.,vertical=True)
                         if mode!='direct':
                             move('orient_transport',[current[k] for k in 'xyz'],drop_pitch,p['travel_speed'],floor,vertical=True)
                         if mode=='arc':
@@ -117,9 +114,9 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
                             delta=math.atan2(math.sin(b-a),math.cos(b-a));count=max(2,math.ceil(abs(delta)/math.radians(25)))
                             for i in range(count+1):
                                 angle=a+delta*i/count
-                                move('transit_arc',at_height([260.*math.cos(angle),260.*math.sin(angle),0.],candidate_travel,plane),
+                                move('transit_arc',at_height([260.*math.cos(angle),260.*math.sin(angle),0.],travel,plane),
                                      drop_pitch,p['travel_speed'],floor)
-                        move('transport',at_height(drop,candidate_travel,plane),drop_pitch,p['travel_speed'],floor)
+                        move('transport',at_height(drop,travel,plane),drop_pitch,p['travel_speed'],floor)
                         move('lower_to_release',drop,drop_pitch,p['approach_speed'],funnel_height,vertical=True)
                         selected=candidate;break
                     except ValueError:continue
@@ -134,7 +131,8 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
                     steps[index+1].update(gripper_rad=step['gripper_rad'],open_while_moving=True)
                     del steps[index];break
             return steps,{'version':ROUTE_VERSION,'mode':'lift_transfer_descend','vertical_axis':'robot_z_keep_xy',
-                'minimum_transfer_height_mm':floor,'transfer_height_mm':candidate_travel,'entry_transfer_height_mm':corridor,
+                'minimum_transfer_height_mm':floor,'transfer_height_mm':travel,'entry_transfer_height_mm':corridor,
+                'transfer_height_policy':TRANSFER_HEIGHT_POLICY,
                 'pickup_hover_height_mm':hover,'release_settle_s':.2,
                 'release_pitch_rad':selected['pitch_rad'],'release_tip_xyz_mm':list(selected['xyz_mm']),
                 'merged_high_approach':merged,'lift_pitch_rad':selected['pitch_rad'],
