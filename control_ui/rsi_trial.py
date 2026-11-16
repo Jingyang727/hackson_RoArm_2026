@@ -82,6 +82,13 @@ class Workspace(Empty):
     observation_id:str=Field(pattern=r'^[a-f0-9]{32}$')
 
 
+class Speeds(Empty):
+    travel_speed:float=Field(ge=.05,le=1,allow_inf_nan=False,strict=True)
+    approach_speed:float=Field(ge=.05,le=1,allow_inf_nan=False,strict=True)
+    policy_version:int=Field(ge=1,strict=True)
+    calibration_fingerprint:str=Field(min_length=1,max_length=128)
+
+
 class ComparisonReview(Empty):
     reference_plan_id:str|None=Field(pattern=r'^[a-f0-9]{32}$')
     effect:str=Field(pattern=r'^(improved|worsened|overshot|unchanged|unknown|not_comparable|not_compared)$')
@@ -138,6 +145,12 @@ def install(app,service_provider):
         if saved['setup_id']!=bench_ui.setup_id():raise ValueError('当前布置与保存标定不一致')
         return saved
     def policy_path(saved):return Path.home()/'.evoarm/rsi/pick_place_policies'/saved['setup_id']/f'{fingerprint(saved)}.json'
+    def speed_settings():
+        saved=session();path=policy_path(saved)
+        pol=json.loads(path.read_text()) if path.exists() else {'version':1,'parameters':DEFAULT_PARAMETERS}
+        speeds={k:pol['parameters'][k] for k in ('travel_speed','approach_speed')}
+        return Speeds(**speeds,policy_version=pol['version'],calibration_fingerprint=fingerprint(saved)).model_dump()
+
     def policy(saved,*,repair=False):
         path=policy_path(saved)
         if not path.exists():return {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
@@ -222,6 +235,8 @@ def install(app,service_provider):
     def state():
         automatic=learner.snapshot()
         with lock:
+            try:speeds=speed_settings()
+            except (OSError,ValueError,KeyError,TypeError) as exc:speeds={'error':str(exc)}
             snapshot=dict(job);current=plans.get(latest);plan=None
             if current:
                 remaining=max(0.,180-(time.monotonic()-current['created']))
@@ -245,10 +260,45 @@ def install(app,service_provider):
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
         return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
                 'workspace_preview_version':1,
+                'speed_settings_version':1,'speed_settings':speeds,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
+
+    @router.post('/speed')
+    def configure_speed(req:Speeds):
+        if not preparing.acquire(blocking=False):raise HTTPException(status_code=409,detail='正在观察，请稍后保存速度')
+        try:
+            service=service_provider()
+            with service.lock,lock:
+                if (learner.snapshot()['status']=='running' or service.automation_owner or service.pending or
+                        job.get('status') in ('running','preparing')):
+                    raise ValueError('请等当前任务结束后保存速度')
+                saved=session()
+                if req.calibration_fingerprint!=fingerprint(saved):raise ValueError('标定已变化，请重新载入速度设置')
+                pol=policy(saved)
+                if req.policy_version!=pol['version']:raise ValueError('策略已变化，请重新载入速度设置')
+                changed=[k for k in ('travel_speed','approach_speed') if pol['parameters'][k]!=getattr(req,k)]
+                if not changed:return {**speed_settings(),'changed':False,'robot_moved':False}
+                before=copy.deepcopy(pol['parameters']);updated=copy.deepcopy(pol)
+                for name in changed:updated['parameters'][name]=getattr(req,name)
+                record={'id':uuid.uuid4().hex,'kind':'user_speed_configuration','at_unix':time.time(),
+                    'source_trial_id':pol['reviews'][-1]['plan_id'] if pol['reviews'] else None,
+                    'before_version':pol['version'],'after_version':pol['version']+1,
+                    'before':before,'after':copy.deepcopy(updated['parameters']),'parameters_reset':changed,
+                    'reason':'用户在抓取页保存速度；下一轮重新规划时使用。'}
+                path=policy_path(saved)
+                if path.exists():
+                    backup=path.with_name(path.stem+f".before-speed-{record['id']}.json")
+                    _write(backup,pol);record['backup_file']=str(backup)
+                updated['version']=record['after_version'];updated.setdefault('baseline_resets',[]).append(record)
+                _write(path,updated)
+                for old in plans.values():
+                    if old['status']=='prepared':old['status']='superseded';save(old)
+                return {**speed_settings(),'changed':True,'robot_moved':False}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+        finally:preparing.release()
 
     @router.get('/learning/events')
     async def learning_events(request:Request):

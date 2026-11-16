@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/workspace.css"/>
   <style>
     .learning-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:22px;align-items:start}
+    .speed-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.speed-fields label{display:grid;gap:6px;font-size:12px}.speed-fields input{width:100%;min-width:0;box-sizing:border-box}
     .learning-grid>*{min-width:0}.workspace-frame{display:block;width:100%;border-radius:10px;background:#edf2f1;aspect-ratio:16/9;object-fit:contain}
     .workspace-view{position:relative}.workspace-view svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     .learning-controls>button{width:100%;margin:12px 0}.learning-controls .check-row{margin:20px 0}
@@ -59,6 +60,17 @@
       <p id="readiness" class="inline-note">正在检查机械臂和视觉模型。</p>
       <p id="grokStatus" class="quiet"></p>
       <button id="connect" class="secondary" hidden>连接机械臂</button>
+      <details id="speedSettings"><summary id="speedSummary">抓放速度设置</summary>
+        <div class="speed-fields">
+          <label for="travelSpeed">转移／抬升速度系数<input id="travelSpeed" type="number" min="0.05" max="1" step="any" value="0.65" disabled/></label>
+          <label for="approachSpeed">下探／靠近速度系数<input id="approachSpeed" type="number" min="0.05" max="1" step="any" value="0.30" disabled/></label>
+        </div>
+        <p class="quiet">范围0.05～1.0，数值越大越快；不是毫米/秒。分别控制高处转移、抬升，以及下探、靠近投放点。</p>
+        <button id="speedFast" class="secondary" disabled>填入快速：1.0 / 0.5</button>
+        <button id="saveSpeed" class="secondary" disabled>保存速度</button>
+        <button id="reloadSpeed" class="secondary" disabled>重新载入</button>
+        <p id="speedStatus" class="quiet" role="status">正在读取当前策略的速度。</p>
+      </details>
       <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
       <button id="start" class="primary" disabled>开始自动抓放</button>
       <button id="reset" class="secondary" disabled>恢复官方初始姿态</button>
@@ -100,6 +112,6 @@
   <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><details><summary>核对最近4轮补偿与实际落点</summary><p class="quiet">只读取已有记录；缺失项显示“—”。自动平面试验步长至少10mm。</p><button id="loadXYAudit" class="secondary">读取最近4轮（不运动）</button><div id="xyAuditFacts"></div></details><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
 <footer>录像、RGB-D、指令、反馈、视觉模型判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
-<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script><script src="/assets/rsi-workspace.js"></script>
+<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script><script src="/assets/rsi-workspace.js"></script><script src="/assets/rsi-speed.js"></script>
 </body>
 </html>

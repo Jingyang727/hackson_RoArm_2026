@@ -45,6 +45,9 @@
   function configure(data,externalBusy=false){
     snapshot=data;
     checkbox.disabled=externalBusy||data?.learning?.status==='running'||data?.job?.status==='running'||data?.workspace_preview_version!==1;
+    if(!busy&&result?.parameters&&data?.speed_settings&&['travel_speed','approach_speed'].some(k=>
+      typeof data.speed_settings[k]==='number'&&data.speed_settings[k]!==result.parameters[k]))
+      invalidate('抓放速度已变化，请重新计算区域。');
     if(!busy&&result&&observation&&data?.plan&&data.plan.plan_id!==basisPlanId){
       const pose=data.plan.initial_pose;
       const moved=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&Math.hypot(...a.map((v,i)=>v-b[i]))>3;

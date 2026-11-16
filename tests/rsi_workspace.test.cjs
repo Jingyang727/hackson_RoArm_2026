@@ -57,6 +57,13 @@ test('uncomputed samples remain blank instead of being shaded as rejected',async
   assert.match(p.elements.get('workspaceStatus').textContent,/空白：未完成采样/);
 });
 
+test('saved speed changes invalidate a displayed workspace even without a new plan',async()=>{
+  const p=page();p.elements.get('workspaceVisible').checked=true;p.elements.get('workspaceVisible').onchange();await flush();
+  p.api.configure({...p.state,speed_settings:{travel_speed:1.}});
+  assert.equal(p.elements.get('workspaceOverlay').hidden,true);assert.equal(p.elements.get('workspaceVisible').checked,false);
+  assert.match(p.elements.get('workspaceStatus').textContent,/抓放速度已变化/);assert.equal(p.calls.length,3);
+});
+
 test('a changed funnel or starting pose hides a workspace computed under different conditions',async()=>{
   for(const change of ['funnel','pose']){
     const p=page();p.result.initial_pitch_deg=0;p.result.initial_roll_rad=0;p.result.funnel_xyz_mm=[300,200,-70];

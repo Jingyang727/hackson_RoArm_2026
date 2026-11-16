@@ -39,6 +39,7 @@ function render(){
   const h=state?.health||{},a=state?.learning||{status:'idle'},j=state?.job||{},p=state?.plan,r=j.result;
   window.RSIWorkspace?.configure(state,busy);
   const workspaceBusy=window.RSIWorkspace?.isBusy()||false;
+  window.RSISpeed?.configure(state,busy||workspaceBusy);
   const succeeded=a.status==='completed'&&a.phase==='completed'&&a.trials?.at(-1)?.outcome==='placed';
   $('successBanner').hidden=!succeeded;
   if(succeeded)$('successDetails').textContent=`第 ${a.attempt} 轮成功；已恢复官方初始姿态，策略 v${a.policy_version||p?.policy_version||'—'} 已保存。自动尝试已停止。`;
@@ -51,7 +52,7 @@ function render(){
   const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3;
   $('observeObjects').disabled=busy||workspaceBusy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
-  $('start').disabled=busy||workspaceBusy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
+  $('start').disabled=busy||workspaceBusy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked||Boolean(window.RSISpeed?.isDirty());
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
   $('confirmed').disabled=running||busy;$('maxAttempts').disabled=running||busy;
   $('stop').hidden=!running;$('stop').disabled=a.phase==='stopping'||j.phase==='stopping';
@@ -176,5 +177,7 @@ async function loadHistory(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopStream();else refresh();});
 document.addEventListener('rsi-workspace-change',render);
+document.addEventListener('rsi-speed-change',render);
+document.addEventListener('rsi-speed-saved',()=>{revision++;refresh();});
 window.addEventListener('pagehide',()=>{stopStream();if(stream.url)URL.revokeObjectURL(stream.url);});
 setInterval(refresh,800);refresh();loadHistory();

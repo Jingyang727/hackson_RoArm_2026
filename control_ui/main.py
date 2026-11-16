@@ -421,6 +421,12 @@ def rsi_workspace_script():
                     media_type='application/javascript',headers={'Cache-Control':'no-store'})
 
 
+@app.get('/assets/rsi-speed.js')
+def rsi_speed_script():
+    return Response(Path(__file__).with_name('rsi-speed.js').read_text(encoding='utf-8'),
+                    media_type='application/javascript',headers={'Cache-Control':'no-store'})
+
+
 @app.get("/api/pick/workspace")
 def pick_workspace_geometry():
     """Read-only calibrated workspace geometry for camera overlay.
