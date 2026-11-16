@@ -356,6 +356,10 @@ class Challenge:
         except Exception as exc:
             self.publish('stopped' if self.stop.is_set() else 'failed',status='stopped' if self.stop.is_set() else 'failed',error=str(exc)[:1500])
         finally:
+            if pending and not pending[0].done():
+                current=pending[1]
+                self.events.model({'type':'stopped','error':'挑战已结束，未完成的后台分析保留为待复核。'},
+                    attempt=current['task']['attempt'],plan_id=current['id'])
             review_stop.set();pool.shutdown(wait=False,cancel_futures=True)
             unfinished=list(deferred.values())+([pending[1]] if pending else [])
             try:
