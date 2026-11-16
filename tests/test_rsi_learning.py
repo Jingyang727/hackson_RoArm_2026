@@ -39,6 +39,12 @@ def verdict(outcome='placed', direction='none', magnitude='medium', ball_state=N
             'confidence': .92, 'note': 'synthetic visual evidence'}
 
 
+def phase_facts(outcome,frame_index):
+    results=('held','held','entered') if outcome=='placed' else ('missed','unknown','unknown')
+    return {name:{'result':result,'frames':[frame_index] if result!='unknown' else [],'note':'synthetic phase evidence'}
+            for name,result in zip(('pickup','transport','release'),results)}
+
+
 class AutoAPI(unittest.TestCase):
     def setUp(self):
         self.fixture = loop_fixtures.RSIApi(); self.fixture.setUp(); self.addCleanup(self.fixture.doCleanups)
@@ -115,6 +121,8 @@ class AutoAPI(unittest.TestCase):
                 answer['comparison']={'reference_plan_id':pair['reference_plan_id'] if pair['available'] else None,
                     'effect':'not_compared' if first else 'worsened' if opposite else 'improved',
                     'movement':'unknown' if first else 'opposite' if opposite else 'as_expected','note':'synthetic paired evidence'}
+                current_frames=[r for r in context['reviewed_frames'] if r.get('role')=='current']
+                answer['phases']=phase_facts(answer['outcome'],current_frames[-1]['frame_index'])
             return json.dumps(answer)
         self.fixture.execute_mock.side_effect=execute
         with (patch.object(grok_review,'configuration',return_value={'configured':True,'model':'grok-test','backend':'company_api'}),
@@ -288,7 +296,7 @@ class AutoAPI(unittest.TestCase):
         old={k:v for k,v in DEFAULT_PARAMETERS.items() if k!='squeeze_deg'}
         file.write_text(json.dumps({'version':4,'parameters':old,'reviews':[]}))
         self.fixture.prepare();_,state=self.request('state',method='GET')
-        self.assertEqual(state['plan']['policy_version'],5)
+        self.assertEqual(state['plan']['policy_version'],6)
         self.assertEqual(state['plan']['parameters']['squeeze_deg'],2.)
         self.assertEqual(json.loads(file.read_text())['migrations'][0]['added_defaults'],['squeeze_deg'])
 

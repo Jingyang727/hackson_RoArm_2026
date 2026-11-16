@@ -16,6 +16,7 @@ from evoarm_rsi.pick_place import DEFAULT_PARAMETERS
 from evoarm_rsi.rsi_comparison import build_comparison,camera_view,comparison_panel,validate_assessment
 from evoarm_rsi.rsi_policy import propose
 from tests.test_rsi_policy import facing_scene
+from tests.test_rsi_learning import phase_facts
 
 
 def paired_trials(root):
@@ -130,6 +131,7 @@ class PairedComparison(unittest.TestCase):
         verdict={'outcome':'grasp_missed','direction':'image_right','ball_state':'table','magnitude':'medium',
                  'confidence':.9,'note':'still right but closer','comparison':{'reference_plan_id':self.previous['id'],
                  'effect':'improved','movement':'as_expected','note':'previous and current close views show a smaller gap'}}
+        verdict['phases']=phase_facts('grasp_missed',1)
         config={'configured':True,'model':'grok-test','backend':'company_api'};updates=[]
         with (patch.object(grok_review,'configuration',return_value=config),
               patch.object(grok_review,'complete_content',return_value=json.dumps(verdict)) as api):
@@ -165,6 +167,7 @@ class PairedComparison(unittest.TestCase):
         verdict={'outcome':'grasp_missed','direction':'image_right','ball_state':'table','magnitude':'medium',
                  'confidence':.9,'note':'still right','comparison':{'reference_plan_id':self.previous['id'],
                  'effect':'improved','movement':'as_expected','note':'closer'}}
+        verdict['phases']=phase_facts('grasp_missed',3)
         config={'configured':True,'model':'Qwen3.8-27B-FP8','backend':'company_api'}
         with patch.object(grok_review,'configuration',return_value=config),patch.object(grok_review,'complete_content',return_value=json.dumps(verdict)) as api:
             grok_review.review(context,self.trial,threading.Event())

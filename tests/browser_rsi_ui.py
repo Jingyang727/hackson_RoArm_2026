@@ -29,8 +29,8 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':10,'web_learning_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
-           'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
+    model={'api_version':10,'web_learning_version':3,'visual_pipeline_version':4,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+           'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'DeepSeek-V4.1-Flash','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
                    'depth_evidence':{'depth_used':True,'valid_samples':350,'fit_residual_mm':1.2}},
@@ -99,7 +99,7 @@ def check(url, output):
         browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':1440,'height':1100});page.route('**/api/**',route)
         page.on('pageerror',lambda error:errors.append(str(error)))
-        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='公司Grok API已配置').wait_for()
+        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='DeepSeek-V4.1-Flash').wait_for()
         page.locator('#workspaceFrame').wait_for(state='visible')
         assert not any(call[0]=='POST' for call in calls)
         assert page.locator('#saveReview').count()==0;assert page.locator('#start').is_disabled()
@@ -134,7 +134,7 @@ def check(url, output):
         emit('phase',phase='analyzing',attempt=1,plan_id=key)
         emit('grok_started',preflight=False,model='grok-4.7-build',frame_count=8,attempt=1,plan_id=key)
         process['model_output']={'plan_id':key,'attempt':1,'preflight':False,'status':'generating','mode':'streaming','text':'球仍在桌面，'}
-        page.locator('#phase').filter(has_text='Grok正在分析').wait_for()
+        page.locator('#phase').filter(has_text='视觉模型正在分析').wait_for()
         page.locator('#grokLiveText').filter(has_text='球仍在桌面').wait_for()
         assert '尚未确认' in page.locator('#grokReplyStatus').inner_text()
         assert model['plan'].get('review') is None
@@ -143,7 +143,7 @@ def check(url, output):
         page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
         page.screenshot(path=str(output/'rsi-streaming.png'),full_page=True)
         posts=len([call for call in calls if call[0]=='POST']);page.reload()
-        page.locator('#phase').filter(has_text='Grok正在分析').wait_for()
+        page.locator('#phase').filter(has_text='视觉模型正在分析').wait_for()
         page.locator('#grokLiveText').filter(has_text='建议向画面右侧修正').wait_for()
         assert len([call for call in calls if call[0]=='POST'])==posts
         review={'outcome':'grasp_missed','direction':'image_left','magnitude':'large','source':'opencode_agent',
@@ -163,7 +163,7 @@ def check(url, output):
         page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         page.locator('#grokVerdict').filter(has_text='夹爪偏左').wait_for()
         assert '调整抓取平面偏移' in page.locator('#grokVerdict').inner_text()
-        assert 'Grok画面依据' in page.locator('#grokVerdict').inner_text()
+        assert '视觉模型画面依据' in page.locator('#grokVerdict').inner_text()
         assert '执行Agent决策' in page.locator('#grokVerdict').inner_text()
         page.locator('#processEvents').filter(has_text='程序采用的修正').wait_for()
         page.locator('#processEvents').filter(has_text='实际保存 抓取平面补偿XY').wait_for()
@@ -193,10 +193,15 @@ def check(url, output):
         assert '固件原始闭爪' in page.locator('#comparisonFacts').inner_text()
         page.screenshot(path=str(output/'rsi-effect-comparison.png'),full_page=True)
         success={'outcome':'placed','source':'company_grok','note':'球随夹爪离桌，释放后留在漏斗内','changes':['保留成功策略。'],'after_version':3}
+        success['phases']={
+            'pickup':{'result':'held','frames':[144],'note':'球离桌'},
+            'transport':{'result':'held','frames':[194],'note':'开爪前持球'},
+            'release':{'result':'entered','frames':[202,300],'note':'释放后球在漏斗内'}}
         success['comparison']={**paired,'assessment':{'reference_plan_id':'1'*32,'effect':'improved','movement':'as_expected','note':'前后实帧显示夹爪更接近并夹住了球'}}
         model['plan'].update(status='completed',review=success,backup_url=f'/api/bench/rsi/plans/{key}/archive')
         model['job'].update(status='completed',phase='finished',result=result)
-        model['learning'].update(status='completed',phase='completed',review=success,changes=success['changes'])
+        model['learning'].update(status='completed',phase='completed',review=success,changes=success['changes'],
+                                trials=[{'plan_id':key,'outcome':'placed'}])
         process['model_output']={'plan_id':key,'attempt':2,'preflight':False,'status':'validated','mode':'streaming',
                                  'text':'球随夹爪离桌，释放后留在漏斗内。','verdict':success}
         emit('motion',phase='close',attempt=2,plan_id=key)
@@ -207,6 +212,10 @@ def check(url, output):
         history.append({'id':key,'status':'completed','policy_version':2,'review':success,'result':result,'backup_url':model['plan']['backup_url']})
         page.locator('#phase').filter(has_text='策略已保存').wait_for()
         page.locator('#grokVerdict').filter(has_text='进入漏斗').wait_for()
+        assert '抓起：确认持球 · 实帧 144' in page.locator('#grokVerdict').inner_text()
+        assert '运输：确认持球 · 实帧 194' in page.locator('#grokVerdict').inner_text()
+        assert '入漏斗：确认进入 · 实帧 202, 300' in page.locator('#grokVerdict').inner_text()
+        assert page.locator('#successBanner').is_visible()
         page.locator('#trialVideo').evaluate('(video)=>video.load()');page.wait_for_function("document.getElementById('trialVideo').readyState>=1")
         assert page.locator('#archiveLink').is_visible();assert not page.locator('#diagnostics').get_attribute('open')
         page.screenshot(path=str(output/'rsi-review.png'),full_page=True)
@@ -265,6 +274,7 @@ def check(url, output):
     report['checks'].append('execution clearance diagnosis uses plane-relative height rather than robot Z')
     report['checks'].append('late pickup learning, actual saved parameters, company API model and image-vs-height directions shown')
     report['checks'].append('four-trial XY audit is GET-only and raw displacement is separate from adjusted attribution')
+    report['checks'].append('independent pickup, transport, entry facts and actual frame references displayed with success highlight')
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

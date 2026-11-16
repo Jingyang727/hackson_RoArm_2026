@@ -1,0 +1,168 @@
+{
+  "plan_id": "78c7c889dceb4356ad31497a7df699af",
+  "events": [
+    {
+      "stage": "start",
+      "host_monotonic_ns": 59250250
+    },
+    {
+      "stage": "approach_ball",
+      "host_monotonic_ns": 59745625
+    },
+    {
+      "stage": "approach_ball_completed",
+      "host_monotonic_ns": 2381940167
+    },
+    {
+      "stage": "descend",
+      "host_monotonic_ns": 2429572542
+    },
+    {
+      "stage": "descend_completed",
+      "host_monotonic_ns": 4146819084
+    },
+    {
+      "stage": "close",
+      "host_monotonic_ns": 4193283334
+    },
+    {
+      "stage": "close_completed",
+      "host_monotonic_ns": 6292899875
+    },
+    {
+      "stage": "lift",
+      "host_monotonic_ns": 6340779209
+    },
+    {
+      "stage": "lift_completed",
+      "host_monotonic_ns": 9610178750
+    },
+    {
+      "stage": "transport",
+      "host_monotonic_ns": 9666680250
+    },
+    {
+      "stage": "transport_completed",
+      "host_monotonic_ns": 11580663625
+    },
+    {
+      "stage": "lower_to_release",
+      "host_monotonic_ns": 11645906875
+    },
+    {
+      "stage": "lower_to_release_completed",
+      "host_monotonic_ns": 12734870209
+    },
+    {
+      "stage": "settle_over_funnel",
+      "host_monotonic_ns": 12742188250
+    },
+    {
+      "stage": "release",
+      "host_monotonic_ns": 12999519709
+    },
+    {
+      "stage": "release_completed",
+      "host_monotonic_ns": 14017682959
+    },
+    {
+      "stage": "finish",
+      "host_monotonic_ns": 14020891917
+    }
+  ],
+  "old_frames": [
+    {
+      "label": "before/sample",
+      "labels": [
+        "before",
+        "sample"
+      ],
+      "frame_index": 0,
+      "elapsed_s": 0.0
+    },
+    {
+      "label": "sample",
+      "labels": [
+        "sample"
+      ],
+      "frame_index": 60,
+      "elapsed_s": 4.004874709
+    },
+    {
+      "label": "close_completed",
+      "labels": [
+        "close_completed"
+      ],
+      "frame_index": 94,
+      "elapsed_s": 6.276281375
+    },
+    {
+      "label": "close_review",
+      "labels": [
+        "close_review"
+      ],
+      "frame_index": 95,
+      "elapsed_s": 6.340530834
+    },
+    {
+      "label": "sample",
+      "labels": [
+        "sample"
+      ],
+      "frame_index": 120,
+      "elapsed_s": 8.00953825
+    },
+    {
+      "label": "lift_completed/lift_review",
+      "labels": [
+        "lift_completed",
+        "lift_review"
+      ],
+      "frame_index": 144,
+      "elapsed_s": 9.612037209
+    },
+    {
+      "label": "transport_completed",
+      "labels": [
+        "transport_completed"
+      ],
+      "frame_index": 174,
+      "elapsed_s": 11.614204334
+    },
+    {
+      "label": "sample",
+      "labels": [
+        "sample"
+      ],
+      "frame_index": 180,
+      "elapsed_s": 12.013630292
+    },
+    {
+      "label": "release_completed/finish/release_review",
+      "labels": [
+        "release_completed",
+        "finish",
+        "release_review"
+      ],
+      "frame_index": 210,
+      "elapsed_s": 14.016190792
+    },
+    {
+      "label": "sample",
+      "labels": [
+        "sample"
+      ],
+      "frame_index": 240,
+      "elapsed_s": 16.01824275
+    },
+    {
+      "label": "sample/last",
+      "labels": [
+        "sample",
+        "last"
+      ],
+      "frame_index": 300,
+      "elapsed_s": 20.023309
+    }
+  ]
+}

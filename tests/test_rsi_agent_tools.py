@@ -102,7 +102,8 @@ class AgentAPI(unittest.TestCase):
         path.parent.mkdir(parents=True);original=legacy_policy();path.write_text(json.dumps(original))
         self.request('agent/context',method='GET');self.assertEqual(json.loads(path.read_text()),original)
         self.prepare();new=json.loads(path.read_text());reset=new['baseline_resets'][-1]
-        self.assertEqual(json.loads(Path(reset['backup_file']).read_text()),original)
+        vector_reset=next(r for r in new['baseline_resets'] if r['kind']=='legacy_xy_vector_repair')
+        self.assertEqual(json.loads(Path(vector_reset['backup_file']).read_text()),original)
         self.assertEqual(new['parameters']['pickup_xy_mm'],[0.,0.])
         _,state=self.request('state',method='GET')
         self.assertEqual(state['plan']['policy_application']['baseline_reset_id'],reset['id'])

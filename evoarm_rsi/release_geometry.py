@@ -4,12 +4,14 @@ import time
 import uuid
 
 from .roarm_geometry import height_above_plane,MotionConstraintError
-from .funnel_geometry import HEIGHT_MM
+from .funnel_geometry import HEIGHT_MM,RADIUS_MM
 
 DEFAULT_RELEASE_CLEARANCE_MM=100.  # Ball bottom above lip, not robot Z.
 MIN_RELEASE_CLEARANCE_MM=80.
 MAX_RELEASE_CLEARANCE_MM=160.
 MIN_VERIFIED_TIP_CLEARANCE_MM=60.
+RELEASE_REFERENCE_VERSION=2
+RELEASE_SIDE_OFFSET_MM=RADIUS_MM/2.  # User's half-mouth-radius reference: 19 mm.
 
 
 def release_reference(scene):
@@ -43,5 +45,23 @@ def upgrade_release_policy(policy):
             'before':before,'after':copy.deepcopy(updated['parameters']),
             'parameters_reset':['release_clearance_mm'],
             'reason':'旧投放间隙过低；球底投放高度改为口沿上方100mm，并在开爪前核对实测指尖间隙。'}
+    updated['version']=record['after_version'];updated.setdefault('baseline_resets',[]).append(record)
+    return updated,record
+
+
+def upgrade_release_reference(policy):
+    """Do not stack learned offsets from the old radial endpoint reference."""
+    if policy.get('release_reference_version')==RELEASE_REFERENCE_VERSION:return policy,None
+    updated=copy.deepcopy(policy);before=copy.deepcopy(policy['parameters'])
+    updated['release_reference_version']=RELEASE_REFERENCE_VERSION
+    updated['parameters']['release_xy_mm']=[0.,0.]
+    if 'successful_policy' in updated:
+        updated['successful_policy_before_release_reference']=updated.pop('successful_policy')
+    record={'id':uuid.uuid4().hex,'kind':'one_sided_release_reference','at_unix':time.time(),
+            'source_trial_id':policy.get('reviews',[])[-1]['plan_id'] if policy.get('reviews') else None,
+            'before_version':policy['version'],'after_version':policy['version']+1,
+            'before':before,'after':copy.deepcopy(updated['parameters']),
+            'parameters_reset':['release_xy_mm'],
+            'reason':'投放端点改为原始相机画面向右偏19mm；旧径向参考的投放XY补偿清零，抓取参数和原始历史保留。'}
     updated['version']=record['after_version'];updated.setdefault('baseline_resets',[]).append(record)
     return updated,record

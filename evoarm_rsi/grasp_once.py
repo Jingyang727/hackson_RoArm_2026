@@ -19,10 +19,14 @@ from .real_probe import _base_url, _controller_get, _controller_post
 from .task_agent import _write
 
 
-def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sample_count=0):
+def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sample_count=0,release_attempted=None):
     import cv2
     import numpy as np
     folder=Path(folder)
+    # A stage-start event can precede a failed preflight check. Only the
+    # executor's actual dispatch receipt can establish an opening attempt.
+    if release_attempted is False:
+        events=[e for e in events if e['stage'] not in ('release','release_completed')]
     rows=[json.loads(r) for r in (folder/"frames.jsonl").read_text().splitlines() if r]
     if not rows:return None
     stamps=np.array([r["host_monotonic_ns"] for r in rows],dtype=np.int64)
@@ -39,6 +43,22 @@ def export_keyframes(folder,events,*,stages=('close','lift','finish','fault'),sa
         if event:
             index=int(np.searchsorted(stamps,event['host_monotonic_ns'],side='left'))-1
             if index>=0 and stamps[index]>=prior['host_monotonic_ns']:wanted.append((label,int(stamps[index])))
+    # Completion events alone miss the held ball before opening and the drop
+    # itself. Export real frames inside those windows, without inventing an
+    # unexecuted release or borrowing images from a later recovery.
+    release=next((e for e in events if e['stage']=='release'),None)
+    if release:
+        before=int(np.searchsorted(stamps,release['host_monotonic_ns'],side='left'))-1
+        if before>=0:wanted.append(('carry_review',int(stamps[before])))
+        end=next((e for e in events if e['stage'] in ('release_completed','finish','fault')
+                  and e['host_monotonic_ns']>release['host_monotonic_ns']),None)
+        if end:
+            for fraction in (.2,.5,.8):
+                stamp=int(release['host_monotonic_ns']+fraction*(end['host_monotonic_ns']-release['host_monotonic_ns']))
+                if stamps[0]<=stamp<=stamps[-1]:wanted.append(('release_motion',stamp))
+            for delay in (.5,1.5):
+                stamp=end['host_monotonic_ns']+int(delay*1e9)
+                if stamps[0]<=stamp<=stamps[-1]:wanted.append(('after_release',stamp))
     # Preserve event labels when a uniform sample selects the same frame.
     selected={}
     for label,stamp in wanted:

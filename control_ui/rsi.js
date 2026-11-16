@@ -26,7 +26,8 @@ function targets(plan){
     add('text',{x:Math.max(8,Math.min(width-95,x+width*.026)),y:Math.max(28,y-10),fill:color,'font-size':width*.02,stroke:'#152824','stroke-width':3,'paint-order':'stroke'},label);
   }
   const side=plan.scene.funnel.pixel_center[0]<plan.scene.ball.pixel_center[0]?'左':'右';
-  caption.textContent=`本轮识别：漏斗在黄球的画面${side}侧。轮廓表示76mm大开口，十字为投放中心；这是观察快照，并非实时跟踪。`;
+  const reference=plan.release_policy?.version===2?'；指尖投放目标在中心上空向画面右侧偏19mm':'';
+  caption.textContent=`本轮识别：漏斗在黄球的画面${side}侧。轮廓表示76mm大开口，十字为漏斗口圆心${reference}；这是观察快照，并非实时跟踪。`;
 }
 async function api(path,method='GET',body){
   const response=await fetch(path,{method,cache:'no-store',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -46,7 +47,7 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?`视觉模型 ${grok.model} · API直接调用`:(grok.reason||'正在检查视觉模型API配置。');
-  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3;
+  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===4;
   $('observeObjects').disabled=busy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
