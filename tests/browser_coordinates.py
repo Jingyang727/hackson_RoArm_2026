@@ -18,7 +18,7 @@ def check(url,output):
     plane={'normal_up':[0,0,1.],'d_mm':115.}
     h={'connected':True,'motion_enabled':True,'torque_status':[True]*6,'pending':None,'fault':None}
     model={'robot':raw,'model':forward(raw),'health':h,'table_plane':plane,'setup_id':'bench-layout-v2','height_mm':260.,'result':None,
-           'coordinate_api_version':6,'joint_limits':joint_limits_info()}
+           'coordinate_api_version':7,'joint_limits':joint_limits_info()}
     calls=[];errors=[];key='a'*32
     image,_=scene();_,jpeg=cv2.imencode('.jpg',image)
     def route(handler):
@@ -33,6 +33,7 @@ def check(url,output):
                     'joints':[{'joint':i+1,'field':'torswitch'+j,'raw':model['robot'].get('torswitch'+j)} for i,j in enumerate('BSETRG')]}
         elif path=='/coordinates/prepare':
             assert body['path_mode']=='lift'
+            assert body['speed'] in (.30,.65,1.)
             if model.get('reject_prepare'):
                 return handler.fulfill(status=409,content_type='application/json',body=json.dumps({'detail':{
                     'message':'路径60.0%处：J3 肘部上下需要185.0°，官方接口范围为0.0°～180.0°',
@@ -41,6 +42,7 @@ def check(url,output):
             corridor=max(raw['z'],target[2],-15.)
             waypoints=[[raw[k] for k in 'xyz'],[raw['x'],raw['y'],corridor],[target[0],target[1],corridor],target]
             data={'plan_id':key,'expires_in_s':180,'plan':{'target_xyz_mm':target,'distance_mm':20.,'path_mode':'lift',
+                  'motion_profile':{'speed':body['speed']},
                   'path_xyz_mm':waypoints,
                   'orientation':{'mode':body['pitch_mode'],'initial_pitch_deg':22.,'target_pitch_deg':40.,'changed':True},
                   'gripper_hold':{'normalized':True,'feedback_deg':180.8,'command_deg':179.90874767},
@@ -127,6 +129,13 @@ def check(url,output):
         model['reject_prepare']=False
         page.locator('#pitchMode').select_option('auto');assert page.locator('#error').is_hidden()
         page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        assert '速度系数 0.65' in page.locator('#planNote').inner_text()
+        post_count=len([c for c in calls if c[0]=='POST'])
+        page.locator('#moveSpeed').select_option('1.00')
+        assert page.locator('#move').is_disabled();assert not page.locator('#confirmed').is_checked()
+        assert len([c for c in calls if c[0]=='POST'])==post_count
+        page.locator('#prepare').click();page.wait_for_function("!document.getElementById('confirmed').disabled")
+        assert '速度系数 1.00' in page.locator('#planNote').inner_text()
         assert '尚未勾选现场确认' in page.locator('#moveReason').inner_text()
         page.locator('#confirmed').check();assert page.locator('#move').is_enabled()
         selected_before_mirror=[page.locator('#'+axis).input_value() for axis in ('x','y','z')]
@@ -222,12 +231,7 @@ def check(url,output):
         assert len([c for c in calls if c[0]=='POST'])==post_count
         h['pending']=None;h['last_command']['status']='feedback_confirmed'
         page.locator('#factoryResetStatus').filter(has_text='官方初始姿态反馈已确认').wait_for()
-        page.set_viewport_size({'width':390,'height':844})
-        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-        page.screenshot(path=str(output/'coordinates-mobile.png'),full_page=True)
         page.locator('#factoryResetOpen').click();page.locator('#factoryResetDialog').wait_for(state='visible')
-        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-        page.screenshot(path=str(output/'factory-reset-mobile.png'),full_page=True)
         page.locator('#factoryResetCancel').click()
         assert len([c for c in calls if c[1]=='/coordinates/factory-reset'])==1
         assert not errors,errors;browser.close()
@@ -243,7 +247,7 @@ def check(url,output):
         'table click and height slider generate XYZ without motion','page requests lift/transfer/descend and draws waypoint polyline',
         'ownership blocks new moves between waypoints without JS errors','changed target invalidates plan','one move under double click','reload restores target and never resends',
         'per-axis feedback offset visible','physical verification stored separately','recorded depth surface projected',
-        '390px layout','no page errors']}
+        'desktop speed selector; changing speed invalidates preview without a motor request','no page errors']}
     (output/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 
 

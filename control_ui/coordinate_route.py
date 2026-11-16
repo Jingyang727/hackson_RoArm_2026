@@ -6,6 +6,7 @@ import time
 from evoarm_rsi.coordinate_test import errors,check_coordinate_segment
 from evoarm_rsi.rsi_route import execution_target
 from evoarm_rsi.task_agent import _write
+from evoarm_rsi.coordinate_motion import COMMAND_GAP_S
 
 
 def execute_route(service,report,validate):
@@ -16,10 +17,10 @@ def execute_route(service,report,validate):
             raise RuntimeError('后续途径点授权已撤销')
     try:
         for index,stage in enumerate(plan['segments']):
-            while time.monotonic()-service.last_motion_at<.85:guard();time.sleep(.04)
+            while time.monotonic()-service.last_motion_at<COMMAND_GAP_S+.01:guard();time.sleep(.03)
             with service.lock:
                 guard();validate()
-                raw=service._preflight(1,automation_id=key)
+                raw=service._preflight(1,minimum_gap_s=COMMAND_GAP_S,automation_id=key)
                 target=execution_target(stage,raw,plan['table_plane'])
                 check_coordinate_segment(raw,target,plan['table_plane'])
                 command={'T':104,**dict(zip('xyz',target['xyz_mm'])),'t':target['pitch_rad'],
