@@ -19,6 +19,7 @@ from .safety import JOINTS, TORQUE_FIELDS
 from evoarm.limits import joint_limits_info
 from evoarm_rsi.bench_calibration import load_session
 from evoarm_rsi.coordinate_test import calibrated_table, fingerprint, plan_point,plan_lift_point, errors, check_coordinate_segment
+from evoarm_rsi.coordinate_motion import DEFAULT_SPEED,MIN_SPEED,MAX_SPEED,motion_profile,WAYPOINT_STABLE_SPAN_S,WAYPOINT_OFFSET_AFTER_S
 from evoarm_rsi.roarm_geometry import forward, height_above_plane
 from evoarm_rsi.ball_trial import camera_geometry
 from evoarm_rsi.task_scene import load_rgbd
@@ -54,6 +55,7 @@ class Target(BaseModel):
     xyz_mm:list[float]=Field(min_length=3,max_length=3)
     pitch_mode:str=Field(default='auto',pattern=r'^(auto|hold)$')
     path_mode:str=Field(default='direct',pattern=r'^(direct|lift)$')
+    speed:float=Field(default=DEFAULT_SPEED,ge=MIN_SPEED,le=MAX_SPEED)
 
 
 class PlanID(BaseModel):
@@ -94,19 +96,22 @@ def observe_pending(service,pending,status,now,*,disarm_on_finish=True):
     measured=errors(status,plan['target_xyz_mm'],plan['pose_preserved_rad'])
     report.update(**measured,elapsed_s=now-pending['since'])
     report['feedback'].append({'host_monotonic_ns':time.monotonic_ns(),'status':dict(status),**measured})
-    samples=pending.setdefault('samples',[]);samples.append((now,[status[k] for k in 'xyz']))
+    samples=pending.setdefault('samples',[]);samples.append((now,[status[k] for k in 'xyz'],[status[k] for k in 'bsetrg']))
     samples[:]=[s for s in samples if now-s[0]<=1.5]
     # This is XYZ validation, not a grasp sequence. Report attitude/gripper
     # residuals without turning them into another all-axis arrival gate.
-    stable=(len(samples)>=3 and samples[-1][0]-samples[0][0]>=.8 and
-            max(math.dist(a[1],b[1]) for a in samples for b in samples)<=2)
+    waypoint=bool(pending.get('route_owner'))
+    stable_span=WAYPOINT_STABLE_SPAN_S if waypoint else .8
+    stable=(len(samples)>=3 and samples[-1][0]-samples[0][0]>=stable_span and
+            max(math.dist(a[1],b[1]) for a in samples for b in samples)<=2 and
+            (not waypoint or max(abs(a[2][j]-b[2][j]) for a in samples for b in samples for j in range(6))<=math.radians(.5)))
     progress=math.dist(measured['actual_xyz_mm'],[plan['initial_status'][k] for k in 'xyz'])
     report.update(progress_mm=progress,movement_observed=progress>=.8)
     if measured['position_error_mm']<=6:pending.setdefault('near_since',now)
     outcome=None
     if stable and measured['position_error_mm']<=6:
         outcome='feedback_within_tolerance'
-    elif stable and now-pending['since']>=8 and progress>=.8:
+    elif stable and now-pending['since']>=(WAYPOINT_OFFSET_AFTER_S if waypoint else 8) and progress>=.8:
         outcome='settled_with_offset'
     elif now-pending['since']>=20 and now-pending.get('near_since',-100)<1.5:
         pass  # A blocking T104 may yield its first near-target feedback late.
@@ -158,7 +163,7 @@ def install(app, service_provider):
         if report and report['status']=='moving' and health.get('fault'):
             report.update(status='fault',fault=health['fault']);persist(report)
         return {'health':health,'robot':raw,'model':model,'table_plane':plane,'setup_id':bench_ui.setup_id(),
-                'coordinate_api_version':6,'joint_limits':joint_limits_info(),
+                'coordinate_api_version':7,'motion_profile':motion_profile(),'joint_limits':joint_limits_info(),
                 'torque_feedback':torque_feedback(raw),'feedback_valid':valid_xyz and model is not None,
                 'feedback_error':error,'calibration_error':table_error,'frame':'robot_firmware_mm',
                 'static_layout_assumed':True,'board_required':False,'camera_required':False,
@@ -173,7 +178,7 @@ def install(app, service_provider):
             with service.lock,lock:
                 if service.pending:raise ValueError('当前动作尚未结束，请先核对反馈')
                 raw=service.status();saved=session()
-                plan=(plan_lift_point if req.path_mode=='lift' else plan_point)(saved,raw,req.xyz_mm,req.pitch_mode)
+                plan=(plan_lift_point if req.path_mode=='lift' else plan_point)(saved,raw,req.xyz_mm,req.pitch_mode,speed=req.speed)
                 for key in list(plans):
                     if key!=latest and time.monotonic()-plans[key]['created_monotonic']>180:plans.pop(key)
                 if len(plans)>=128:raise ValueError('本次服务的点位记录已满，请保留记录后重启网页服务')

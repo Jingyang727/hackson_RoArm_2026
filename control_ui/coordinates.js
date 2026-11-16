@@ -102,6 +102,7 @@ function render(){
   for(const [id,k] of [['actualX','x'],['actualY','y'],['actualZ','z']])$(id).textContent=number(r?.[k]);
   $('height').textContent=typeof state?.height_mm==='number'?`当前名义末端离桌 ${number(state.height_mm)} mm。俯仰 ${number(r.tit*180/Math.PI)}°、旋转 ${number(r.r*180/Math.PI)}°、夹爪 ${number(r.g*180/Math.PI)}°。`:'';
   $('pitchMode').disabled=busy||moving;
+  $('moveSpeed').disabled=busy||moving;
   $('orientationHint').textContent=$('pitchMode').value==='auto'?'预览优先保持当前俯仰，无法通过时计算其他俯仰；查看灰色目标姿态后再执行。保持末端旋转与夹爪开度。':'保持当前俯仰；同一个XYZ在不同俯仰下，可达性可能不同。';
   const t=target(),valid=t.every(Number.isFinite),height=targetHeight();
   const graphical=selectionMode==='point';
@@ -114,11 +115,11 @@ function render(){
   const previewReasons=[];
   if(busy)previewReasons.push('正在处理请求');if(moving)previewReasons.push('当前动作尚未结束');
   if(!h.connected)previewReasons.push('机械臂未连接');if(!feedbackValid)previewReasons.push('未读到有效坐标反馈');
-  if(state&&(state.coordinate_api_version||0)<6)previewReasons.push('页面与旧后端版本不匹配，请更新并重启网页控制服务');
+  if(state&&(state.coordinate_api_version||0)<7)previewReasons.push('页面与旧后端版本不匹配，请更新并重启网页控制服务');
   if(!valid)previewReasons.push('请先选点或填写XYZ');if(state?.calibration_error)previewReasons.push('保存标定不可用');
   $('prepare').disabled=previewReasons.length>0;
   $('previewReason').textContent=previewReasons.length?'暂不可预览：'+previewReasons.join('；'):'';
-  const ready=plan&&valid&&plan.plan.target_xyz_mm.every((v,i)=>v===t[i])&&(!plan.plan.orientation||plan.plan.orientation.mode===$('pitchMode').value)&&performance.now()<plan.expires;
+  const ready=plan&&valid&&plan.plan.target_xyz_mm.every((v,i)=>v===t[i])&&(!plan.plan.orientation||plan.plan.orientation.mode===$('pitchMode').value)&&plan.plan.motion_profile?.speed===Number($('moveSpeed').value)&&performance.now()<plan.expires;
   $('confirmed').disabled=busy||moving||!ready;
   const moveReasons=[...previewReasons];
   if(!ready)moveReasons.push('请先预览当前目标');if(!locked)moveReasons.push('扭矩未全部确认锁定：'+torqueProblem);
@@ -133,7 +134,7 @@ function render(){
     const gripNote=hold?.normalized?`夹爪反馈 ${number(hold.feedback_deg)}°；保持指令取合法边界 ${number(hold.command_deg)}°。原始反馈保留，未扩大开合限位。`:'保持当前夹爪开度。';
     const orientation=plan.plan.orientation;
     const pitchNote=orientation?`末端俯仰 ${number(orientation.initial_pitch_deg)}° → ${number(orientation.target_pitch_deg)}°。`:'保持当前俯仰。';
-    $('planNote').textContent=ready?`预览有效；${plan.plan.path_mode==='lift'?'先原XY抬高→高处平移→竖直到目标。':''}移动距离 ${number(plan.plan.distance_mm)} mm。${pitchNote}保持末端旋转。${gripNote}`:'预览已失效，请重新预览。';
+    $('planNote').textContent=ready?`预览有效；速度系数 ${plan.plan.motion_profile.speed.toFixed(2)}。${plan.plan.path_mode==='lift'?'先原XY抬高→高处平移→竖直到目标。':''}移动距离 ${number(plan.plan.distance_mm)} mm。${pitchNote}保持末端旋转。${gripNote}`:'预览已失效，请重新预览。';
   }
   const labels={prepared:'目标预览已保存，尚未发送运动。',superseded:'旧坐标预览已失效，请重新选点并预览。',moving:'分段移动中，等待当前途径点反馈…',stopped:'已停止后续途径点。',already_at_target:'当前反馈已在目标点附近，没有发送运动。',
     feedback_within_tolerance:'反馈已稳定并进入6mm参考带，实际准确度由你验收。',settled_with_offset:'反馈已稳定，但与目标有偏差；本次停止在实际位置，没有重发。',
@@ -188,9 +189,10 @@ $('useCurrent').onclick=fillCurrent;
 $('pointMode').onclick=()=>setSelectionMode('point');$('numericMode').onclick=()=>setSelectionMode('numeric');
 $('heightRange').oninput=()=>{if(!busy&&!state?.health?.pending&&target().slice(0,2).every(Number.isFinite))applyHeight(...target().slice(0,2));};
 $('pitchMode').onchange=resetPlan;
+$('moveSpeed').onchange=resetPlan;
 for(const id of ['x','y','z'])$(id).oninput=resetPlan;
 $('confirmed').onchange=render;
-$('prepare').onclick=()=>action(async()=>{resetPlan();const prepared=await api('/api/coordinates/prepare','POST',{xyz_mm:target(),pitch_mode:$('pitchMode').value,path_mode:'lift'});plan={...prepared,expires:performance.now()+prepared.expires_in_s*1000};});
+$('prepare').onclick=()=>action(async()=>{resetPlan();const prepared=await api('/api/coordinates/prepare','POST',{xyz_mm:target(),pitch_mode:$('pitchMode').value,path_mode:'lift',speed:Number($('moveSpeed').value)});plan={...prepared,expires:performance.now()+prepared.expires_in_s*1000};});
 $('move').onclick=()=>{if($('move').disabled)return;const key=plan.plan_id;return action(async()=>{$('confirmed').checked=false;const result=await api('/api/coordinates/move','POST',{plan_id:key,declaration});state.result=result;state.health.pending=result.sent?{kind:'coordinate_test'}:null;plan=null;render();});};
 $('disarm').onclick=async()=>{try{await api('/api/disarm','POST',{});$('summary').textContent+='\n已撤销后续运动授权，扭矩不变；当前指令可能继续。';}catch(exc){error(exc);}};
 $('saveCheck').onclick=()=>action(async()=>{await api('/api/coordinates/verify','POST',{plan_id:state.result.plan_id,result:document.querySelector('input[name=verified]:checked').value,note:$('note').value});});

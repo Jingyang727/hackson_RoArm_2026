@@ -48,7 +48,7 @@ def summarize(command,value):
         if h.get('pending'):waiting.append('controller_pending')
         return {**pick(value,('api_version','setup_id','code_revision')),'health':h,'waiting_for':waiting,
             'task_finished':not waiting,'job':{**pick(job,('status','phase','plan_id','error')),'result':result(job.get('result'),current)},
-            'learning':pick(learning,('status','phase','attempt','max_attempts','session_id','error','last_recovery')),'plan':plan(current),
+            'learning':pick(learning,('status','phase','attempt','max_attempts','continuous','trial_count','session_id','error','last_recovery')),'plan':plan(current),
             'instruction':'job/learning/pending是当前状态；result内是历史记录，不能据此声称仍在运动。task_finished只表示软件任务结束，不证明实物静止；复位仍须新鲜稳定反馈检查。'}
     if command=='context':
         if 'plan' in value:

@@ -45,12 +45,19 @@ from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZAT
 from evoarm_rsi.execution_diagnosis import diagnose
 from evoarm_rsi.learning_basis import basis as learning_basis,execution_proposal
 from evoarm_rsi.roarm_geometry import MotionConstraintError
+from evoarm_rsi.planning_diagnostics import explain as explain_planning
+from evoarm_rsi.workspace_preview import compute_workspace
+from evoarm_rsi.rsi_route import ROUTE_VERSION,LIFT_DEPARTURE_VERSION,TRANSFER_HEIGHT_POLICY
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
 
 def _launch(target):
     threading.Thread(target=target,name='evoarm-rsi-pick-place',daemon=True).start()
+
+
+def _launch_workspace(target):
+    threading.Thread(target=target,name='evoarm-workspace-preview',daemon=True).start()
 
 
 class Empty(BaseModel):
@@ -69,6 +76,17 @@ class Run(PlanID):
 
 class Prepare(Empty):
     source:str=Field(default='web',pattern=r'^(web|opencode_agent)$')
+
+
+class Workspace(Empty):
+    observation_id:str=Field(pattern=r'^[a-f0-9]{32}$')
+
+
+class Speeds(Empty):
+    travel_speed:float=Field(ge=.05,le=1,allow_inf_nan=False,strict=True)
+    approach_speed:float=Field(ge=.05,le=1,allow_inf_nan=False,strict=True)
+    policy_version:int=Field(ge=1,strict=True)
+    calibration_fingerprint:str=Field(min_length=1,max_length=128)
 
 
 class ComparisonReview(Empty):
@@ -102,7 +120,7 @@ class Review(PlanID):
 
 class Learn(Empty):
     declaration:str
-    max_attempts:int=Field(default=5,ge=1,le=20,strict=True)
+    max_attempts:int|None=Field(default=None,ge=1,strict=True)
 
 
 class Reset(Empty):
@@ -117,6 +135,7 @@ class AgentMemory(Empty):
 def install(app,service_provider):
     router=APIRouter(prefix='/api/bench/rsi');lock=threading.RLock();preparing=threading.Lock()
     plans={};job={'status':'idle','phase':'idle'};stop=threading.Event();latest=None
+    workspace_jobs={};workspace_lock=threading.RLock()
     agent_stream=None;agent_phase=None
     try:code_revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parent.parent,text=True,stderr=subprocess.DEVNULL,timeout=3).strip()
     except (OSError,subprocess.SubprocessError):code_revision='unknown'
@@ -126,6 +145,12 @@ def install(app,service_provider):
         if saved['setup_id']!=bench_ui.setup_id():raise ValueError('当前布置与保存标定不一致')
         return saved
     def policy_path(saved):return Path.home()/'.evoarm/rsi/pick_place_policies'/saved['setup_id']/f'{fingerprint(saved)}.json'
+    def speed_settings():
+        saved=session();path=policy_path(saved)
+        pol=json.loads(path.read_text()) if path.exists() else {'version':1,'parameters':DEFAULT_PARAMETERS}
+        speeds={k:pol['parameters'][k] for k in ('travel_speed','approach_speed')}
+        return Speeds(**speeds,policy_version=pol['version'],calibration_fingerprint=fingerprint(saved)).model_dump()
+
     def policy(saved,*,repair=False):
         path=policy_path(saved)
         if not path.exists():return {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
@@ -198,18 +223,35 @@ def install(app,service_provider):
                 agent_phase=signature;learner.events.emit('motion',phase=phase,plan_id=job.get('plan_id'))
     def validate_live(state):
         packet=preview_frame(Path.home());image=cv2.imdecode(np.frombuffer(packet['jpeg'],np.uint8),cv2.IMREAD_COLOR)
-        if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
-        ball=find_yellow_ball(image);expected=state['plan']['scene']['ball']
-        if not ball or math.dist(ball['center_px'],expected['pixel_center'])>max(6.,expected['radius_px']*.4):
-            raise ValueError('黄球位置已改变，请重新观察本轮目标')
-        funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
-        if math.dist(funnel['rgb_pixel_center'],old.get('rgb_pixel_center',old['pixel_center']))>max(6.,old['expected_diameter_px']*.15):
-            raise ValueError('漏斗位置已改变，请重新观察本轮目标')
+        folder=root(state['id']);(folder/'preflight-live.jpg').write_bytes(packet['jpeg'])
+        evidence={'plan_id':state['id'],'code_revision':code_revision,'checked_at_unix':time.time(),
+                  'phase':'before_motion','grasp_motion_sent_before_check':False,'status':'checking'}
+        try:
+            if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
+            ball=find_yellow_ball(image);expected=state['plan']['scene']['ball']
+            evidence['ball']={'expected_pixel':expected['pixel_center'],'current_pixel':ball['center_px'] if ball else None,
+                'limit_px':max(6.,expected['radius_px']*.4),
+                'delta_px':math.dist(ball['center_px'],expected['pixel_center']) if ball else None}
+            if not ball or evidence['ball']['delta_px']>evidence['ball']['limit_px']:
+                raise ValueError('黄球位置已改变，请重新观察本轮目标')
+            funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
+            expected_pixel=old.get('rgb_pixel_center',old['pixel_center'])
+            evidence['funnel']={'expected_rgb_pixel':expected_pixel,'current_rgb_pixel':funnel['rgb_pixel_center'],
+                'delta_px':math.dist(funnel['rgb_pixel_center'],expected_pixel),
+                'limit_px':max(6.,old['expected_diameter_px']*.15),'method':'RGB rim center before depth refinement'}
+            if evidence['funnel']['delta_px']>evidence['funnel']['limit_px']:
+                raise ValueError('漏斗位置已改变，请重新观察本轮目标')
+            evidence['status']='matched'
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
+            evidence.update(status='rejected',error=str(exc));raise
+        finally:_write(folder/'live-scene-validation.json',evidence)
 
     @router.get('/state')
     def state():
         automatic=learner.snapshot()
         with lock:
+            try:speeds=speed_settings()
+            except (OSError,ValueError,KeyError,TypeError) as exc:speeds={'error':str(exc)}
             snapshot=dict(job);current=plans.get(latest);plan=None
             if current:
                 remaining=max(0.,180-(time.monotonic()-current['created']))
@@ -218,6 +260,8 @@ def install(app,service_provider):
                     'scene':p['scene'],'parameters':p['parameters'],'policy_version':current['policy_version'],
                     'target_audit':p.get('target_audit'),'policy_application':p.get('policy_application'),
                     'route_policy':p.get('route_policy'),'object_geometry':p.get('object_geometry'),
+                    'initial_pose':{'xyz_mm':[p['initial_status'][k] for k in 'xyz'],
+                                    'pitch_rad':p['initial_status']['tit'],'roll_rad':p['initial_status']['r']},
                     'release_policy':p.get('release_policy'),
                     'steps':[s['stage'] for s in p['steps']],'pitch_deg':p['grasp_pitch_deg'],
                     'release_pitch_deg':p.get('release_pitch_deg',p['grasp_pitch_deg']),'warnings':p['warnings'],
@@ -230,10 +274,49 @@ def install(app,service_provider):
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
         return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
+                'workspace_preview_version':1,
+                'continuous_learning_version':1,
+                'lift_departure_version':LIFT_DEPARTURE_VERSION,
+                'route_policy_version':ROUTE_VERSION,'transfer_height_policy':TRANSFER_HEIGHT_POLICY,
+                'speed_settings_version':1,'speed_settings':speeds,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
+
+    @router.post('/speed')
+    def configure_speed(req:Speeds):
+        if not preparing.acquire(blocking=False):raise HTTPException(status_code=409,detail='正在观察，请稍后保存速度')
+        try:
+            service=service_provider()
+            with service.lock,lock:
+                if (learner.snapshot()['status']=='running' or service.automation_owner or service.pending or
+                        job.get('status') in ('running','preparing')):
+                    raise ValueError('请等当前任务结束后保存速度')
+                saved=session()
+                if req.calibration_fingerprint!=fingerprint(saved):raise ValueError('标定已变化，请重新载入速度设置')
+                pol=policy(saved)
+                if req.policy_version!=pol['version']:raise ValueError('策略已变化，请重新载入速度设置')
+                changed=[k for k in ('travel_speed','approach_speed') if pol['parameters'][k]!=getattr(req,k)]
+                if not changed:return {**speed_settings(),'changed':False,'robot_moved':False}
+                before=copy.deepcopy(pol['parameters']);updated=copy.deepcopy(pol)
+                for name in changed:updated['parameters'][name]=getattr(req,name)
+                record={'id':uuid.uuid4().hex,'kind':'user_speed_configuration','at_unix':time.time(),
+                    'source_trial_id':pol['reviews'][-1]['plan_id'] if pol['reviews'] else None,
+                    'before_version':pol['version'],'after_version':pol['version']+1,
+                    'before':before,'after':copy.deepcopy(updated['parameters']),'parameters_reset':changed,
+                    'reason':'用户在抓取页保存速度；下一轮重新规划时使用。'}
+                path=policy_path(saved)
+                if path.exists():
+                    backup=path.with_name(path.stem+f".before-speed-{record['id']}.json")
+                    _write(backup,pol);record['backup_file']=str(backup)
+                updated['version']=record['after_version'];updated.setdefault('baseline_resets',[]).append(record)
+                _write(path,updated)
+                for old in plans.values():
+                    if old['status']=='prepared':old['status']='superseded';save(old)
+                return {**speed_settings(),'changed':True,'robot_moved':False}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+        finally:preparing.release()
 
     @router.get('/learning/events')
     async def learning_events(request:Request):
@@ -279,6 +362,53 @@ def install(app,service_provider):
         path=Path.home()/'.evoarm/rsi/pick_place_observations'/observation_id/'preview.jpg'
         if not path.is_file() or path.is_symlink():raise HTTPException(status_code=404)
         return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+
+    @router.post('/workspace',status_code=202)
+    def start_workspace(req:Workspace):
+        """Read one pose and compute routes from a saved scene; never authorize motion."""
+        try:
+            learner.assert_interactive_allowed()
+            with workspace_lock:
+                if any(v['status']=='computing' for v in workspace_jobs.values()):raise ValueError('工作区正在计算，请等待')
+                saved=session();source=Path.home()/'.evoarm/rsi/pick_place_observations'/req.observation_id/'scene.json'
+                if not source.is_file() or source.is_symlink():raise ValueError('请先采集当前黄球和漏斗位置')
+                observation=json.loads(source.read_text())
+                if observation['calibration_fingerprint']!=fingerprint(saved):raise ValueError('标定已变化，请重新定位后计算工作区')
+                path=policy_path(saved)
+                pol=json.loads(path.read_text()) if path.is_file() else {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
+                missing=set(DEFAULT_PARAMETERS)-set(pol['parameters'])
+                if missing-{'squeeze_deg'} or set(pol['parameters'])-set(DEFAULT_PARAMETERS):raise ValueError('本地RSI参数不完整')
+                pol=copy.deepcopy(pol);pol['parameters']={**copy.deepcopy(DEFAULT_PARAMETERS),**pol['parameters']}
+                pol,_=repair_clipped_policy(pol);pol,_=upgrade_release_policy(pol)  # Preview only; never save a policy here.
+                service=service_provider()
+                with service.lock:
+                    if service.arm is None:raise ValueError('先连接机械臂以读取当前起步姿态')
+                    if service.pending or service.automation_owner:raise ValueError('当前动作结束后再计算工作区')
+                    raw=copy.deepcopy(service.status())
+                key=uuid.uuid4().hex;folder=Path.home()/'.evoarm/rsi/workspace_previews'/key
+                value={'workspace_id':key,'observation_id':req.observation_id,'status':'computing',
+                       'calibration_fingerprint':fingerprint(saved),'policy_version':pol['version'],
+                       'created_at_unix':time.time(),'code_revision':code_revision,'robot_moved':False}
+                workspace_jobs[key]=value
+                _write(folder/'input.json',{'session':saved,'initial_status':raw,'scene':observation['scene'],'parameters':pol['parameters']})
+                def update(result):
+                    with workspace_lock:
+                        value.update(result);_write(folder/'state.json',value)
+                def worker():
+                    try:update(compute_workspace(saved,raw,observation['scene'],pol['parameters'],progress=update))
+                    except Exception as exc:update({'status':'failed','error':str(exc)[:1200]})
+                _write(folder/'state.json',value);_launch_workspace(worker)
+                return {'workspace_id':key,'status':value['status']}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.get('/workspace/{workspace_id}')
+    def workspace_state(workspace_id:str):
+        if not re.fullmatch('[a-f0-9]{32}',workspace_id):raise HTTPException(status_code=404)
+        with workspace_lock:
+            if workspace_id in workspace_jobs:return copy.deepcopy(workspace_jobs[workspace_id])
+            file=Path.home()/'.evoarm/rsi/workspace_previews'/workspace_id/'state.json'
+            if not file.is_file() or file.is_symlink():raise HTTPException(status_code=404)
+            return json.loads(file.read_text())
 
     @router.post('/prepare')
     def prepare(req:Prepare):
@@ -352,15 +482,19 @@ def install(app,service_provider):
                 old=plans.get(latest)
                 if old and old['status']=='prepared':old['status']='superseded';save(old)
                 plans[plan_id]=state;latest=plan_id;job.update(status='ready',phase='ready',plan_id=plan_id)
+                terminal=[key for key,value in plans.items() if value['status'] in ('completed','failed','superseded')]
+                for key in terminal[:-8]:plans.pop(key,None)  # Historical context stays readable from disk.
             return {'plan_id':plan_id,'preview_url':f'/api/bench/rsi/plans/{plan_id}/preview'}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
             diagnostic=f'/api/bench/rsi/plans/{draft_id}/preview' if draft_id and (root(draft_id)/'preview.jpg').exists() else None
             publish('failed',status='failed',error=str(exc),diagnostic_url=diagnostic)
             if diagnostic:
-                detail=getattr(exc,'detail',{'message':str(exc)})
+                detail={**getattr(exc,'detail',{'message':str(exc)}),'image_url':diagnostic,'draft_id':draft_id}
+                diagnosis=explain_planning(detail)
                 try:_write(root(draft_id)/'prepare-error.json',{'error':str(exc),'detail':detail,'robot_moved':False,'observation_trial_id':key})
                 except OSError:pass
-                raise HTTPException(status_code=409,detail={**detail,'message':str(exc),'image_url':diagnostic}) from exc
+                if diagnosis:_write(root(draft_id)/'planning-diagnosis.json',diagnosis)
+                raise HTTPException(status_code=409,detail={**detail,'message':str(exc)}) from exc
             fail(exc)
         finally:preparing.release()
 
@@ -398,7 +532,7 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
-                if current['plan'].get('route_policy',{}).get('version')!=5 or not current['plan'].get('release_policy'):
+                if current['plan'].get('route_policy',{}).get('version')!=ROUTE_VERSION or not current['plan'].get('release_policy'):
                     raise ValueError('请重新观察，使用抓取与运输/投放独立姿态的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
@@ -548,6 +682,17 @@ def install(app,service_provider):
                                 proposal.pop(key,None)
                             proposal.update(status='unchanged',decision='candidate_path_rejected',parameters_changed=[],before={},after={},
                                 step_mm=None,allow_retry=False,after_policy_id=policy_id(parameters),reason=changes[0])
+                if execution_diagnosis['category']=='complete' and req.outcome!='placed':
+                    same=parameters==pol['parameters']
+                    retry_reason=('本轮保留相同参数；重新定位球与漏斗、重新规划后继续尝试。' if same else
+                                  '下一轮使用已保存的参数，重新定位并规划后继续尝试。')
+                    proposal.update(allow_retry=True,retry_mode='same_parameters' if same else 'updated_parameters',retry_reason=retry_reason)
+                    if same:changes.append(retry_reason)
+                    proposal['reason']='\n'.join(changes)
+                elif execution_diagnosis['category'] in ('execution_error','camera_error','not_started'):
+                    reason='本轮执行或证据采集未确认：'+str(execution_diagnosis.get('error') or '没有已确认的动作结果')
+                    proposal.update(allow_retry=False,retry_reason=reason,reason=reason)
+                    changes.append(reason)
                 entry={'plan_id':req.plan_id,'outcome':req.outcome,'direction':req.direction,'source':req.source,
                        'note':req.note,'before_version':pol['version'],'after_version':pol['version']+1,
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
@@ -768,7 +913,7 @@ def install(app,service_provider):
             parts=image_url.split('/')
             draft=parts[-2] if len(parts)>2 else ''
             if len(draft)==32 and all(c in '0123456789abcdef' for c in draft):
-                for name in ('preview.jpg','prepare-error.json','planning-input.json','calibration-snapshot.json'):
+                for name in ('preview.jpg','prepare-error.json','planning-diagnosis.json','planning-input.json','calibration-snapshot.json'):
                     file=root(draft)/name
                     if file.is_file() and not file.is_symlink():shutil.copy2(file,folder/name)
                 diagnostic=folder/'prepare-error.json'

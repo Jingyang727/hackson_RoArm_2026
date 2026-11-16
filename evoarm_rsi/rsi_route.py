@@ -5,6 +5,11 @@ import numpy as np
 
 from .ball_trial import check_segment
 from .roarm_geometry import height_above_plane,inverse,MotionConstraintError
+from .planning_diagnostics import search_summary
+
+ROUTE_VERSION=7
+LIFT_DEPARTURE_VERSION=1
+TRANSFER_HEIGHT_POLICY='main_shared_candidate_max'
 
 
 def at_height(point,height,plane):
@@ -21,17 +26,31 @@ def execution_target(stage,actual,plane):
         target['xyz_mm']=at_height([actual[k] for k in 'xyz'],height,plane)
     if stage.get('hold_orientation'):
         target.update(pitch_rad=actual['tit'],roll_rad=actual['r'])
-    if stage['stage']=='raise_current':
-        target['minimum_tip_height_mm']=min(0.,height_above_plane([actual[k] for k in 'xyz'],plane))
-        if target['xyz_mm'][2]<actual['z']-.01:raise ValueError('起步抬升目标已低于实际位置，请重新规划')
+    if stage['stage'] in ('raise_current','lift'):
+        if not stage.get('vertical_only'):raise ValueError('离桌抬升必须保持实际XY，不能低处平移')
+        start_height=height_above_plane([actual[k] for k in 'xyz'],plane)
+        goal_height=height_above_plane(target['xyz_mm'],plane)
+        required=stage['minimum_tip_height_mm']
+        if target['xyz_mm'][2]<actual['z']-.01:raise ValueError('抬升目标已低于实际位置，请重新规划')
+        if goal_height<max(0.,required):raise ValueError('离桌抬升的终点必须回到桌面之上')
+        # Feedback can be slightly below the fitted plane after closing. The
+        # upward segment may start there, but cannot go any deeper or sideways.
+        # Transport and descent retain their original clearance requirements.
+        target['minimum_tip_height_mm']=min(required,start_height)
+        if start_height<required:
+            target['table_departure']={'start_tip_height_mm':start_height,'target_tip_height_mm':goal_height,
+                'nominal_minimum_tip_height_mm':required,'applied_minimum_tip_height_mm':start_height,
+                'keeps_measured_xy':True,'direction':'upward_only'}
     return target
 
 
-def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_height,ball_radius,release_candidates=None):
+def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_height,ball_radius,release_candidates=None,segment_checker=None):
     # An object-derived transit clearance, not a restriction on selectable XYZ.
     floor=max(funnel_height,2*ball_radius)+ball_radius+10.
     releases=release_candidates or [{'xyz_mm':list(release),'pitch_rad':pitch}]
+    # Restore main's shared high corridor, as requested by the operator.
     travel=max(p['lift_height_mm'],floor+10.,max(height_above_plane(r['xyz_mm'],plane) for r in releases)+10.)
+    checker=segment_checker or check_segment
     hover=max(p['hover_height_mm'],ball_top_height+p['finger_offset_mm']+5.)
     start_height=height_above_plane([initial[k] for k in 'xyz'],plane)
     corridors=list(dict.fromkeys([max(start_height,travel),travel]))
@@ -55,7 +74,7 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
             step={'stage':stage,'kind':'cartesian','xyz_mm':point,'pitch_rad':angle,'roll_rad':initial['r'],
                   'gripper_rad':current['g'],'spd':speed,'minimum_tip_height_mm':minimum,
                   'vertical_only':vertical,'hold_orientation':hold}
-            try:check_segment(current,step,plane)
+            try:checker(current,step,plane)
             except ValueError as exc:rejected(exc,step);raise
             steps.append(step)
             current=inverse(point,angle,initial['r'],current['g'])
@@ -111,8 +130,9 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
                 if step['stage']=='open' and index+1<len(steps) and steps[index+1]['stage']=='approach_ball':
                     steps[index+1].update(gripper_rad=step['gripper_rad'],open_while_moving=True)
                     del steps[index];break
-            return steps,{'version':5,'mode':'lift_transfer_descend','vertical_axis':'robot_z_keep_xy',
+            return steps,{'version':ROUTE_VERSION,'mode':'lift_transfer_descend','vertical_axis':'robot_z_keep_xy',
                 'minimum_transfer_height_mm':floor,'transfer_height_mm':travel,'entry_transfer_height_mm':corridor,
+                'transfer_height_policy':TRANSFER_HEIGHT_POLICY,
                 'pickup_hover_height_mm':hover,'release_settle_s':.2,
                 'release_pitch_rad':selected['pitch_rad'],'release_tip_xyz_mm':list(selected['xyz_mm']),
                 'merged_high_approach':merged,'lift_pitch_rad':selected['pitch_rad'],
@@ -123,4 +143,4 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
         'transport':'运输到漏斗上方','orient_transport':'运输前高处转腕','transit_arc':'高处绕行','lower_to_release':'投放下降'}
     summary='；'.join(f"{labels.get(f['stage'],f['stage'])} XYZ={[round(v,1) for v in f['xyz_mm']]}、俯仰{f['pitch_deg']:.1f}°：{f['message']}" for f in failures[:3])
     raise MotionConstraintError('未找到通过检查的候选路径（不代表目标物体不可达）：'+summary,
-        code='route_search_exhausted',attempts=failures[:64],attempt_count=len(failures))
+        code='route_search_exhausted',attempts=failures[:64],attempt_count=len(failures),**search_summary(failures))

@@ -1,7 +1,8 @@
-"""Bounded RSI loop with a separate official reset for every new failure."""
+"""Finite or continuous RSI, with a separate recovery for every new failure."""
 from __future__ import annotations
 
 import copy
+import itertools
 from pathlib import Path
 import threading
 import time
@@ -11,6 +12,7 @@ from . import grok_review
 from .rsi_journal import append_event,archive_session
 from .task_agent import _write
 from .rsi_events import LearningEvents
+from .planning_diagnostics import explain
 
 LEARNING_DECLARATION='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试'
 
@@ -22,14 +24,17 @@ def _launch_learning(target):
 def error_info(exc):
     detail=getattr(exc,'detail',None)
     if isinstance(detail,dict):
-        return {'message':str(detail.get('message','规划失败')),'image_url':detail.get('image_url')}
+        result={'message':str(detail.get('message','规划失败')),'image_url':detail.get('image_url')}
+        diagnosis=explain(detail)
+        if diagnosis:result['planning_diagnosis']=diagnosis
+        return result
     return {'message':detail if isinstance(detail,str) else str(exc),'image_url':None}
 
 
 class ResetHandledError(RuntimeError):
     def __init__(self,cause,report):
         super().__init__(error_info(cause)['message'])
-        self.report=report
+        self.report=report;self.detail=getattr(cause,'detail',None)
 
 
 class LearningLoop:
@@ -64,9 +69,10 @@ class LearningLoop:
             if self.value.get('session_id'):
                 _write(Path.home()/'.evoarm/rsi/learning_sessions'/self.value['session_id']/'state.json',self.value)
 
-    def start(self,declaration,max_attempts=5):
+    def start(self,declaration,max_attempts=None):
         if declaration!=LEARNING_DECLARATION:raise ValueError('请确认自动抓放、恢复和连续重试的范围')
-        if type(max_attempts) is not int or not 1<=max_attempts<=20:raise ValueError('自动试次需为1～20次')
+        if max_attempts is not None and (type(max_attempts) is not int or max_attempts<1):
+            raise ValueError('自动试次需为正整数，或用null持续尝试')
         config=grok_review.configuration()
         if not config['configured']:raise ValueError(config['reason'])
         service=self.service_provider()
@@ -78,6 +84,7 @@ class LearningLoop:
             if any(raw.get('torswitch'+k)!=1 for k in 'BSETRG'):raise ValueError('六关节锁定反馈尚未确认')
             key=uuid.uuid4().hex;self.stop_event.clear();self.trial_stop.clear()
             self.value={'session_id':key,'status':'running','phase':'starting','attempt':0,'max_attempts':max_attempts,
+                        'continuous':max_attempts is None,'trial_count':0,
                         'trials':[],'recovery_events':[],'started_at_unix':time.time(),'error':None}
             self.events.reset(key);self._event_phase=None;self._motion_phase=None
             service.automation_owner=key
@@ -143,7 +150,7 @@ class LearningLoop:
     def _reset_error(self,session_id,current,exc,phase):
         """A NEW event, never suppressed by a previous trial's recovery receipt."""
         self._guard();key=uuid.uuid4().hex;info=error_info(exc)
-        self.publish('recovering',recovery_cause=info['message'])
+        self.publish('checking_home',recovery_cause=info['message'])
         try:report=self.reset_failure(key,current,exc,phase,self.stop_event,session_id)
         except Exception as reset_exc:report=getattr(reset_exc,'report',{'status':'failed','error':str(reset_exc)})
         event={'id':key,'phase':phase,'cause':info['message'],'status':report['status'],
@@ -151,20 +158,24 @@ class LearningLoop:
                't100_sent':any(row.get('command',{}).get('T')==100 and row.get('status') in ('sent_not_verified','feedback_confirmed') for row in report.get('commands',[])),
                'already_at_official_pose':report.get('already_at_official_pose',False)}
         with self.lock:self.value['recovery_events'].append(event)
-        self.publish('recovering',last_recovery=event)
+        self.publish('home_checked',last_recovery=event)
         return report
 
     def _prepare_from_home_if_needed(self,session_id,attempt):
         for retry in range(2):
-            self._guard();self.publish('observing',attempt=attempt,plan_id=None)
+            self._guard();self.publish('observing',attempt=attempt,plan_id=None,planning_diagnosis=None)
             try:return self.prepare()
             except Exception as exc:
+                diagnosis=error_info(exc).get('planning_diagnosis')
+                if diagnosis:self.publish('planning_failed',planning_diagnosis=diagnosis)
                 report=self._reset_error(session_id,None,exc,'planning')
-                if report['status']!='completed' or retry==1:raise ResetHandledError(exc,report) from None
+                if (report['status']!='completed' or retry==1 or
+                        diagnosis and report.get('already_at_official_pose')):
+                    raise ResetHandledError(exc,report) from None
                 self.publish('replanning',message='已恢复官方初始姿态，重新定位并规划')
 
     def _recover_trial(self,current,verdict,session_id):
-        self._guard();self.publish('recovering')
+        self._guard();self.publish('checking_home')
         try:report=self.recover(current,verdict,self.stop_event,session_id)
         except Exception as exc:raise ResetHandledError(exc,getattr(exc,'report',{'status':'failed','error':str(exc)})) from None
         current['recovery']=report
@@ -180,7 +191,8 @@ class LearningLoop:
             if service.fault:
                 report=self._reset_error(session_id,None,RuntimeError(service.fault['message']),'startup')
                 if report['status']!='completed':raise ResetHandledError(RuntimeError('起步复位未确认'),report)
-            for attempt in range(1,max_attempts+1):
+            for attempt in itertools.count(1):
+                if max_attempts is not None and attempt>max_attempts:break
                 # Forget the old trial BEFORE preparing a new one. Its receipt
                 # cannot stand in for recovery of a later planning failure.
                 current=None;phase='planning';key=self._prepare_from_home_if_needed(session_id,attempt)
@@ -208,19 +220,24 @@ class LearningLoop:
                 phase='analyzing';self.publish('analyzing');root=Path.home()/'.evoarm/rsi/pick_place_runs'/key
                 append_event(root,'grok_review_started');verdict=self._review(key)
                 append_event(root,'grok_review_completed',verdict=verdict)
+                self._guard()
                 if not result.get('grasp_attempted') and verdict['outcome'] not in ('unknown','execution_failed','pushed_away'):
                     verdict.update(outcome='execution_failed',direction='none')
                 decision=self.apply_review(key,verdict)
+                with self.lock:
+                    self.value['trial_count']+=1
+                    self.value['trials'].append({'plan_id':key,'outcome':verdict['outcome'],'policy_version':decision['after_version']})
+                    # Full records remain on disk; polling keeps a recent window.
+                    self.value['trials']=self.value['trials'][-100:]
                 self.publish('learning',review=decision,changes=decision['changes'],policy_version=decision['after_version'])
-                self.value['trials'].append({'plan_id':key,'outcome':verdict['outcome'],'policy_version':decision['after_version']})
                 if verdict['outcome']=='placed':
                     self.archive(current);self.publish('completed',status='completed',finished_at_unix=time.time());return
                 self.archive(current)
-                if verdict['outcome']=='unknown':
-                    raise ResetHandledError(RuntimeError('视觉模型无法可靠判断本轮，已保留证据'),current['recovery'])
                 if decision.get('proposal',{}).get('allow_retry') is False:
                     reason=decision.get('proposal',{}).get('reason') or '当前画面与反馈不足以选择新参数。'
-                    raise ResetHandledError(RuntimeError('本轮没有可验证的新修正：'+reason),current['recovery'])
+                    raise ResetHandledError(RuntimeError('本轮执行问题尚未解决：'+reason),current['recovery'])
+                if max_attempts is None or attempt<max_attempts:
+                    self.publish('retrying',message=decision.get('proposal',{}).get('retry_reason') or '重新定位并规划下一轮。')
             self.publish('exhausted',status='completed',finished_at_unix=time.time(),message='尝试次数已用完，机械臂已恢复官方姿态，策略与证据已保存')
         except Exception as exc:
             report=(exc.report if isinstance(exc,ResetHandledError) else
@@ -231,8 +248,14 @@ class LearningLoop:
             if current is not None:
                 try:self.archive(current)
                 except Exception as backup_exc:self.value['backup_error']=str(backup_exc)
-            message=error_info(exc)['message']
-            if report and report.get('status')=='completed':message='已恢复官方初始姿态；'+message
+            info=error_info(exc);message=info['message'];diagnosis=info.get('planning_diagnosis')
+            if diagnosis:
+                with self.lock:self.value['planning_diagnosis']=diagnosis
+                message=diagnosis['summary']+'。'+diagnosis['suggestion']
+                if report and report.get('status')=='completed':
+                    message+='\n起步姿态：'+('已在官方初始姿态，无需重复回位。' if report.get('already_at_official_pose') else '官方回位已完成。')
+                elif report:message+='\n官方回位未确认：'+report.get('error','请检查控制器连接')
+            elif report and report.get('status')=='completed':message='已恢复官方初始姿态；'+message
             elif report:message+='；官方复位未确认：'+report.get('error','请检查控制器连接')
             self.publish('stopped' if self.stop_event.is_set() else 'failed',status='stopped' if self.stop_event.is_set() else 'failed',
                          error=message[:1200],finished_at_unix=time.time())

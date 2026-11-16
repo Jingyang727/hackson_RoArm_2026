@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 
-from .ball_trial import check_segment, SPEED
+from .ball_trial import check_segment
+from .coordinate_motion import DEFAULT_SPEED,motion_profile
 from .bench_calibration import fit_points, _digest
 from .roarm_geometry import forward, inverse, height_above_plane, MotionConstraintError
 from control_ui.safety import JOINTS, validate_angle_range
@@ -46,7 +47,8 @@ def fingerprint(session):
     return _digest({k:session[k] for k in ('session_id','reference_sha256','records')})
 
 
-def plan_point(session, status, target, pitch_mode='auto'):
+def plan_point(session, status, target, pitch_mode='auto',*,speed=DEFAULT_SPEED):
+    profile=motion_profile(speed)
     if pitch_mode not in ('auto','hold'):raise ValueError('未知的末端俯仰规划方式')
     if len(target)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in target):
         raise ValueError('请输入有限的机械臂 XYZ，单位mm')
@@ -75,7 +77,7 @@ def plan_point(session, status, target, pitch_mode='auto'):
     rejected=[]
     for pitch in candidates:
         stage={'stage':'coordinate_test','kind':'cartesian','xyz_mm':list(target),'pitch_rad':pitch,
-               'roll_rad':status['r'],'gripper_rad':hold['command_rad'],'minimum_tip_height_mm':minimum}
+               'roll_rad':status['r'],'gripper_rad':hold['command_rad'],'minimum_tip_height_mm':minimum,'spd':speed}
         try:check_coordinate_segment(status,stage,plane)
         except ValueError as exc:
             rejected.append(getattr(exc,'detail',{'message':str(exc),'pitch_deg':math.degrees(pitch)}))
@@ -101,7 +103,7 @@ def plan_point(session, status, target, pitch_mode='auto'):
             'gripper_hold':hold,
             'predicted_joints_xyz_mm':forward(predicted)['joints_xyz_mm'],
             'command':{'T':104,'x':target[0],'y':target[1],'z':target[2],'t':pitch,'r':status['r'],
-                       'g':hold['command_rad'],'spd':SPEED},'stage':stage,'calibration_fingerprint':fingerprint(session),
+                       'g':hold['command_rad'],'spd':speed},'stage':stage,'motion_profile':profile,'calibration_fingerprint':fingerprint(session),
             'physical_accuracy':'unverified_until_operator_checks','camera_required':False,'board_required':False}
 
 
@@ -114,10 +116,11 @@ def errors(status, target, pose):
                               'gripper':math.degrees(status['g']-pose['gripper'])}}
 
 
-def plan_lift_point(session,status,target,pitch_mode='auto'):
+def plan_lift_point(session,status,target,pitch_mode='auto',*,speed=DEFAULT_SPEED):
     """Route a UI target through an overhead waypoint; keep the T104 primitive."""
     from .rsi_route import at_height
     from .pick_place import FUNNEL_HEIGHT,BALL_RADIUS
+    motion_profile(speed)
     if len(target)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in target):
         raise ValueError('请输入有限XYZ')
     plane=calibrated_table(session);start=[status[k] for k in 'xyz'];model=forward(status)
@@ -136,7 +139,7 @@ def plan_lift_point(session,status,target,pitch_mode='auto'):
                 nonlocal current
                 if math.dist([current[k] for k in 'xyz'],point)<.8 and abs(current['tit']-pitch)<math.radians(.5):return
                 stage={'stage':name,'kind':'cartesian','xyz_mm':list(point),'pitch_rad':pitch,'roll_rad':status['r'],
-                       'gripper_rad':hold['command_rad'],'spd':SPEED,'minimum_tip_height_mm':floor,
+                       'gripper_rad':hold['command_rad'],'spd':speed,'minimum_tip_height_mm':floor,
                        'vertical_only':vertical,'hold_orientation':keep}
                 check_coordinate_segment(current,stage,plane)
                 begin=[current[k] for k in 'xyz'];count=max(2,math.ceil(math.dist(begin,point)/8))
@@ -146,7 +149,7 @@ def plan_lift_point(session,status,target,pitch_mode='auto'):
                 move('raise_current' if height>=start_h else 'clearance_adjust',at_height(start,height,plane),status['tit'],min(0.,start_h) if height>=start_h else minimum,True,True)
                 move('orient_clear',[current[k] for k in 'xyz'],transfer_pitch,minimum,True)
                 move('coordinate_transfer',at_height(target,height,plane),transfer_pitch,minimum)
-                final=plan_point(session,current,target,pitch_mode)
+                final=plan_point(session,current,target,pitch_mode,speed=speed)
                 move('coordinate_descend',target,final['pose_preserved_rad']['pitch'],0.,True)
                 final.update(kind='waypoint_xyz_validation_v1',path_mode='lift',initial_status=status,path_xyz_mm=path,
                     segments=segments,gripper_hold=hold,distance_mm=sum(math.dist(a,b) for a,b in zip(path,path[1:])),

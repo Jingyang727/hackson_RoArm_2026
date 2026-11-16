@@ -146,6 +146,9 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                             'plan':{'initial_status':actual,'target_xyz_mm':target['xyz_mm'],
                             'pose_preserved_rad':{'pitch':target['pitch_rad'],'roll':target['roll_rad'],'gripper':target['gripper_rad']}},
                             'status':'moving','feedback':[],'report_file':str(root/f'stage-{index:02d}.json')}
+                        if target.get('table_departure'):
+                            stage_report['table_departure']=target['table_departure']
+                            append_event(root,'upward_table_departure',stage=stage['stage'],**target['table_departure'])
                         next_pending={'stage_kind':'cartesian','report':stage_report}
                     else:
                         if stage['stage']=='release':

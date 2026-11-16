@@ -29,7 +29,7 @@ def check(url, output):
     writer.release();playback=browser_video(video_folder).read_bytes()
     health={'connected':True,'motion_enabled':True,'torque_status':[1]*6,'fault':None,'pending':None,'armed':False}
     process={'reset':True,'cursor':'idle:0','session_id':None,'started_at_unix':time.time(),'events':[],'model_output':None}
-    model={'api_version':10,'web_learning_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
+    model={'api_version':10,'web_learning_version':3,'continuous_learning_version':1,'route_policy_version':7,'visual_pipeline_version':3,'setup_id':'bench-layout-v2','health':health,'job':{'status':'idle','phase':'idle'},'process':process,
            'learning':{'status':'idle','phase':'idle'},'grok':{'configured':True,'model':'grok-4.7-build','backend':'company_api'},'plan':None}
     scene={'image_size':[1280,720],'depth_scale':{'near_mm':420,'far_mm':550},
            'ball':{'pixel_center':[600,350],'center_robot_mm':[330,0,-98],
@@ -99,7 +99,7 @@ def check(url, output):
         browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':1440,'height':1100});page.route('**/api/**',route)
         page.on('pageerror',lambda error:errors.append(str(error)))
-        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='公司Grok API已配置').wait_for()
+        page.goto(url+'/experiments');page.locator('#grokStatus').filter(has_text='API直接调用').wait_for()
         page.locator('#workspaceFrame').wait_for(state='visible')
         assert not any(call[0]=='POST' for call in calls)
         assert page.locator('#saveReview').count()==0;assert page.locator('#start').is_disabled()
@@ -112,7 +112,7 @@ def check(url, output):
         assert '330.0' not in page.locator('#observationFacts').inner_text()
         scene['ball']['center_robot_mm'][0]=330.
         page.get_by_text('采集当前物体坐标（不运动）',exact=True).click()
-        page.locator('#confirmed').check();page.locator('#start').click();page.evaluate("document.getElementById('start').click()")
+        page.locator('#maxAttempts').select_option('5');page.locator('#confirmed').check();page.locator('#start').click();page.evaluate("document.getElementById('start').click()")
         page.locator('#phase').filter(has_text='观察黄球').wait_for()
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/start'])==1
         key='1'*32;model['plan']=plan(key,1);model['learning']['phase']='executing'
@@ -219,7 +219,7 @@ def check(url, output):
         assert len([call for call in calls if call[1]=='/bench/rsi/learning/stop'])==1
         assert not any(call[1].endswith('/review') for call in calls)
         model['learning'].update(status='stopped',phase='stopped');model['grok'].update(configured=False,reason='公司Grok未配置')
-        page.locator('#grokStatus').filter(has_text='未配置').wait_for();page.locator('#confirmed').check()
+        page.locator('#grokStatus').filter(has_text='未配置').wait_for();page.locator('#maxAttempts').select_option('5');page.locator('#confirmed').check()
         assert page.locator('#start').is_disabled();assert page.locator('#reset').is_enabled()
         page.locator('#reset').click();page.locator('#phase').filter(has_text='恢复官方初始姿态').wait_for()
         model['learning'].update(status='completed',phase='reset_completed')

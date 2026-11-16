@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/workspace.css"/>
   <style>
     .learning-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:22px;align-items:start}
+    .speed-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.speed-fields label{display:grid;gap:6px;font-size:12px}.speed-fields input{width:100%;min-width:0;box-sizing:border-box}
     .learning-grid>*{min-width:0}.workspace-frame{display:block;width:100%;border-radius:10px;background:#edf2f1;aspect-ratio:16/9;object-fit:contain}
     .workspace-view{position:relative}.workspace-view svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     .learning-controls>button{width:100%;margin:12px 0}.learning-controls .check-row{margin:20px 0}
@@ -41,10 +42,13 @@
     <div class="card">
       <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
       <div id="frameEmpty" class="empty-trials"><p>正在读取相机画面。球和黑色漏斗应同时可见。</p></div>
-      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
+      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="workspaceOverlay" aria-label="当前策略的完整抓放路径采样区域" hidden></svg><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
       <p id="imageCaption" class="quiet"></p>
       <p id="targetCaption" class="quiet" hidden></p>
       <p id="streamNotice" class="quiet" hidden></p>
+      <label class="check-row"><input id="workspaceVisible" type="checkbox"/><span>显示当前可抓取区域（不运动）</span></label>
+      <p id="workspaceStatus" class="quiet" role="status">按当前起步姿态、漏斗位置和经验参数计算；不是一个固定半径。</p>
+      <button id="workspaceRecompute" class="secondary" hidden>重新计算区域</button>
       <details><summary>采集当前物体坐标（不运动）</summary>
         <button id="observeObjects" class="secondary">重新定位黄球和漏斗</button>
         <p id="observationFacts" class="facts">先采集当前画面，再验证位置；物体移动后需要重新采集。</p>
@@ -56,16 +60,33 @@
       <p id="readiness" class="inline-note">正在检查机械臂和视觉模型。</p>
       <p id="grokStatus" class="quiet"></p>
       <button id="connect" class="secondary" hidden>连接机械臂</button>
+      <details id="speedSettings"><summary id="speedSummary">抓放速度设置</summary>
+        <div class="speed-fields">
+          <label for="travelSpeed">转移／抬升速度系数<input id="travelSpeed" type="number" min="0.05" max="1" step="any" value="0.65" disabled/></label>
+          <label for="approachSpeed">下探／靠近速度系数<input id="approachSpeed" type="number" min="0.05" max="1" step="any" value="0.30" disabled/></label>
+        </div>
+        <p class="quiet">范围0.05～1.0，数值越大越快；不是毫米/秒。分别控制高处转移、抬升，以及下探、靠近投放点。</p>
+        <button id="speedFast" class="secondary" disabled>填入快速：1.0 / 0.5</button>
+        <button id="saveSpeed" class="secondary" disabled>保存速度</button>
+        <button id="reloadSpeed" class="secondary" disabled>重新载入</button>
+        <p id="speedStatus" class="quiet" role="status">正在读取当前策略的速度。</p>
+      </details>
       <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
       <button id="start" class="primary" disabled>开始自动抓放</button>
       <button id="reset" class="secondary" disabled>恢复官方初始姿态</button>
       <button id="stop" class="secondary" hidden>停止自动任务</button>
       <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
+      <div id="planningIssue" class="inline-note" hidden><strong id="planningSummary"></strong><p id="planningAdvice" class="quiet"></p><details><summary>查看失败阶段与原始原因</summary><pre id="planningDetails" class="grok-raw"></pre><img id="planningImage" class="depth-image" alt="规划失败时保存的场景" hidden/></details></div>
       <p id="nextChange" class="quiet"></p>
       <details id="changeDetails" hidden><summary>本轮参数变化</summary><p id="changeFacts" class="facts"></p></details>
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
-      <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
+      <details id="attemptSettings"><summary>尝试次数（默认持续尝试）</summary>
+        <label class="quiet" for="maxAttempts">尝试模式</label>
+        <select id="maxAttempts"><option value="continuous" selected>持续尝试，成功或手动停止</option><option value="1">1轮</option><option value="3">3轮</option><option value="5">5轮</option><option value="10">10轮</option><option value="50">50轮</option><option value="100">100轮</option><option value="custom">自定义轮数</option></select>
+        <label id="customAttemptsField" class="quiet" for="customAttempts" hidden>最多尝试轮数 <input id="customAttempts" type="number" min="1" step="1" value="50"/></label>
+        <p id="attemptHint" class="quiet">持续尝试没有轮数上限。成功或手动停止后结束；执行异常仍会暂停。每轮重新定位，参数相同也可以重试。</p>
+      </details>
       <p class="limits-note">每轮录像20秒，抓放仍以10秒为性能目标；录像结束后回位，再分析，下一轮重新开始计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
     </div>
   </section>
@@ -96,6 +117,6 @@
   <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><details><summary>核对最近4轮补偿与实际落点</summary><p class="quiet">只读取已有记录；缺失项显示“—”。自动平面试验步长至少10mm。</p><button id="loadXYAudit" class="secondary">读取最近4轮（不运动）</button><div id="xyAuditFacts"></div></details><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
 <footer>录像、RGB-D、指令、反馈、视觉模型判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
-<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>
+<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script><script src="/assets/rsi-workspace.js"></script><script src="/assets/rsi-speed.js"></script>
 </body>
 </html>
