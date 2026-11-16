@@ -162,6 +162,7 @@ def visual_context(context):
         if isinstance(comparison.get(name),dict):comparison[name]={k:v for k,v in comparison[name].items() if k not in ('path','file')}
     result=context.get('result',{})
     return {'plan_id':context.get('plan_id'),'review_phase':context.get('review_phase'),'comparison':comparison,
+            **({'visual_target':context['visual_target']} if context.get('task_profile')=='challenge_upgrade' else {}),
             'execution':{k:result.get(k) for k in ('grasp_attempted','placement_attempted','motion_completed','recording_covers_motion')}}
 
 
@@ -201,6 +202,12 @@ def review(context, root, stop, *, timeout_s=120, preflight=False,on_update=None
         if paired.get('available'):
             frames=[paired['previous_frame']]+frames
     system = SCENE_SYSTEM if preflight else SYSTEM
+    if context.get('task_profile')=='challenge_upgrade':
+        system=system.replace('yellow-ball robot experiment','multi-colour ball cleanup challenge').replace('black funnel','designated collection container')
+        system+=(' Only evaluate the selected ball identified by color and original-image pixel coordinates in visual_target. '
+                 'Other balls may remain on the table or already be inside the container. Their presence is not evidence that this selected ball was placed. '
+                 'For the existing JSON schema, ball_state=funnel means inside this same collection bowl/container. '
+                 'Report slipped when the selected ball was lifted and then dropped; do not classify every failed delivery as grasp_missed.')
     recovery=context.get('review_phase')=='recovery'
     content=[]
     model_frames=root/'model-frames';model_frames.mkdir(exist_ok=True)

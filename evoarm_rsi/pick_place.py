@@ -35,10 +35,10 @@ DEFAULT_PARAMETERS = {
 }
 
 
-def sphere_center(ball, frame, geometry):
+def sphere_center(ball, frame, geometry, *, mask=None):
     """Fit a known-radius sphere to actual yellow surface samples, with a table prior."""
     center=np.asarray(ball['center_robot_mm'],float)
-    mask=yellow_ball_mask(frame['bgr'])>0
+    mask=(yellow_ball_mask(frame['bgr'])>0) if mask is None else np.asarray(mask,bool).copy()
     yy,xx=np.indices(mask.shape);u,v=ball['pixel_center']
     mask &= (xx-u)**2+(yy-v)**2 < (.85*ball['radius_px'])**2
     depth=frame['depth_mm'];mask &= np.isfinite(depth)&(depth>0)
