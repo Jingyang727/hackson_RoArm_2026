@@ -23,6 +23,8 @@ from evoarm_rsi.coordinate_test import fingerprint,calibrated_table
 from evoarm_rsi.bench_start import _ready
 from evoarm_rsi.camera_service import client_request, preview_frame
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS, observe_scene, build_plan, preview, detect_funnel,MIN_XY_STEP_MM
+from evoarm_rsi.funnel_geometry import draw_mouth
+from evoarm_rsi.rsi_settings import RECORDING_SECONDS,MODEL_LONG_EDGE,MODEL_REVIEW_FRAMES
 from evoarm_rsi.xy_audit import audit as audit_xy
 from evoarm_rsi.rsi_policy import propose, target_audit, application, policy_id
 from evoarm_rsi.rsi_execution import execute, reservation
@@ -37,6 +39,7 @@ from evoarm_rsi.rsi_events import stream_events
 from evoarm_rsi.rsi_comparison import build_comparison,public_comparison
 from evoarm_rsi.image_directions import CONTRACT,OPPOSITE
 from evoarm_rsi.policy_repair import repair_clipped_policy
+from evoarm_rsi.release_geometry import upgrade_release_policy
 from evoarm_rsi import agent_vision
 from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZATION_CONTRACT
 from evoarm_rsi.execution_diagnosis import diagnose
@@ -142,6 +145,11 @@ def install(app,service_provider):
                 _write(backup,value)
                 record['backup_file']=str(backup)
                 _write(path,repaired);value=repaired
+            updated,record=upgrade_release_policy(value)
+            if record:
+                backup=path.with_name(path.stem+f".before-high-release-{record['id']}.json")
+                _write(backup,value);record['backup_file']=str(backup)
+                _write(path,updated);value=updated
         return value
     def known(key,*,historical=False):
         if key not in plans:
@@ -195,7 +203,7 @@ def install(app,service_provider):
         if not ball or math.dist(ball['center_px'],expected['pixel_center'])>max(6.,expected['radius_px']*.4):
             raise ValueError('黄球位置已改变，请重新观察本轮目标')
         funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
-        if math.dist(funnel['pixel_center'],old['pixel_center'])>max(6.,old['expected_diameter_px']*.15):
+        if math.dist(funnel['rgb_pixel_center'],old.get('rgb_pixel_center',old['pixel_center']))>max(6.,old['expected_diameter_px']*.15):
             raise ValueError('漏斗位置已改变，请重新观察本轮目标')
 
     @router.get('/state')
@@ -210,6 +218,7 @@ def install(app,service_provider):
                     'scene':p['scene'],'parameters':p['parameters'],'policy_version':current['policy_version'],
                     'target_audit':p.get('target_audit'),'policy_application':p.get('policy_application'),
                     'route_policy':p.get('route_policy'),'object_geometry':p.get('object_geometry'),
+                    'release_policy':p.get('release_policy'),
                     'steps':[s['stage'] for s in p['steps']],'pitch_deg':p['grasp_pitch_deg'],
                     'release_pitch_deg':p.get('release_pitch_deg',p['grasp_pitch_deg']),'warnings':p['warnings'],
                     'review':current.get('review')}
@@ -220,7 +229,9 @@ def install(app,service_provider):
                 if service.arm:service.status()
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
-        return {'api_version':10,'web_learning_version':3,'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
+        return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
+                'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
+                'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
                 'learning':automatic,'grok':grok_review.configuration(),'code_revision':code_revision}
 
@@ -247,9 +258,10 @@ def install(app,service_provider):
             folder=Path.home()/'.evoarm/rsi/pick_place_observations'/key;folder.mkdir(parents=True,exist_ok=True)
             if not cv2.imwrite(str(folder/'observation.jpg'),image):raise ValueError('定位原图保存失败')
             marked=image.copy()
-            for name,color in (('ball',(0,210,255)),('funnel',(100,230,100))):
+            for name,color in (('ball',(0,210,255)),):
                 pixel=tuple(np.round(scene[name]['pixel_center']).astype(int))
                 cv2.circle(marked,pixel,25,color,3);cv2.putText(marked,name.upper(),pixel,cv2.FONT_HERSHEY_SIMPLEX,.6,color,2)
+            draw_mouth(marked,scene['funnel'])
             if not cv2.imwrite(str(folder/'preview.jpg'),marked):raise ValueError('定位预览保存失败')
             result={'observation_id':key,'observed_at_unix':time.time(),'scene':scene,
                     'calibration_fingerprint':fingerprint(saved),'frame':'robot_firmware_mm','units':'mm',
@@ -386,7 +398,7 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
-                if current['plan'].get('route_policy',{}).get('version')!=4:
+                if current['plan'].get('route_policy',{}).get('version')!=5 or not current['plan'].get('release_policy'):
                     raise ValueError('请重新观察，使用抓取与运输/投放独立姿态的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
@@ -453,7 +465,7 @@ def install(app,service_provider):
                 pushed_before_close=req.outcome=='pushed_away' and any(d.get('stage')=='descend' for d in result.get('dispatches',[]))
                 if req.outcome not in ('unknown','execution_failed') and not result.get('grasp_attempted') and not pushed_before_close:raise ValueError('本轮未执行闭爪，先记录控制/录像故障')
                 if req.source in ('company_grok','opencode_agent') and req.outcome=='placed' and (result.get('camera_error') or not result.get('recording_covers_motion')):
-                    raise ValueError('录像证据不完整，Grok不能据此宣称投放成功')
+                    raise ValueError('录像证据不完整，视觉模型不能据此宣称投放成功')
                 saved=session()
                 if fingerprint(saved)!=current['calibration_fingerprint']:raise ValueError('标定已变化，不能把旧轮次修正应用到新坐标系')
                 pol=policy(saved)
@@ -606,7 +618,7 @@ def install(app,service_provider):
                     if agent_stream is None or learner.events.session_id!=agent_stream:
                         agent_stream=uuid.uuid4().hex;agent_phase=None;learner.events.reset(agent_stream)
                     learner.events.emit('phase',phase='scene_check' if packet['phase']=='scene' else 'analyzing',
-                                        plan_id=plan_id,message='图片包已准备，等待只读Grok视觉子Agent复核')
+                                        plan_id=plan_id,message='图片包已准备，等待只读视觉模型视觉子Agent复核')
                 return packet
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
 

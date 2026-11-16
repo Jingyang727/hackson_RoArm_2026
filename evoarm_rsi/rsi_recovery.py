@@ -48,7 +48,7 @@ def recover(service,plan,result,verdict,root,stop,publish,*,automation_id,valida
     root=Path(root);receipt=root/'recovery.json'
     if receipt.exists():raise RuntimeError('本次恢复请求已使用，不重放复位命令')
     report={'status':'checking','request_id':root.name,'mode':'direct_official_t100','commands':[],
-            'started_at_unix':time.time(),'requires_cartesian_plan':False}
+            'started_at_unix':time.time(),'started_monotonic_ns':time.monotonic_ns(),'requires_cartesian_plan':False}
     _write(receipt,report)
     def persist():_write(receipt,report)
     def guard():
@@ -82,7 +82,9 @@ def recover(service,plan,result,verdict,root,stop,publish,*,automation_id,valida
             if not possibly_held and all(abs(degrees[j]-goal)<=2 for j,goal in FACTORY_DEGREES.items()):
                 report.update(status='completed',already_at_official_pose=True,finished_at_unix=time.time(),final_status=raw)
                 persist();append_event(root,'recovery_completed',already_at_official_pose=True);return report
-        if possibly_held:
+        already_open=abs(raw['g']-math.radians(110))<=math.radians(3)
+        if possibly_held and already_open:report['gripper_already_open']=True
+        if possibly_held and not already_open:
             # Clear a possibly held ball at the current cleared bench position.
             # Reset must not require finding a funnel or solving another IK path.
             space()

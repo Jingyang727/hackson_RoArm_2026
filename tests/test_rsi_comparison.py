@@ -1,5 +1,6 @@
 """Paired visual evidence, feedback attribution and effect-driven RSI, no devices."""
 import copy
+import base64
 import json
 from pathlib import Path
 import tempfile
@@ -151,3 +152,43 @@ class PairedComparison(unittest.TestCase):
         self.assertEqual(validate_assessment(value),value)
         for change in ({'effect':'improved'},{'movement':'opposite'},{'delta_mm':10}):
             with self.assertRaises(ValueError):validate_assessment({**value,**change})
+
+    def test_one_request_shares_six_frame_budget_and_resizes_only_inference_copies(self):
+        folder=self.experiments/self.current['id'];rows=[]
+        raw=(folder/'evidence-00.jpg').read_bytes()
+        for index in range(12):
+            label={0:'before',3:'close_review',6:'lift_review',9:'release_review',11:'last'}.get(index,'sample')
+            name=f'sequence-{index:02d}.jpg';(folder/name).write_bytes(raw)
+            rows.append({'file':name,'label':label,'frame_index':index,'elapsed_s':float(index)})
+        (folder/'keyframes.json').write_text(json.dumps({'frames':rows}))
+        context={'plan_id':self.current['id'],'comparison':self.comparison(),'video_path':str(folder/'rgb.mp4')}
+        verdict={'outcome':'grasp_missed','direction':'image_right','ball_state':'table','magnitude':'medium',
+                 'confidence':.9,'note':'still right','comparison':{'reference_plan_id':self.previous['id'],
+                 'effect':'improved','movement':'as_expected','note':'closer'}}
+        config={'configured':True,'model':'Qwen3.8-27B-FP8','backend':'company_api'}
+        with patch.object(grok_review,'configuration',return_value=config),patch.object(grok_review,'complete_content',return_value=json.dumps(verdict)) as api:
+            grok_review.review(context,self.trial,threading.Event())
+        images=[p for p in api.call_args.args[1] if p['type']=='image_url']
+        self.assertEqual(len(images),6)
+        for item in images:
+            data=base64.b64decode(item['image_url']['url'].split(',',1)[1])
+            image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_COLOR)
+            self.assertLessEqual(max(image.shape[:2]),768)
+        request=json.loads((self.trial/'grok-request.json').read_text())
+        frames=request['reviewed_frames'];self.assertEqual(frames[0]['role'],'previous')
+        self.assertEqual([f['label'] for f in frames[1:]],['before','close_review','lift_review','release_review','last'])
+        for frame in frames:
+            self.assertEqual(Path(frame['path']).read_bytes(),Path(frame['source_copy_path']).read_bytes())
+        self.assertEqual(cv2.imread(str(folder/'sequence-00.jpg')).shape[:2],(720,1280))
+        metrics=json.loads((self.trial/'vision-metrics.json').read_text())
+        self.assertTrue(metrics['validated']);self.assertEqual(metrics['frame_count'],6)
+        self.assertGreater(metrics['encoded_image_bytes'],0)
+
+    def test_portrait_scene_including_axis_labels_stays_within_768_pixels(self):
+        raw=np.full((1280,720,3),180,np.uint8)
+        cv2.imwrite(str(self.trial/'preview.jpg'),raw)
+        config={'configured':True,'model':'Qwen3.8-27B-FP8','backend':'company_api'}
+        with patch.object(grok_review,'configuration',return_value=config),patch.object(grok_review,'complete_content',return_value='{"ready":true,"note":"visible"}'):
+            grok_review.review({},self.trial,threading.Event(),preflight=True)
+        frame=cv2.imread(str(self.trial/'model-frames/scene-00.jpg'))
+        self.assertLessEqual(max(frame.shape[:2]),768)

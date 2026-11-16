@@ -27,7 +27,7 @@ permission:
 
 严格使用原始画面的左右上下：image_left/right/up/down。direction表示夹爪相对目标的偏差在哪边；文字建议也只使用画面方向。不要推测机器人朝向，不做机器人视角镜像，不输出毫米、关节角度、速度、力度或XYZ。尺寸只作视觉大/中/小分类。
 
-scene阶段：检查标记的是黄色球和黑色漏斗开口，夹爪是否空。输出 {"ready":true或false,"note":"中文可见依据"}。轨迹叠加是计划，不能当作已执行。
+scene阶段：检查标记的是黄色球和黑色漏斗大开口。官方初始姿态可能让夹爪在画面外，不要求看见夹爪。夹爪不可见、被遮挡或看不清内容时报告unknown，不能伪称已确认空爪，也不因此否决目标可见的场景。仅实际看到夹爪持球时报告holding_ball。输出 {"ball_visible":true或false,"funnel_visible":true或false,"gripper_state":"empty|holding_ball|unknown","note":"中文可见依据"}，由程序根据事实计算ready。轨迹叠加是计划，不能当作已执行。
 
 result阶段：按照任务包指定结构输出JSON，包含 outcome、direction、ball_state、magnitude、adjustment、confidence、note、comparison。必须观察闭爪、提升、释放实帧；球确实离桌才算抓起，球确实在漏斗中才算成功。没有闭爪/释放证据时报告execution_failed或unknown。遮挡、缺图时用unknown，不能根据父Agent愿望或命令宣称成功。
 

@@ -111,7 +111,7 @@ def build_route(initial,grasp,release,pitch,plane,p,*,ball_top_height,funnel_hei
                 if step['stage']=='open' and index+1<len(steps) and steps[index+1]['stage']=='approach_ball':
                     steps[index+1].update(gripper_rad=step['gripper_rad'],open_while_moving=True)
                     del steps[index];break
-            return steps,{'version':4,'mode':'lift_transfer_descend','vertical_axis':'robot_z_keep_xy',
+            return steps,{'version':5,'mode':'lift_transfer_descend','vertical_axis':'robot_z_keep_xy',
                 'minimum_transfer_height_mm':floor,'transfer_height_mm':travel,'entry_transfer_height_mm':corridor,
                 'pickup_hover_height_mm':hover,'release_settle_s':.2,
                 'release_pitch_rad':selected['pitch_rad'],'release_tip_xyz_mm':list(selected['xyz_mm']),

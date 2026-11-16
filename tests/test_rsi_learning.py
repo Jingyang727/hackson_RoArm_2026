@@ -73,7 +73,7 @@ class AutoAPI(unittest.TestCase):
         _, state = self.request('state', method='GET')
         self.assertEqual(state['learning']['status'], 'completed')
         self.assertEqual(state['learning']['attempt'], 2)
-        self.assertEqual(model.call_count, 3); self.assertEqual(recovery.call_count, 1)
+        self.assertEqual(model.call_count, 3); self.assertEqual(recovery.call_count, 2)
         self.assertEqual(len(self.policies), 2)
         self.assertAlmostEqual(math.hypot(*self.policies[1]['pickup_xy_mm']), 16.)
         self.assertIsNone(self.fixture.service.automation_owner)
@@ -140,7 +140,10 @@ class AutoAPI(unittest.TestCase):
         import zipfile
         with zipfile.ZipFile(self.fixture.home/'.evoarm/rsi/backups'/f"{state['plan']['plan_id']}.zip") as archive:
             self.assertIn('trial/comparison.jpg',archive.namelist())
-            self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(contexts[-1]['comparison']['previous_frame']['path']).read_bytes())
+            self.assertNotIn('path',contexts[-1]['comparison']['previous_frame'])
+            stored=json.loads(archive.read('trial/grok-request.json'))
+            original=stored['context']['comparison']['previous_frame']['path']
+            self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(original).read_bytes())
 
     def test_real_review_pipeline_uses_improvement_to_shrink_and_remembers_successful_actual_policy(self):
         state,contexts,_=self.paired_run(opposite=False)
@@ -197,7 +200,8 @@ class AutoAPI(unittest.TestCase):
         self.assertEqual(response['status'],202,data)
         _,state=self.request('state',method='GET')
         self.assertEqual(state['learning']['status'],'completed',state['learning'].get('error'))
-        self.assertEqual(self.fixture.arm.commands,[{'T':100}])
+        self.assertEqual([c for c in self.fixture.arm.commands if c['T']==100],[{'T':100},{'T':100}])
+        self.assertFalse(any(c['T']==104 for c in self.fixture.arm.commands))
         self.assertEqual(len(self.policies),1)
         event=state['learning']['recovery_events'][0]
         self.assertEqual(event['phase'],'planning');self.assertIn('383.2',event['cause'])
@@ -212,7 +216,7 @@ class AutoAPI(unittest.TestCase):
             if observations>=2:raise ValueError('synthetic unreachable next plan')
             return original(*args)
         with (patch('control_ui.rsi_trial.observe_scene',side_effect=observe),
-              patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},verdict('grasp_missed')]),
+              patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},verdict('grasp_missed','image_right')]),
               patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'}) as resets):
             self.start()
         _,state=self.request('state',method='GET')
@@ -507,7 +511,7 @@ class GrokAdapter(unittest.TestCase):
         index=[{'label':'sample','frame_index':i} for i in range(20)]
         for i,label in ((0,'before'),(4,'close'),(6,'lift'),(17,'release'),(19,'last')):index[i]['label']=label
         selected=grok_review.select_frames(index)
-        self.assertEqual(len(selected),8)
+        self.assertEqual(len(selected),6)
         self.assertTrue({'before','close','lift','release','last'}<=set(r['label'] for r in selected))
         self.assertEqual([r['frame_index'] for r in selected],sorted(r['frame_index'] for r in selected))
 

@@ -11,6 +11,7 @@ import numpy as np
 from .pick_place import adapt,BALL_RADIUS,DEFAULT_PARAMETERS,XY_STEPS_MM,MAX_XY_STEP_MM,MIN_XY_STEP_MM
 from .rsi_comparison import validate_assessment
 from .image_directions import OPPOSITE,PIXEL_VECTOR
+from .release_geometry import release_reference
 
 LABELS={'image_left':'画面左侧','image_right':'画面右侧','image_up':'画面上方','image_down':'画面下方',
         'lower':'降低','higher':'抬高','none':'方向未知'}
@@ -34,7 +35,7 @@ def center_target(scene,parameters,target='ball'):
         value=np.asarray(scene['ball']['center_robot_mm'])+normal*parameters['grasp_z_offset_mm']
         value[:2]+=parameters['pickup_xy_mm']
     else:
-        value=np.asarray(scene['funnel']['mouth_center_robot_mm'])+normal*(BALL_RADIUS+parameters['release_clearance_mm'])
+        value=np.asarray(release_reference(scene)[0])+normal*(BALL_RADIUS+parameters['release_clearance_mm'])
         value[:2]+=parameters['release_xy_mm']
     return value.tolist()
 
@@ -106,24 +107,38 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         step=float(requested_step_mm);decision='agent_step'
         why.append(f'本轮试验步长由执行Agent选择：{step:g}mm。')
     after,changes=adapt(before,scene,outcome,direction,magnitude,adjustment,step_override_mm=step)
+    replacement=False;projection_before=before
     if rollback:
         after=copy.deepcopy(before)
         for name in changed_before:after[name]=copy.deepcopy(previous['before'][name])
         changes=[f'已将{name}从{before[name]}恢复为{after[name]}。' for name in changed_before]
+        # A failed height trial is not evidence against a newly visible XY
+        # correction. Roll back first, then try ONE different parameter family.
+        candidate,new_changes=adapt(after,scene,outcome,direction,magnitude,adjustment,step_override_mm=step)
+        new_names=[name for name in after if after[name]!=candidate[name]]
+        if (effect=='worsened' and movement!='opposite' and context.get('feedback',{}).get('status')!='opposite'
+                and len(new_names)==1 and not set(new_names)&set(changed_before)):
+            projection_before=copy.deepcopy(after);after=candidate;replacement=True;allow_retry=True
+            decision='rollback_and_trial'
+            why=['撤销上一轮无效修正；本轮存在另一项明确偏差，改试新参数并继续剩余轮次。']
+            changes+=new_changes
     changed=[name for name in before if before[name]!=after[name]]
     correction=OPPOSITE.get(direction,'none')
     proposal={'observed_direction':direction,'correction_direction':correction,'frame':'unmirrored_rgb',
-              'step_mm':step if key in changed and not rollback else None,'parameters_changed':changed,'before':{k:before[k] for k in changed},
+              'step_mm':step if key in changed and (not rollback or replacement) else None,'parameters_changed':changed,'before':{k:before[k] for k in changed},
               'after':{k:after[k] for k in changed},'comparison':comparison_status,'allow_retry':allow_retry,'decision':decision,
               'comparison_evidence_bound':verified,'effect_assessed':verified and effect not in ('unknown','not_comparable','not_compared'),
               'effect_verified':verified and effect=='improved','improvement_confirmed':verified and effect=='improved',
               'previous_motion_visual_check':movement,
               'before_policy_id':policy_id(before),'after_policy_id':policy_id(after),'source_trial_id':previous.get('plan_id') if verified else None}
-    if rollback:proposal['rejected_policy_id']=policy_id(before)
-    if direction in PIXEL_VECTOR and outcome in ('grasp_missed','placement_missed') and not rollback:
-        a=project(scene,center_target(scene,before,target));b=project(scene,center_target(scene,after,target))
+    if rollback:
+        proposal['rejected_policy_id']=policy_id(before)
+        proposal['rollback_parameters']=changed_before
+        proposal['trial_parameters']=[name for name in changed if name not in changed_before] if replacement else []
+    if direction in PIXEL_VECTOR and outcome in ('grasp_missed','placement_missed') and (not rollback or replacement):
+        a=project(scene,center_target(scene,projection_before,target));b=project(scene,center_target(scene,after,target))
         shift=[b[0]-a[0],b[1]-a[1]]
-        delta=[after[key][i]-before[key][i] for i in range(2)];length=math.hypot(*shift)
+        delta=[after[key][i]-projection_before[key][i] for i in range(2)];length=math.hypot(*shift)
         alignment=sum(v*w for v,w in zip(shift,PIXEL_VECTOR[correction]))/max(length,1e-12)
         whole_step=math.isclose(math.hypot(*delta),step,rel_tol=.02,abs_tol=.02)
         proposal.update(robot_delta_mm=delta,predicted_pixel_delta=shift,projection_direction_alignment=alignment,
@@ -147,7 +162,7 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         same_trial=bool(rejected_id and set(rejected)==set(after) and rejected_id==policy_id(rejected) and
                         all(math.dist(after[k],rejected[k])<=1. if k in ('pickup_xy_mm','release_xy_mm') else after[k]==rejected[k] for k in after))
         if (same_pose and old_location and math.dist(old_location[:2],location[:2])<=BALL_RADIUS and
-                same_trial and changed and not rollback):
+                same_trial and changed and (not rollback or replacement)):
             after=copy.deepcopy(before);changed=[];changes=[]
             proposal.update(after={},before={},parameters_changed=[],after_policy_id=policy_id(before),allow_retry=False,decision='avoid_rejected_policy')
             if 'robot_delta_mm' in proposal:proposal.update(robot_delta_mm=[0.,0.],predicted_pixel_delta=[0.,0.],saved_xy_step_mm=0.)
@@ -156,7 +171,7 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
     if actionable and not changed:
         proposal['allow_retry']=False
         why.append('本轮没有产生新的有效参数，停止重复相同策略。')
-    proposal['status']='rolled_back' if rollback else 'applied' if changed else 'unchanged'
+    proposal['status']='replanned' if replacement else 'rolled_back' if rollback else 'applied' if changed else 'unchanged'
     proposal['reason']='\n'.join(why+changes)
     return after,why+changes,proposal
 
@@ -166,9 +181,12 @@ def application(parameters,plan_parameters,reviews,baseline_resets=()):
     if parameters!=plan_parameters:raise ValueError('本轮规划没有使用当前RSI参数')
     previous=reviews[-1] if reviews else None
     prior_after={**{'squeeze_deg':DEFAULT_PARAMETERS['squeeze_deg']},**previous.get('after',{})} if previous else None
-    reset=baseline_resets[-1] if baseline_resets else None
-    repaired=bool(previous and reset and reset.get('source_trial_id')==previous['plan_id'] and
-                  reset.get('before')==prior_after and reset.get('after')==parameters)
+    reset=None;restored=prior_after
+    if previous:
+        for record in baseline_resets:
+            if record.get('source_trial_id')==previous['plan_id'] and record.get('before')==restored:
+                restored=record['after'];reset=record
+    repaired=bool(reset and restored==parameters)
     if previous and prior_after!=parameters and not repaired:
         raise ValueError('当前策略与上一轮已保存的修正不一致')
     return {'policy_id':policy_id(parameters),'parameters_verified':True,

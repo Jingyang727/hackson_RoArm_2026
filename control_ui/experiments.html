@@ -31,8 +31,12 @@
   <span id="connection" class="status-chip">正在读取状态</span>
 </header>
 <main>
-  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制10秒，Grok分析结果；失败后自动恢复并重试，成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
+  <section class="page-heading"><div><p class="eyebrow">RSI / 自动抓放</p><h1>启动一次，让它观察、尝试和调整。</h1><p>每轮录制20秒，录像结束后先回位，再由视觉模型分析并调整；成功后保存策略。</p></div><span id="setupBadge" class="setup-badge">当前布置</span></section>
   <p id="error" class="error-banner" role="alert" hidden></p>
+  <section id="successBanner" class="rsi-success" role="status" aria-live="polite" hidden>
+    <strong>✓ 抓取并投放成功，自动任务已结束</strong>
+    <p id="successDetails">已恢复官方初始姿态，成功策略已保存。</p>
+  </section>
   <section class="learning-grid">
     <div class="card">
       <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
@@ -49,7 +53,7 @@
     </div>
     <div class="card learning-controls">
       <div class="card-heading"><h2>自动学习</h2><span id="attemptBadge" class="mini-badge">尚未开始</span></div>
-      <p id="readiness" class="inline-note">正在检查机械臂和Grok。</p>
+      <p id="readiness" class="inline-note">正在检查机械臂和视觉模型。</p>
       <p id="grokStatus" class="quiet"></p>
       <button id="connect" class="secondary" hidden>连接机械臂</button>
       <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试。</span></label>
@@ -62,12 +66,12 @@
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
       <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
-      <p class="limits-note">抓放目标为10秒，分析与回位单独计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
+      <p class="limits-note">每轮录像20秒，抓放仍以10秒为性能目标；录像结束后回位，再分析，下一轮重新开始计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
     </div>
   </section>
   <section class="card process-card">
     <div class="card-heading"><h2>RSI 过程</h2><span id="processConnection" class="mini-badge">连接实时过程…</span></div>
-    <p id="processEmpty" class="quiet">启动后，这里会显示每轮动作、Grok判断、程序修正与下一轮尝试。</p>
+    <p id="processEmpty" class="quiet">启动后，这里会显示每轮动作、视觉模型判断、程序修正与下一轮尝试。</p>
     <ol id="processEvents" class="process-events" aria-label="逐轮RSI过程"></ol>
     <p id="processStorageError" class="quiet"></p>
     <div id="effectComparison" class="grok-live" hidden>
@@ -76,7 +80,7 @@
       <p id="comparisonFacts" class="facts"></p>
     </div>
     <div id="grokLive" class="grok-live" hidden>
-      <strong id="grokLiveTitle">Grok公开回复</strong><p id="grokReplyStatus" class="quiet" role="status"></p>
+      <strong id="grokLiveTitle">视觉模型公开回复</strong><p id="grokReplyStatus" class="quiet" role="status"></p>
       <p id="grokLiveText" class="grok-public"></p>
       <details><summary>完整公开回复</summary><pre id="grokRawText" class="grok-raw"></pre></details>
     </div>
@@ -91,7 +95,7 @@
   </section>
   <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><details><summary>核对最近4轮补偿与实际落点</summary><p class="quiet">只读取已有记录；缺失项显示“—”。自动平面试验步长至少10mm。</p><button id="loadXYAudit" class="secondary">读取最近4轮（不运动）</button><div id="xyAuditFacts"></div></details><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
-<footer>录像、RGB-D、指令、反馈、Grok判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
+<footer>录像、RGB-D、指令、反馈、视觉模型判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
 <script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>
 </body>
 </html>

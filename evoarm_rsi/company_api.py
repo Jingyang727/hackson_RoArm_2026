@@ -1,7 +1,7 @@
-"""Direct company Grok HTTP client; reuse local provider settings, never run CLI."""
+"""OpenAI-compatible company vision client; credentials stay on this machine."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import os
 from pathlib import Path
@@ -14,6 +14,8 @@ from urllib import request, error
 from urllib.parse import urlparse
 
 DEFAULT_COMPANY_BASE_URL='https://inference.tesla.com/v1'
+BRCN_BASE_URL='https://inference-bottlerocket.tesla.cn/v1'
+BRCN_MODEL='DeepSeek-V4.1-Flash'
 
 
 def _company_env():
@@ -61,6 +63,9 @@ class APISettings:
     model: str = 'grok-4.7-build'
     source: str = 'environment'
     headers: dict = field(default_factory=dict, repr=False)
+    enable_thinking: bool | None = None
+    temperature: float | None = None
+    stream: bool = True
 
 
 def _jsonc(text):
@@ -127,9 +132,9 @@ def _validate(settings):
     if url.scheme!='https' or not url.hostname or url.username or url.password or url.query or url.fragment:
         raise ValueError('公司API地址需为HTTPS，且不在URL中包含凭据')
     if not settings.token and not any(k.lower() in ('authorization','x-api-key','api-key') and bool(v) for k,v in settings.headers.items()):
-        raise ValueError('未找到公司Grok API凭据；请配置本机环境或已有provider凭据，不要贴到聊天')
-    if not settings.model or 'grok' not in settings.model.lower():
-        raise ValueError('请选择已批准的公司Grok模型')
+        raise ValueError('未找到视觉模型API凭据；请配置本机环境或已有provider凭据，不要贴到聊天')
+    if not settings.model.strip() or any(c in settings.model for c in '\r\n'):
+        raise ValueError('请填写视觉模型ID')
     for key,value in settings.headers.items():
         if not re.fullmatch(r'[A-Za-z0-9-]+',key) or not isinstance(value,str) or '\n' in value or '\r' in value:
             raise ValueError('公司API请求头配置无效')
@@ -137,27 +142,39 @@ def _validate(settings):
     return settings
 
 
-def settings():
+def _brcn_token(values):
+    return values.get('BRCN_9901_API_KEY') or values.get('BRCN_API_KEY') or ''
+
+
+def _settings():
     selected=os.getenv('EVOARM_GROK_MODEL',os.getenv('EVOARM_OPENCODE_MODEL','bottlerocket/grok-4.7-build'))
     provider,model=selected.split('/',1) if '/' in selected else ('bottlerocket',selected)
     explicit=os.getenv('EVOARM_COMPANY_LLM_BASE_URL','').strip()
-    process_token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip()
+    process_token=(os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip()
+                   or (_brcn_token(os.environ) if explicit.rstrip('/')==BRCN_BASE_URL else ''))
     if explicit and process_token:
-        selected_model=os.getenv('EVOARM_COMPANY_LLM_MODEL',model)
+        selected_model=os.getenv('EVOARM_COMPANY_LLM_MODEL',BRCN_MODEL if explicit.rstrip('/')==BRCN_BASE_URL else model)
+        if explicit.rstrip('/')==BRCN_BASE_URL:selected_model=selected_model.split('/',1)[-1]
         if selected_model.startswith(provider+'/'):selected_model=selected_model[len(provider)+1:]
         return _validate(APISettings(explicit.rstrip('/'),process_token,selected_model,'environment'))
     saved=_company_env()
     saved_base=saved.get('EVOARM_COMPANY_LLM_BASE_URL') or saved.get('OPENAI_BASE_URL') or saved.get('OPENAI_API_BASE') or DEFAULT_COMPANY_BASE_URL
     saved_token=(saved.get('EVOARM_COMPANY_LLM_TOKEN') or saved.get('EVOARM_COMPANY_LLM_API_KEY')
                  or saved.get('OPENAI_API_KEY') or saved.get('GROK_API_KEY') or '')
+    if saved_base.rstrip('/')==BRCN_BASE_URL:
+        saved_token=saved_token or _brcn_token(os.environ) or _brcn_token(saved)
+        model=BRCN_MODEL
     selected_model=os.getenv('EVOARM_COMPANY_LLM_MODEL',saved.get('EVOARM_COMPANY_LLM_MODEL',saved.get('OPENAI_MODEL',model)))
     if selected_model.startswith(provider+'/'):selected_model=selected_model[len(provider)+1:]
+    if (explicit or saved_base).rstrip('/')==BRCN_BASE_URL:selected_model=selected_model.split('/',1)[-1]
     if explicit:
-        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip()
+        token=process_token
         if not token and explicit.rstrip('/')==saved_base.rstrip('/'):token=saved_token
         return _validate(APISettings(explicit.rstrip('/'),token,selected_model,'environment'))
     if saved:
-        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip() or saved_token or _saved_token(provider)
+        token=os.getenv('EVOARM_COMPANY_LLM_TOKEN','').strip() or saved_token
+        # A new gateway must never silently inherit another gateway's token.
+        if not token and saved_base.rstrip('/')==DEFAULT_COMPANY_BASE_URL:token=_saved_token(provider)
         return _validate(APISettings(saved_base.rstrip('/'),token,selected_model,'company_env_file'))
     home=Path.home();config=Path(os.getenv('XDG_CONFIG_HOME',str(home/'.config')))/'opencode'
     # Auto-discovery is limited to user-owned global settings. A repository
@@ -179,7 +196,7 @@ def settings():
         raise ValueError('未找到公司API地址；可复用provider的baseURL，或设置 EVOARM_COMPANY_LLM_BASE_URL')
     npm=item.get('npm','@ai-sdk/openai-compatible')
     if npm not in ('@ai-sdk/openai-compatible','@ai-sdk/openai','@ai-sdk/xai'):
-        raise ValueError('现有provider不是已知Chat Completions协议；请显式配置公司Grok API地址与凭据')
+        raise ValueError('现有provider不是已知Chat Completions协议；请显式配置视觉模型 API地址与凭据')
     token=_resolve(options.get('apiKey'))
     if not token:token=_saved_token(provider)
     headers={k:_resolve(v) for k,v in options.get('headers',{}).items()
@@ -188,14 +205,32 @@ def settings():
     return _validate(APISettings(base.rstrip('/'),token,canonical,'local_provider_settings',headers))
 
 
+def settings():
+    cfg=_settings()
+    saved=_company_env() if cfg.source=='company_env_file' else {}
+    cn=cfg.base_url.rstrip('/')==BRCN_BASE_URL
+    thinking=os.getenv('EVOARM_COMPANY_LLM_ENABLE_THINKING',saved.get('EVOARM_COMPANY_LLM_ENABLE_THINKING'))
+    if thinking is not None and thinking not in ('0','1'):
+        raise ValueError('EVOARM_COMPANY_LLM_ENABLE_THINKING需为0或1')
+    temperature=os.getenv('EVOARM_COMPANY_LLM_TEMPERATURE',saved.get('EVOARM_COMPANY_LLM_TEMPERATURE'))
+    if temperature is not None:
+        try:temperature=float(temperature)
+        except (ValueError,TypeError):raise ValueError('视觉模型temperature需为0～2') from None
+        if not 0<=temperature<=2:raise ValueError('视觉模型temperature需为0～2')
+    stream=os.getenv('EVOARM_COMPANY_LLM_STREAM',saved.get('EVOARM_COMPANY_LLM_STREAM','1'))
+    if stream not in ('0','1'):raise ValueError('EVOARM_COMPANY_LLM_STREAM需为0或1')
+    return replace(cfg,stream=stream=='1',enable_thinking=(thinking=='1') if thinking is not None else False if cn else None,
+                   temperature=temperature if temperature is not None else .2 if cn else None)
+
+
 def configuration():
     try:
         cfg=settings()
         return {'backend':'company_api','configured':True,'model':cfg.model,'reason':None,'settings_source':cfg.source}
     except (OSError,ValueError,TypeError,KeyError,AttributeError):
         # Do not expose paths, provider configuration values or credentials.
-        return {'backend':'company_api','configured':False,'model':'grok-4.7-build',
-                'reason':'公司Grok API未配置完整；请只读运行 python -m evoarm_rsi.company_api 检查',
+        return {'backend':'company_api','configured':False,'model':None,
+                'reason':'视觉模型API未配置完整；请只读运行 python -m evoarm_rsi.company_api 检查',
                 'settings_source':None}
 
 
@@ -206,7 +241,7 @@ class _NoRedirect(request.HTTPRedirectHandler):
 
 def _text(value):
     if isinstance(value,list):value=''.join(p.get('text','') for p in value if isinstance(p,dict) and p.get('type')=='text')
-    if not isinstance(value,str):raise ValueError('公司Grok API最终回复不是文本')
+    if not isinstance(value,str):raise ValueError('视觉模型 API最终回复不是文本')
     return value
 
 
@@ -218,21 +253,21 @@ def _sse_content(response,on_delta,cancel):
         data=b'\n'.join(lines)
         if data.strip()==b'[DONE]':complete=True;return
         try:packet=json.loads(data)
-        except (ValueError,UnicodeDecodeError):raise ValueError('公司Grok流式数据格式无效') from None
-        if not isinstance(packet,dict) or packet.get('error'):raise ValueError('公司Grok流式回复异常')
+        except (ValueError,UnicodeDecodeError):raise ValueError('视觉模型流式数据格式无效') from None
+        if not isinstance(packet,dict) or packet.get('error'):raise ValueError('视觉模型流式回复异常')
         choices=packet.get('choices',[])
         if not choices:return
         try:choice=next(c for c in choices if c.get('index',0)==0)
-        except (StopIteration,AttributeError):raise ValueError('公司Grok流式选项无效') from None
+        except (StopIteration,AttributeError):raise ValueError('视觉模型流式选项无效') from None
         if choice.get('finish_reason') not in (None,'stop'):
-            raise ValueError('公司Grok流式回复未正常完成，未应用策略')
+            raise ValueError('视觉模型流式回复未正常完成，未应用策略')
         if choice.get('finish_reason')=='stop':complete=True
         delta=choice.get('delta',{})
-        if not isinstance(delta,dict):raise ValueError('公司Grok流式文本无效')
+        if not isinstance(delta,dict):raise ValueError('视觉模型流式文本无效')
         value=delta.get('content')
         if value is not None:
             value=_text(value);size+=len(value.encode())
-            if size>2_000_000:raise ValueError('公司Grok API回复过大')
+            if size>2_000_000:raise ValueError('视觉模型 API回复过大')
             if value:parts.append(value);on_delta(value)
     while True:
         if cancel is not None and cancel.is_set():raise RuntimeError('模型请求已取消')
@@ -241,14 +276,14 @@ def _sse_content(response,on_delta,cancel):
             if event:consume(event)
             break
         total+=len(line)
-        if len(line)>65536 or total>16_000_000:raise ValueError('公司Grok流式回复过大')
+        if len(line)>65536 or total>16_000_000:raise ValueError('视觉模型流式回复过大')
         line=line.rstrip(b'\r\n')
         if not line:
             if event:
                 done=b'\n'.join(event).strip()==b'[DONE]';consume(event);event=[]
                 if done:break
         elif line.startswith(b'data:'):event.append(line[5:].lstrip(b' '))
-    if not complete or not parts:raise ValueError('公司Grok流式回复中断，未应用策略')
+    if not complete or not parts:raise ValueError('视觉模型流式回复中断，未应用策略')
     return ''.join(parts)
 
 
@@ -256,11 +291,13 @@ def _http_content(cfg,system,content,timeout_s,*,on_delta=None,on_mode=None,canc
     endpoint=cfg.base_url if cfg.base_url.endswith('/chat/completions') else cfg.base_url+'/chat/completions'
     headers={'Content-Type':'application/json',**cfg.headers}
     if cfg.token and not any(k.lower() in ('authorization','x-api-key','api-key') for k in headers):headers['Authorization']='Bearer '+cfg.token
-    streaming=on_delta is not None and os.getenv('EVOARM_COMPANY_LLM_STREAM','1')!='0'
+    streaming=on_delta is not None and cfg.stream
     body={'model':cfg.model,'stream':streaming,'messages':[{'role':'system','content':system},{'role':'user','content':content}]}
+    if cfg.enable_thinking is not None:body['chat_template_kwargs']={'enable_thinking':cfg.enable_thinking}
+    if cfg.temperature is not None:body['temperature']=cfg.temperature
     req=request.Request(endpoint,data=json.dumps(body,ensure_ascii=False).encode(),headers=headers,method='POST')
     try:
-        with request.build_opener(_NoRedirect()).open(req,timeout=timeout_s) as response:
+        with request.build_opener(request.ProxyHandler({}),_NoRedirect()).open(req,timeout=timeout_s) as response:
             content_type=response.headers.get('Content-Type','')
             if streaming and isinstance(content_type,str) and 'text/event-stream' in content_type.lower():
                 if on_mode:on_mode('streaming')
@@ -276,11 +313,11 @@ def _http_content(cfg,system,content,timeout_s,*,on_delta=None,on_mode=None,canc
             if cancel is not None and cancel.is_set():raise RuntimeError('模型请求已取消')
             if on_mode:on_mode('buffered_fallback')
             return _http_content(cfg,system,content,timeout_s,on_mode=None,cancel=cancel)
-        raise RuntimeError(f'公司Grok API HTTP {code}；未自动重试') from None
-    except (OSError,error.URLError):raise RuntimeError('公司Grok API连接失败；未自动重试') from None
-    if len(raw)>2_000_000:raise ValueError('公司Grok API回复过大')
+        raise RuntimeError(f'视觉模型 API HTTP {code}；未自动重试') from None
+    except (OSError,error.URLError):raise RuntimeError('视觉模型 API连接失败；未自动重试') from None
+    if len(raw)>2_000_000:raise ValueError('视觉模型 API回复过大')
     try:value=json.loads(raw)['choices'][0]['message']['content']
-    except (ValueError,KeyError,TypeError,IndexError):raise ValueError('公司Grok API未返回最终文本') from None
+    except (ValueError,KeyError,TypeError,IndexError):raise ValueError('视觉模型 API未返回最终文本') from None
     return _text(value)
 
 
@@ -304,7 +341,7 @@ def complete_content(system,content,stop,*,timeout_s=120,on_delta=None,on_mode=N
         while True:
             if stop.is_set():raise RuntimeError('用户停止了模型分析；迟到回复不会触发动作')
             remaining=until-time.monotonic()
-            if remaining<=0:raise RuntimeError('公司Grok API分析超时；未自动重试')
+            if remaining<=0:raise RuntimeError('视觉模型 API分析超时；未自动重试')
             try:kind,value=responses.get(timeout=min(.1,remaining))
             except queue.Empty:continue
             if stop.is_set():raise RuntimeError('用户停止了模型分析')
@@ -316,6 +353,10 @@ def complete_content(system,content,stop,*,timeout_s=120,on_delta=None,on_mode=N
 
 
 if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser(description='Read-only vision API configuration and image check; never moves the robot')
+    parser.add_argument('--probe-image',type=Path,help='send one local workspace image to the selected vision model')
+    args=parser.parse_args()
     info=configuration()
     if not info['configured']:
         try:settings()
@@ -323,3 +364,14 @@ if __name__=='__main__':
             # These are fixed validation messages, never the underlying file content.
             info['reason']=str(exc) if isinstance(exc,ValueError) and not isinstance(exc,json.JSONDecodeError) else '本机公司API配置无法读取或解析'
     print(json.dumps(info,ensure_ascii=False,indent=2))
+    if args.probe_image:
+        if not info['configured']:raise SystemExit(1)
+        import cv2
+        import uuid
+        from .grok_review import review
+        image=cv2.imread(str(args.probe_image))
+        if image is None:parser.error('probe image cannot be decoded')
+        root=Path.home()/'.evoarm/rsi/vision_checks'/uuid.uuid4().hex;root.mkdir(parents=True)
+        if not cv2.imwrite(str(root/'preview.jpg'),image):parser.error('probe image cannot be saved')
+        result=review({},root,threading.Event(),preflight=True)
+        print(json.dumps({'verdict':result,'evidence_dir':str(root),'robot_moved':False},ensure_ascii=False,indent=2))

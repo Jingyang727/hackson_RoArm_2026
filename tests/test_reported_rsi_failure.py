@@ -13,6 +13,7 @@ from evoarm_rsi.agent_tools import invoke,parser
 from evoarm_rsi.ball_trial import check_segment
 from evoarm_rsi.pick_place import build_plan,DEFAULT_PARAMETERS,_opening_direction
 from evoarm_rsi.roarm_geometry import inverse,MotionConstraintError,height_above_plane
+from evoarm_rsi.release_geometry import release_reference
 from tests import test_rsi_loop as fixtures
 
 DATA=json.loads((Path(__file__).parent/'fixtures/reported_rsi_layout.json').read_text())
@@ -56,7 +57,7 @@ class RecordedLayout(unittest.TestCase):
         opening=_opening_direction(case['funnel_center_mm'],pitch,roll)
         center=np.asarray(plan['release_tip_xyz_mm'])+opening*DEFAULT_PARAMETERS['finger_offset_mm']
         np.testing.assert_allclose(center,plan['object_geometry']['release_ball_center_xyz_mm'],atol=1e-7)
-        expected=np.asarray(case['funnel_center_mm'])+np.asarray(case['table_plane']['normal_up'])*35.
+        expected=np.asarray(release_reference(world(case))[0])+np.asarray(case['table_plane']['normal_up'])*(17.+DEFAULT_PARAMETERS['release_clearance_mm'])
         np.testing.assert_allclose(center,expected,atol=1e-7)
 
     def test_later_coordinate_pose_is_not_confused_with_failure_time_feedback(self):

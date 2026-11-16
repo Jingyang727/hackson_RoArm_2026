@@ -1,11 +1,11 @@
-/* The controller owns actions; Grok reviews, the browser displays progress. */
+/* The controller owns actions; 视觉模型 reviews, the browser displays progress. */
 const $=id=>document.getElementById(id),prefix='/api/bench/rsi';
 const declaration='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试';
 const outcomes={placed:'已抓起并进入漏斗',grasp_missed:'没夹住',pushed_away:'球被推走',slipped:'球滑落',placement_missed:'投放偏了',bounced_out:'球弹出了漏斗',execution_failed:'动作未完成',unknown:'画面不足以判断'};
-const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',scene_check:'Grok正在确认当前球与漏斗…',
-  analyzing:'Grok正在分析本轮10秒录像…',learning:'根据Grok判断更新策略…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
+const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',scene_check:'视觉模型正在确认当前球与漏斗…',
+  analyzing:'视觉模型正在分析本轮20秒录像…',learning:'根据视觉模型判断更新策略…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
   completed:'本轮成功，策略已保存。',exhausted:'本次尝试次数已用完，策略和证据已保存。',stopping:'正在停止；不会继续恢复或重试。',stopped:'自动任务已停止。',
-  recording_warmup:'启动本轮录像…',raise_current:'先在原XY竖直抬高…',clearance_adjust:'竖直调整到高处通道…',orient_transport:'高处调整运输姿态…',orient_clear:'高处调整姿态…',align_above_ball:'在球顶上方竖直调整姿态…',lower_to_release:'竖直到漏斗中心上方，停稳…',open:'张爪…',align:'调整接近姿态…',approach_ball:'在高处移到球顶上方，同时张爪…',
+  recording_warmup:'启动本轮录像…',raise_current:'先在原XY竖直抬高…',clearance_adjust:'竖直调整到高处通道…',orient_transport:'高处调整运输姿态…',orient_clear:'高处调整姿态…',align_above_ball:'在球顶上方竖直调整姿态…',lower_to_release:'到漏斗高处投放点，停稳…',open:'张爪…',align:'调整接近姿态…',approach_ball:'在高处移到球顶上方，同时张爪…',
   descend:'下降接近黄球…',close:'合抓…',lift:'提升…',transit_arc:'经过过渡点…',transport:'移动到漏斗上方…',release:'释放小球…',saving_recording:'保存本轮录像与反馈…'};
 let state=null,busy=false,polling=false,revision=0,historyKey=null;
 const stream={active:false,sequence:0,generation:0,controller:null,timer:null,url:null};
@@ -17,12 +17,16 @@ function targets(plan){
   if(!plan)return;
   const [width,height]=plan.scene.image_size;overlay.setAttribute('viewBox',`0 0 ${width} ${height}`);
   const add=(type,attrs,text)=>{const node=document.createElementNS('http://www.w3.org/2000/svg',type);for(const [key,value] of Object.entries(attrs))node.setAttribute(key,String(value));if(text)node.textContent=text;overlay.append(node);};
-  for(const [point,label,color] of [[plan.scene.ball.pixel_center,'黄球','#f4ca24'],[plan.scene.funnel.pixel_center,'漏斗口','#48dfb8']]){
-    const [x,y]=point;add('circle',{cx:x,cy:y,r:width*.022,fill:'none',stroke:color,'stroke-width':3});
+  for(const [object,label,color] of [[plan.scene.ball,'黄球','#f4ca24'],[plan.scene.funnel,'漏斗大开口','#48dfb8']]){
+    const [x,y]=object.pixel_center;
+    if(object.mouth_boundary_px?.length){
+      add('polygon',{points:object.mouth_boundary_px.map(p=>p.join(',')).join(' '),fill:'none',stroke:color,'stroke-width':3});
+      add('path',{d:`M ${x-7} ${y} H ${x+7} M ${x} ${y-7} V ${y+7}`,stroke:color,'stroke-width':2});
+    }else add('circle',{cx:x,cy:y,r:object.radius_px||object.expected_diameter_px/2||width*.022,fill:'none',stroke:color,'stroke-width':3});
     add('text',{x:Math.max(8,Math.min(width-95,x+width*.026)),y:Math.max(28,y-10),fill:color,'font-size':width*.02,stroke:'#152824','stroke-width':3,'paint-order':'stroke'},label);
   }
   const side=plan.scene.funnel.pixel_center[0]<plan.scene.ball.pixel_center[0]?'左':'右';
-  caption.textContent=`本轮识别：漏斗在黄球的画面${side}侧。圆圈是观察时的位置，并非实时跟踪；画面未镜像，左右不等于机械臂 XYZ 正负。`;
+  caption.textContent=`本轮识别：漏斗在黄球的画面${side}侧。轮廓表示76mm大开口，十字为投放中心；这是观察快照，并非实时跟踪。`;
 }
 async function api(path,method='GET',body){
   const response=await fetch(path,{method,cache:'no-store',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -33,13 +37,16 @@ async function api(path,method='GET',body){
 function showError(error){$('error').textContent=error.message||String(error);$('error').hidden=false;}
 function render(){
   const h=state?.health||{},a=state?.learning||{status:'idle'},j=state?.job||{},p=state?.plan,r=j.result;
+  const succeeded=a.status==='completed'&&a.phase==='completed'&&a.trials?.at(-1)?.outcome==='placed';
+  $('successBanner').hidden=!succeeded;
+  if(succeeded)$('successDetails').textContent=`第 ${a.attempt} 轮成功；已恢复官方初始姿态，策略 v${a.policy_version||p?.policy_version||'—'} 已保存。自动尝试已停止。`;
   const running=a.status==='running'||j.status==='running',locked=Array.isArray(h.torque_status)&&h.torque_status.length===6&&h.torque_status.every(v=>v===1||v===true);
   $('setupBadge').textContent=state?.setup_id||'当前布置';$('connection').textContent=h.connected?'机械臂已连接':'机械臂未连接';
   $('connection').className='status-chip '+(h.connected?'connected':'');
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
-  const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?'公司Grok API已配置 · 直接调用':(grok.reason||'正在检查公司Grok API配置。')+' 使用OpenCode /roarm-rsi时沿用已登录模型，无需本页API配置。';
-  const compatible=state?.api_version===10&&state?.web_learning_version===3;
+  const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?`视觉模型 ${grok.model} · API直接调用`:(grok.reason||'正在检查视觉模型API配置。');
+  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3;
   $('observeObjects').disabled=busy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
   $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
@@ -53,7 +60,7 @@ function render(){
   $('sessionBackupLink').hidden=!a.session_backup_file;
   if(a.session_backup_file)$('sessionBackupLink').href=`${prefix}/sessions/${a.session_id}/archive`;
   const review=p?.review||a.review;$('grokVerdict').hidden=!review;
-  if(review)$('grokVerdict').textContent=review.source==='human'?`既有人工记录：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`:window.RSIProcess?.verdict(review)||`Grok判断：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`;
+  if(review)$('grokVerdict').textContent=review.source==='human'?`既有人工记录：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`:window.RSIProcess?.verdict(review)||`视觉模型判断：${outcomes[review.outcome]||review.outcome}\n${review.note||''}`;
   window.RSIProcess?.snapshot(state?.process);
   const proposal=review?.proposal;$('changeDetails').hidden=!proposal;
   if(proposal){
@@ -67,10 +74,11 @@ function render(){
   if(p){
     const ball=p.scene.ball,funnel=p.scene.funnel,depth=ball.depth_evidence;
     $('policyVersion').textContent=`策略 v${p.policy_version}`;
-    $('sceneFacts').textContent=`原始画面像素：黄球 (${xyz(ball.pixel_center)})；漏斗 (${xyz(funnel.pixel_center)})；u 向右、v 向下\n球心 XYZ：${xyz(ball.center_robot_mm)} mm\n${depth.depth_used?'使用球面深度拟合':'深度不足，使用保存桌面与34mm球径估计'}；深度样本 ${depth.valid_samples} 个\n漏斗口 XYZ：${xyz(funnel.mouth_center_robot_mm)} mm`;
+    $('sceneFacts').textContent=`原始画面像素：黄球 (${xyz(ball.pixel_center)})；漏斗 (${xyz(funnel.pixel_center)})；u 向右、v 向下\n球心 XYZ：${xyz(ball.center_robot_mm)} mm\n${depth.depth_used?'使用球面深度拟合':'深度不足，使用保存桌面与34mm球径估计'}；深度样本 ${depth.valid_samples} 个\n漏斗大开口中心 XYZ：${xyz(funnel.mouth_center_robot_mm)} mm\n${funnel.depth_evidence?.depth_used?'使用RGB-D口沿圆拟合':'口沿深度不足，使用RGB口沿与实测高度'}；口沿样本 ${funnel.depth_evidence?.rim_samples||0} 个`;
     if($('depthFrame').getAttribute('src')!==p.depth_url)$('depthFrame').src=p.depth_url;
     const scale=p.scene.depth_scale;$('depthLegend').textContent=scale?`颜色范围：到相机 ${number(scale.near_mm)} ～ ${number(scale.far_mm)} mm；黑色表示深度缺失。`:'颜色表示表面到相机的距离，单位毫米。';
-    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version===4?(p.route_policy.merged_high_approach?'先保证离桌间隙；高处合并接近与姿态调整，再竖直下探，抬升时切换运输姿态。':'先竖直抬升，再分段高处接近、竖直下探；抬升时切换运输姿态。'):''}\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
+    const release=p.release_policy;
+    $('planFacts').textContent=`路径：${p.steps.map(stage=>phases[stage]||stage).join(' → ')}\n${p.route_policy?.version>=4?(p.route_policy.merged_high_approach?'先保证离桌间隙；高处合并接近与姿态调整，再竖直下探，抬升时切换运输姿态。':'先竖直抬升，再分段高处接近、竖直下探；抬升时切换运输姿态。'):''}\n抓取俯仰 ${number(p.pitch_deg)}°；运输/投放俯仰 ${number(p.release_pitch_deg)}°。\n${release?`投放球底距口沿 ${number(release.ball_bottom_clearance_mm)} mm；开爪前实测指尖间隙至少 ${number(release.minimum_tip_clearance_mm)} mm。`:''}\n本轮策略 v${p.policy_version}；${p.policy_application?.parameters_verified?'已核对新参数进入本轮计划。':'参数核对信息待更新。'}\n${p.policy_application?.source_trial_id?'参数来自试次 '+p.policy_application.source_trial_id.slice(0,10)+'。':''}`;
     $('archiveLink').hidden=!p.backup_url;if(p.backup_url)$('archiveLink').href=p.backup_url;
     $('backupStatus').textContent=p.backup_url?'完整试次已备份；Langfuse待同步记录已生成。':r?'正在整理本轮备份…':'观察数据已保存；动作结束后生成完整备份。';
   }
@@ -80,7 +88,7 @@ function render(){
     $('resultText').textContent=`闭爪${r.grasp_attempted?'已发送':'未发送'}；投放${r.placement_attempted?'已发送':'未发送'}；${timing}。${r.motion_error?'\n动作记录：'+r.motion_error:''}`;
     const diagnosis=r.execution_diagnosis;
     if(diagnosis){
-      const label={time_budget:'10秒动作预算用尽',clearance_shortfall:'抬升后实测离桌高度不足',complete:'动作已完整结束'};
+      const label={time_budget:'录像窗口内未完成动作',clearance_shortfall:'抬升后实测离桌高度不足',release_clearance_shortfall:'投放前实测过低，未开爪；下一轮抬高',complete:'动作已完整结束'};
       $('resultText').textContent+=`\n执行诊断：${label[diagnosis.category]||diagnosis.category}。`;
       if(diagnosis.category==='clearance_shortfall')$('resultText').textContent+=` 实测离桌 ${number(diagnosis.lift.actual_height_mm)} mm，运输要求 ${number(diagnosis.lift.required_transfer_height_mm)} mm；这里的高度不是机器人Z。`;
     }
@@ -103,7 +111,7 @@ $('observeObjects').onclick=()=>action(async()=>{
   $('observationFacts').textContent='正在采集当前 RGB-D，只定位，不移动…';$('observationImage').hidden=true;
   try{
     const observation=await api(prefix+'/observe','POST',{}),scene=observation.scene;
-    $('observationFacts').textContent=`本次采集：${new Date(observation.observed_at_unix*1000).toLocaleString()}；ID ${observation.observation_id.slice(0,10)}\n球心 XYZ：${xyz(scene.ball.center_robot_mm)} mm\n漏斗口中心 XYZ：${xyz(scene.funnel.mouth_center_robot_mm)} mm\n定位来源：OpenCV + 标定；黄球${scene.ball.depth_evidence.depth_used?'使用 RGB-D 球面拟合':'回退桌面与34mm球径'}。\n${observation.note}`;
+    $('observationFacts').textContent=`本次采集：${new Date(observation.observed_at_unix*1000).toLocaleString()}；ID ${observation.observation_id.slice(0,10)}\n球心 XYZ：${xyz(scene.ball.center_robot_mm)} mm\n漏斗口中心 XYZ：${xyz(scene.funnel.mouth_center_robot_mm)} mm\n定位来源：OpenCV + 标定；黄球${scene.ball.depth_evidence.depth_used?'使用 RGB-D 球面拟合':'回退桌面与34mm球径'}；漏斗${scene.funnel.depth_evidence?.depth_used?'使用RGB-D口沿圆拟合':'使用RGB口沿与实测高度'}。\n${observation.note}`;
     $('observationImage').src=observation.image_url;$('observationImage').hidden=false;
   }catch(error){$('observationFacts').textContent='本次定位失败，当前没有可验证的新坐标；请查看错误信息。';throw error;}
 });
@@ -150,7 +158,7 @@ async function loadHistory(){
     for(const trial of data.trials){const row=document.createElement('article'),title=document.createElement('strong'),summary=document.createElement('p');row.className='trial-row';
       title.textContent=`试次 ${trial.id.slice(0,10)} · 参数 v${trial.policy_version}`;
       const timing=Number.isFinite(trial.result?.physical_elapsed_s)?`动作 ${number(trial.result.physical_elapsed_s)} 秒`:'动作未完整结束';
-      summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'Grok：')+(outcomes[trial.review.outcome]||trial.review.outcome):'未分析'}；${timing}`;
+      summary.textContent=`${trial.review?(trial.review.source==='human'?'人工记录：':'视觉模型：')+(outcomes[trial.review.outcome]||trial.review.outcome):'未分析'}；${timing}`;
       row.append(title,summary);
       if(trial.review){const details=document.createElement('details'),label=document.createElement('summary'),text=document.createElement('p');label.textContent='查看本轮判断与修正';text.className='quiet';text.textContent=(window.RSIProcess?.verdict(trial.review)||trial.review.note||'')+'\n'+(trial.review.changes||[]).join('\n');details.append(label,text);row.append(details);}
       if(trial.review?.comparison?.panel_url){const link=document.createElement('a');link.href=trial.review.comparison.panel_url;link.textContent='查看前后实帧对照';link.target='_blank';link.rel='noopener';row.append(link);}

@@ -191,7 +191,7 @@ class LearningLoop:
                                  depth_used=current['plan']['scene']['ball']['depth_evidence']['depth_used'])
                 if attempt==1 or current['plan']['scene']['funnel'].get('ambiguous'):
                     assessment=self._review(key,preflight=True)
-                    if not assessment['ready']:raise RuntimeError('Grok无法确认当前球与漏斗：'+assessment['note'])
+                    if not assessment['ready']:raise RuntimeError('视觉模型无法确认当前球与漏斗：'+assessment['note'])
                 self._guard();phase='executing';self.publish('executing');self.run_trial(key)
                 until=time.monotonic()+150
                 while current['status'] in ('starting','active') or not current.get('worker_finished',True):
@@ -199,10 +199,11 @@ class LearningLoop:
                         self.trial_stop.set();raise RuntimeError('当前试次未及时结束，停止连续重试')
                     time.sleep(.1)
                 self._guard();result=current.get('result',{})
-                # Physical/software motion failures return home immediately;
-                # do not leave the arm down while waiting for model analysis.
-                if result.get('motion_error'):
-                    self._recover_trial(current,{'ball_state':'unknown'},session_id)
+                # Finish and archive this recording before T100. Always return
+                # home before model work, including successful placements.
+                report=self._recover_trial(current,{'ball_state':'unknown'},session_id)
+                if report['status']!='completed':raise ResetHandledError(RuntimeError('本轮回位未确认'),report)
+                self.archive(current)
                 if current.get('backup_error'):raise RuntimeError('本轮备份未完成：'+current['backup_error'])
                 phase='analyzing';self.publish('analyzing');root=Path.home()/'.evoarm/rsi/pick_place_runs'/key
                 append_event(root,'grok_review_started');verdict=self._review(key)
@@ -214,16 +215,16 @@ class LearningLoop:
                 self.value['trials'].append({'plan_id':key,'outcome':verdict['outcome'],'policy_version':decision['after_version']})
                 if verdict['outcome']=='placed':
                     self.archive(current);self.publish('completed',status='completed',finished_at_unix=time.time());return
-                if current.get('recovery',{}).get('status')!='completed':self._recover_trial(current,verdict,session_id)
                 self.archive(current)
                 if verdict['outcome']=='unknown':
-                    raise ResetHandledError(RuntimeError('Grok无法可靠判断本轮，已保留证据'),current['recovery'])
+                    raise ResetHandledError(RuntimeError('视觉模型无法可靠判断本轮，已保留证据'),current['recovery'])
                 if decision.get('proposal',{}).get('allow_retry') is False:
                     reason=decision.get('proposal',{}).get('reason') or '当前画面与反馈不足以选择新参数。'
                     raise ResetHandledError(RuntimeError('本轮没有可验证的新修正：'+reason),current['recovery'])
             self.publish('exhausted',status='completed',finished_at_unix=time.time(),message='尝试次数已用完，机械臂已恢复官方姿态，策略与证据已保存')
         except Exception as exc:
-            report=exc.report if isinstance(exc,ResetHandledError) else None
+            report=(exc.report if isinstance(exc,ResetHandledError) else
+                    current.get('recovery') if current and current.get('recovery',{}).get('status')=='completed' else None)
             if not self.stop_event.is_set() and report is None:
                 try:report=self._reset_error(session_id,current,exc,phase)
                 except Exception as reset_exc:report={'status':'failed','error':str(reset_exc)}

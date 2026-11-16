@@ -38,6 +38,37 @@ class CompanyAPI(unittest.TestCase):
         self.company_env('not a valid assignment');self.explicit()
         self.assertEqual(api.settings().source,'environment')
 
+    def test_cn_qwen_uses_named_key_without_grok_dependency_and_sends_real_image(self):
+        self.company_env('EVOARM_COMPANY_LLM_BASE_URL='+api.BRCN_BASE_URL+'\n'
+                         'EVOARM_COMPANY_LLM_MODEL=Qwen/Qwen3.8-27B-FP8\n'
+                         'BRCN_9901_API_KEY=fake-cn-key\nEVOARM_COMPANY_LLM_STREAM=0\n')
+        cfg=api.settings();self.assertEqual(cfg.model,'Qwen3.8-27B-FP8')
+        opener=MagicMock();response=opener.open.return_value.__enter__.return_value
+        response.read.return_value=b'{"choices":[{"message":{"content":[{"type":"text","text":"visible"}]}}]}'
+        content=[{'type':'image_url','image_url':{'url':'data:image/jpeg;base64,AAAA'}}]
+        with patch.object(api.request,'build_opener',return_value=opener):
+            self.assertEqual(api.complete_content('check',content,threading.Event(),on_delta=lambda _:None),'visible')
+        req=opener.open.call_args.args[0];body=json.loads(req.data)
+        self.assertEqual(req.full_url,api.BRCN_BASE_URL+'/chat/completions')
+        self.assertEqual(req.get_header('Authorization'),'Bearer fake-cn-key')
+        self.assertEqual(body['model'],'Qwen3.8-27B-FP8')
+        self.assertEqual(body['messages'][1]['content'],content)
+        self.assertEqual(body['chat_template_kwargs'],{'enable_thinking':False})
+        self.assertEqual(body['temperature'],.2);self.assertFalse(body['stream'])
+        self.assertNotIn('fake-cn-key',json.dumps(api.configuration()))
+
+    def test_cn_and_other_new_gateways_do_not_reuse_us_opencode_auth(self):
+        self.provider({},auth={'type':'api','key':'fake-us-key'})
+        for base in (api.BRCN_BASE_URL,'https://another.invalid/v1'):
+            self.company_env('EVOARM_COMPANY_LLM_BASE_URL='+base+'\nEVOARM_COMPANY_LLM_MODEL=Qwen3.8-27B-FP8\n')
+            self.assertFalse(api.configuration()['configured'])
+
+    def test_cn_process_key_defaults_to_deepseek_and_can_change_model(self):
+        os.environ.update(EVOARM_COMPANY_LLM_BASE_URL=api.BRCN_BASE_URL,BRCN_API_KEY='fake-fallback-key')
+        self.assertEqual(api.settings().model,'DeepSeek-V4.1-Flash')
+        os.environ['EVOARM_COMPANY_LLM_MODEL']='another-vision-model'
+        self.assertEqual(api.settings().model,'another-vision-model')
+
     def test_env_base_can_reuse_user_auth_copy_and_auth_only_uses_known_company_endpoint(self):
         self.provider({},auth={'type':'api','key':'fake-auth-key'})
         self.company_env('OPENAI_BASE_URL=https://inference.tesla.com/v1\n')
