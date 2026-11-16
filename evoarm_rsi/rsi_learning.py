@@ -11,6 +11,7 @@ from . import grok_review
 from .rsi_journal import append_event,archive_session
 from .task_agent import _write
 from .rsi_events import LearningEvents
+from .planning_diagnostics import explain
 
 LEARNING_DECLARATION='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试'
 
@@ -22,14 +23,17 @@ def _launch_learning(target):
 def error_info(exc):
     detail=getattr(exc,'detail',None)
     if isinstance(detail,dict):
-        return {'message':str(detail.get('message','规划失败')),'image_url':detail.get('image_url')}
+        result={'message':str(detail.get('message','规划失败')),'image_url':detail.get('image_url')}
+        diagnosis=explain(detail)
+        if diagnosis:result['planning_diagnosis']=diagnosis
+        return result
     return {'message':detail if isinstance(detail,str) else str(exc),'image_url':None}
 
 
 class ResetHandledError(RuntimeError):
     def __init__(self,cause,report):
         super().__init__(error_info(cause)['message'])
-        self.report=report
+        self.report=report;self.detail=getattr(cause,'detail',None)
 
 
 class LearningLoop:
@@ -143,7 +147,7 @@ class LearningLoop:
     def _reset_error(self,session_id,current,exc,phase):
         """A NEW event, never suppressed by a previous trial's recovery receipt."""
         self._guard();key=uuid.uuid4().hex;info=error_info(exc)
-        self.publish('recovering',recovery_cause=info['message'])
+        self.publish('checking_home',recovery_cause=info['message'])
         try:report=self.reset_failure(key,current,exc,phase,self.stop_event,session_id)
         except Exception as reset_exc:report=getattr(reset_exc,'report',{'status':'failed','error':str(reset_exc)})
         event={'id':key,'phase':phase,'cause':info['message'],'status':report['status'],
@@ -151,20 +155,24 @@ class LearningLoop:
                't100_sent':any(row.get('command',{}).get('T')==100 and row.get('status') in ('sent_not_verified','feedback_confirmed') for row in report.get('commands',[])),
                'already_at_official_pose':report.get('already_at_official_pose',False)}
         with self.lock:self.value['recovery_events'].append(event)
-        self.publish('recovering',last_recovery=event)
+        self.publish('home_checked',last_recovery=event)
         return report
 
     def _prepare_from_home_if_needed(self,session_id,attempt):
         for retry in range(2):
-            self._guard();self.publish('observing',attempt=attempt,plan_id=None)
+            self._guard();self.publish('observing',attempt=attempt,plan_id=None,planning_diagnosis=None)
             try:return self.prepare()
             except Exception as exc:
+                diagnosis=error_info(exc).get('planning_diagnosis')
+                if diagnosis:self.publish('planning_failed',planning_diagnosis=diagnosis)
                 report=self._reset_error(session_id,None,exc,'planning')
-                if report['status']!='completed' or retry==1:raise ResetHandledError(exc,report) from None
+                if (report['status']!='completed' or retry==1 or
+                        diagnosis and report.get('already_at_official_pose')):
+                    raise ResetHandledError(exc,report) from None
                 self.publish('replanning',message='已恢复官方初始姿态，重新定位并规划')
 
     def _recover_trial(self,current,verdict,session_id):
-        self._guard();self.publish('recovering')
+        self._guard();self.publish('checking_home')
         try:report=self.recover(current,verdict,self.stop_event,session_id)
         except Exception as exc:raise ResetHandledError(exc,getattr(exc,'report',{'status':'failed','error':str(exc)})) from None
         current['recovery']=report
@@ -231,8 +239,14 @@ class LearningLoop:
             if current is not None:
                 try:self.archive(current)
                 except Exception as backup_exc:self.value['backup_error']=str(backup_exc)
-            message=error_info(exc)['message']
-            if report and report.get('status')=='completed':message='已恢复官方初始姿态；'+message
+            info=error_info(exc);message=info['message'];diagnosis=info.get('planning_diagnosis')
+            if diagnosis:
+                with self.lock:self.value['planning_diagnosis']=diagnosis
+                message=diagnosis['summary']+'。'+diagnosis['suggestion']
+                if report and report.get('status')=='completed':
+                    message+='\n起步姿态：'+('已在官方初始姿态，无需重复回位。' if report.get('already_at_official_pose') else '官方回位已完成。')
+                elif report:message+='\n官方回位未确认：'+report.get('error','请检查控制器连接')
+            elif report and report.get('status')=='completed':message='已恢复官方初始姿态；'+message
             elif report:message+='；官方复位未确认：'+report.get('error','请检查控制器连接')
             self.publish('stopped' if self.stop_event.is_set() else 'failed',status='stopped' if self.stop_event.is_set() else 'failed',
                          error=message[:1200],finished_at_unix=time.time())

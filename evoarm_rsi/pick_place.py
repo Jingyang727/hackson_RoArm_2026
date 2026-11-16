@@ -21,6 +21,7 @@ from .image_directions import OPPOSITE,PIXEL_VECTOR
 from .funnel_geometry import detect_funnel,draw_mouth,RADIUS_MM as FUNNEL_RADIUS,HEIGHT_MM as FUNNEL_HEIGHT
 from .rsi_settings import RECORDING_SECONDS,TARGET_DURATION_SECONDS
 from .release_geometry import DEFAULT_RELEASE_CLEARANCE_MM,MIN_RELEASE_CLEARANCE_MM,MAX_RELEASE_CLEARANCE_MM,MIN_VERIFIED_TIP_CLEARANCE_MM,release_reference
+from .planning_diagnostics import search_summary
 
 BALL_RADIUS = 17.
 MIN_XY_STEP_MM=10.
@@ -94,7 +95,7 @@ def _opening_direction(point,pitch,roll):
     return np.array([math.sin(pitch)*math.cos(base),math.sin(pitch)*math.sin(base),math.cos(pitch)])*math.cos(roll)+np.array([-math.sin(base),math.cos(base),0.])*math.sin(roll)
 
 
-def build_plan(session,status,scene,parameters):
+def build_plan(session,status,scene,parameters,*,segment_checker=None):
     """Plan the complete attempt using stock-finger offsets and existing path checks."""
     p=parameters;plane=scene['table_plane'];normal=np.asarray(plane['normal_up'])
     if set(p)!=set(DEFAULT_PARAMETERS):raise ValueError('RSI参数字段不完整')
@@ -150,7 +151,7 @@ def build_plan(session,status,scene,parameters):
                 # Depth may see the inner edge below the lip. Preserve the
                 # measured lip height as the minimum transit obstacle height.
                 funnel_height=lip_height,ball_radius=BALL_RADIUS,
-                release_candidates=release_candidates)
+                release_candidates=release_candidates,segment_checker=segment_checker)
             release=route['release_tip_xyz_mm']
             return {'kind':'rsi_pick_place_v1','setup_id':session['setup_id'],'initial_status':status,
                     'scene':scene,'table_plane':plane,'steps':steps,'parameters':p,'route_policy':route,'release_policy':release_policy,
@@ -168,7 +169,7 @@ def build_plan(session,status,scene,parameters):
             if detail not in failures:failures.append(detail)
     raise MotionConstraintError('完整抓放候选路径检查未通过：'+'；'.join(f['message'] for f in failures[:1]),
         code='pick_place_search_exhausted',attempts=[a for f in failures for a in f.get('attempts',[f])][:64],
-        grasp_pitch_candidates_deg=[80.,75.,85.,70.,90.,65.,60.])
+        grasp_pitch_candidates_deg=[80.,75.,85.,70.,90.,65.,60.],**search_summary(failures))
 
 
 def preview(image,plan,geometry):

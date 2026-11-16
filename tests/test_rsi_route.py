@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 
 from evoarm_rsi.pick_place import build_plan,observe_scene,DEFAULT_PARAMETERS
-from evoarm_rsi.rsi_route import at_height,execution_target
+from evoarm_rsi.rsi_route import at_height,execution_target,build_route
 from evoarm_rsi.roarm_geometry import height_above_plane,inverse
 from evoarm_rsi.ball_trial import check_segment
 from tests.test_ball_trial import layout,SimulatedArm
@@ -70,3 +70,15 @@ class Routes(unittest.TestCase):
         plan=self.plan(SimulatedArm().status());step=next(s for s in plan['steps'] if s['stage']=='transport')
         actual=inverse(at_height([300.,0.,0.],30.,plan['table_plane']),step['pitch_rad'],0.,math.pi)
         with self.assertRaises(ValueError):check_segment(actual,step,plan['table_plane'])
+
+    def test_an_unused_taller_release_candidate_does_not_change_the_selected_route(self):
+        raw=SimulatedArm().status();plan=self.plan(raw);p=copy.deepcopy(DEFAULT_PARAMETERS)
+        grasp=plan['grasp_tip_xyz_mm'];drop=plan['release_tip_xyz_mm'];pitch=math.radians(plan['grasp_pitch_deg'])
+        low={'xyz_mm':drop,'pitch_rad':math.radians(plan['release_pitch_deg'])}
+        taller={'xyz_mm':[drop[0],drop[1],drop[2]+15.],'pitch_rad':math.radians(80)}
+        options={'ball_top_height':34.,'funnel_height':plan['release_policy']['lip_height_mm'],'ball_radius':17.}
+        baseline,route=build_route(raw,grasp,drop,pitch,plan['table_plane'],p,release_candidates=[low],**options)
+        with_alternative,other=build_route(raw,grasp,drop,pitch,plan['table_plane'],p,release_candidates=[low,taller],**options)
+        self.assertEqual(with_alternative,baseline)
+        self.assertEqual(route['transfer_height_mm'],other['transfer_height_mm'])
+        self.assertEqual(other['release_tip_xyz_mm'],drop)

@@ -41,10 +41,13 @@
     <div class="card">
       <div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
       <div id="frameEmpty" class="empty-trials"><p>正在读取相机画面。球和黑色漏斗应同时可见。</p></div>
-      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
+      <div class="workspace-view"><img id="workspaceFrame" class="workspace-frame" alt="机械臂、黄球与黑色漏斗的当前画面" hidden/><svg id="workspaceOverlay" aria-label="当前策略的完整抓放路径采样区域" hidden></svg><svg id="targetOverlay" aria-label="本轮观察时识别的球与漏斗位置，并非实时跟踪" hidden></svg></div>
       <p id="imageCaption" class="quiet"></p>
       <p id="targetCaption" class="quiet" hidden></p>
       <p id="streamNotice" class="quiet" hidden></p>
+      <label class="check-row"><input id="workspaceVisible" type="checkbox"/><span>显示当前可抓取区域（不运动）</span></label>
+      <p id="workspaceStatus" class="quiet" role="status">按当前起步姿态、漏斗位置和经验参数计算；不是一个固定半径。</p>
+      <button id="workspaceRecompute" class="secondary" hidden>重新计算区域</button>
       <details><summary>采集当前物体坐标（不运动）</summary>
         <button id="observeObjects" class="secondary">重新定位黄球和漏斗</button>
         <p id="observationFacts" class="facts">先采集当前画面，再验证位置；物体移动后需要重新采集。</p>
@@ -61,6 +64,7 @@
       <button id="reset" class="secondary" disabled>恢复官方初始姿态</button>
       <button id="stop" class="secondary" hidden>停止自动任务</button>
       <p id="phase" class="phase-line" role="status" aria-live="polite">尚未开始。</p>
+      <div id="planningIssue" class="inline-note" hidden><strong id="planningSummary"></strong><p id="planningAdvice" class="quiet"></p><details><summary>查看失败阶段与原始原因</summary><pre id="planningDetails" class="grok-raw"></pre><img id="planningImage" class="depth-image" alt="规划失败时保存的场景" hidden/></details></div>
       <p id="nextChange" class="quiet"></p>
       <details id="changeDetails" hidden><summary>本轮参数变化</summary><p id="changeFacts" class="facts"></p></details>
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
@@ -96,6 +100,6 @@
   <section class="card history-card"><div class="card-heading"><h2>学习记录</h2><span id="count" class="mini-badge">0次</span></div><details><summary>核对最近4轮补偿与实际落点</summary><p class="quiet">只读取已有记录；缺失项显示“—”。自动平面试验步长至少10mm。</p><button id="loadXYAudit" class="secondary">读取最近4轮（不运动）</button><div id="xyAuditFacts"></div></details><p id="emptyTrials" class="quiet">还没有本分支的完整抓放试次。</p><div id="trials"></div></section>
 </main>
 <footer>录像、RGB-D、指令、反馈、视觉模型判断和策略变化保存在本机；另有完整备份与待同步Langfuse记录。</footer>
-<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script>
+<script src="/assets/rsi-process.js"></script><script src="/assets/rsi.js"></script><script src="/assets/rsi-workspace.js"></script>
 </body>
 </html>

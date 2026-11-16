@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id),prefix='/api/bench/rsi';
 const declaration='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试';
 const outcomes={placed:'已抓起并进入漏斗',grasp_missed:'没夹住',pushed_away:'球被推走',slipped:'球滑落',placement_missed:'投放偏了',bounced_out:'球弹出了漏斗',execution_failed:'动作未完成',unknown:'画面不足以判断'};
-const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',scene_check:'视觉模型正在确认当前球与漏斗…',
+const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',planning_failed:'当前候选路径未通过，正在检查起步状态…',checking_home:'正在核对当前姿态与官方初始姿态…',home_checked:'起步姿态检查完成。',scene_check:'视觉模型正在确认当前球与漏斗…',
   analyzing:'视觉模型正在分析本轮20秒录像…',learning:'根据视觉模型判断更新策略…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
   completed:'本轮成功，策略已保存。',exhausted:'本次尝试次数已用完，策略和证据已保存。',stopping:'正在停止；不会继续恢复或重试。',stopped:'自动任务已停止。',
   recording_warmup:'启动本轮录像…',raise_current:'先在原XY竖直抬高…',clearance_adjust:'竖直调整到高处通道…',orient_transport:'高处调整运输姿态…',orient_clear:'高处调整姿态…',align_above_ball:'在球顶上方竖直调整姿态…',lower_to_release:'到漏斗高处投放点，停稳…',open:'张爪…',align:'调整接近姿态…',approach_ball:'在高处移到球顶上方，同时张爪…',
@@ -37,6 +37,8 @@ async function api(path,method='GET',body){
 function showError(error){$('error').textContent=error.message||String(error);$('error').hidden=false;}
 function render(){
   const h=state?.health||{},a=state?.learning||{status:'idle'},j=state?.job||{},p=state?.plan,r=j.result;
+  window.RSIWorkspace?.configure(state,busy);
+  const workspaceBusy=window.RSIWorkspace?.isBusy()||false;
   const succeeded=a.status==='completed'&&a.phase==='completed'&&a.trials?.at(-1)?.outcome==='placed';
   $('successBanner').hidden=!succeeded;
   if(succeeded)$('successDetails').textContent=`第 ${a.attempt} 轮成功；已恢复官方初始姿态，策略 v${a.policy_version||p?.policy_version||'—'} 已保存。自动尝试已停止。`;
@@ -47,15 +49,22 @@ function render(){
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?`视觉模型 ${grok.model} · API直接调用`:(grok.reason||'正在检查视觉模型API配置。');
   const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3;
-  $('observeObjects').disabled=busy||running||!compatible;
+  $('observeObjects').disabled=busy||workspaceBusy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
-  $('start').disabled=busy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
+  $('start').disabled=busy||workspaceBusy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked;
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
   $('confirmed').disabled=running||busy;$('maxAttempts').disabled=running||busy;
   $('stop').hidden=!running;$('stop').disabled=a.phase==='stopping'||j.phase==='stopping';
   $('attemptBadge').textContent=a.attempt?`第 ${a.attempt} / ${a.max_attempts} 轮`:'尚未开始';
   const phase=a.status==='running'?(a.phase==='executing'?j.phase:a.phase):j.status==='running'?j.phase:a.phase;
   $('phase').textContent=a.status==='failed'?(a.error?.startsWith('已恢复官方初始姿态')?a.error:'任务已停止：'+(a.error||'请查看本轮记录')):phases[phase]||phases[j.phase]||'尚未开始。';
+  const diagnostic=a.planning_diagnosis;$('planningIssue').hidden=!diagnostic;
+  if(diagnostic){
+    $('planningSummary').textContent=diagnostic.summary;$('planningAdvice').textContent=diagnostic.suggestion;
+    $('planningDetails').textContent=diagnostic.reason+'\n'+JSON.stringify(diagnostic.evidence||{},null,2);
+    $('planningImage').hidden=!diagnostic.image_url;
+    if(diagnostic.image_url&&$('planningImage').getAttribute('src')!==diagnostic.image_url)$('planningImage').src=diagnostic.image_url;
+  }
   $('nextChange').textContent=(a.changes||[]).join('\n');
   $('sessionBackupLink').hidden=!a.session_backup_file;
   if(a.session_backup_file)$('sessionBackupLink').href=`${prefix}/sessions/${a.session_id}/archive`;
@@ -69,7 +78,7 @@ function render(){
     if(proposal.predicted_pixel_delta)changes.push(`相机模型预测的像素增量：${xyz(proposal.predicted_pixel_delta)} px；实际改善待下一轮录像验证。`);
     $('changeFacts').textContent=changes.join('\n')||'没有应用新的参数。';
   }
-  targets(p);
+  const workspaceScene=window.RSIWorkspace?.sceneForOverlay();targets(workspaceScene?{scene:workspaceScene}:p);
   $('recordings').hidden=!p;
   if(p){
     const ball=p.scene.ball,funnel=p.scene.funnel,depth=ball.depth_evidence;
@@ -166,5 +175,6 @@ async function loadHistory(){
   }catch(error){showError(error);}
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopStream();else refresh();});
+document.addEventListener('rsi-workspace-change',render);
 window.addEventListener('pagehide',()=>{stopStream();if(stream.url)URL.revokeObjectURL(stream.url);});
 setInterval(refresh,800);refresh();loadHistory();

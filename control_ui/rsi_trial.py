@@ -45,12 +45,19 @@ from evoarm_rsi.agent_readiness import describe as describe_readiness,AUTHORIZAT
 from evoarm_rsi.execution_diagnosis import diagnose
 from evoarm_rsi.learning_basis import basis as learning_basis,execution_proposal
 from evoarm_rsi.roarm_geometry import MotionConstraintError
+from evoarm_rsi.planning_diagnostics import explain as explain_planning
+from evoarm_rsi.workspace_preview import compute_workspace
+from evoarm_rsi.rsi_route import ROUTE_VERSION
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
 
 def _launch(target):
     threading.Thread(target=target,name='evoarm-rsi-pick-place',daemon=True).start()
+
+
+def _launch_workspace(target):
+    threading.Thread(target=target,name='evoarm-workspace-preview',daemon=True).start()
 
 
 class Empty(BaseModel):
@@ -69,6 +76,10 @@ class Run(PlanID):
 
 class Prepare(Empty):
     source:str=Field(default='web',pattern=r'^(web|opencode_agent)$')
+
+
+class Workspace(Empty):
+    observation_id:str=Field(pattern=r'^[a-f0-9]{32}$')
 
 
 class ComparisonReview(Empty):
@@ -117,6 +128,7 @@ class AgentMemory(Empty):
 def install(app,service_provider):
     router=APIRouter(prefix='/api/bench/rsi');lock=threading.RLock();preparing=threading.Lock()
     plans={};job={'status':'idle','phase':'idle'};stop=threading.Event();latest=None
+    workspace_jobs={};workspace_lock=threading.RLock()
     agent_stream=None;agent_phase=None
     try:code_revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parent.parent,text=True,stderr=subprocess.DEVNULL,timeout=3).strip()
     except (OSError,subprocess.SubprocessError):code_revision='unknown'
@@ -230,6 +242,7 @@ def install(app,service_provider):
             except (OSError,RuntimeError,ValueError,KeyError,TypeError):pass
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
         return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
+                'workspace_preview_version':1,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
                 'process':learner.events.after(),
@@ -279,6 +292,53 @@ def install(app,service_provider):
         path=Path.home()/'.evoarm/rsi/pick_place_observations'/observation_id/'preview.jpg'
         if not path.is_file() or path.is_symlink():raise HTTPException(status_code=404)
         return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+
+    @router.post('/workspace',status_code=202)
+    def start_workspace(req:Workspace):
+        """Read one pose and compute routes from a saved scene; never authorize motion."""
+        try:
+            learner.assert_interactive_allowed()
+            with workspace_lock:
+                if any(v['status']=='computing' for v in workspace_jobs.values()):raise ValueError('工作区正在计算，请等待')
+                saved=session();source=Path.home()/'.evoarm/rsi/pick_place_observations'/req.observation_id/'scene.json'
+                if not source.is_file() or source.is_symlink():raise ValueError('请先采集当前黄球和漏斗位置')
+                observation=json.loads(source.read_text())
+                if observation['calibration_fingerprint']!=fingerprint(saved):raise ValueError('标定已变化，请重新定位后计算工作区')
+                path=policy_path(saved)
+                pol=json.loads(path.read_text()) if path.is_file() else {'version':1,'parameters':copy.deepcopy(DEFAULT_PARAMETERS),'reviews':[]}
+                missing=set(DEFAULT_PARAMETERS)-set(pol['parameters'])
+                if missing-{'squeeze_deg'} or set(pol['parameters'])-set(DEFAULT_PARAMETERS):raise ValueError('本地RSI参数不完整')
+                pol=copy.deepcopy(pol);pol['parameters']={**copy.deepcopy(DEFAULT_PARAMETERS),**pol['parameters']}
+                pol,_=repair_clipped_policy(pol);pol,_=upgrade_release_policy(pol)  # Preview only; never save a policy here.
+                service=service_provider()
+                with service.lock:
+                    if service.arm is None:raise ValueError('先连接机械臂以读取当前起步姿态')
+                    if service.pending or service.automation_owner:raise ValueError('当前动作结束后再计算工作区')
+                    raw=copy.deepcopy(service.status())
+                key=uuid.uuid4().hex;folder=Path.home()/'.evoarm/rsi/workspace_previews'/key
+                value={'workspace_id':key,'observation_id':req.observation_id,'status':'computing',
+                       'calibration_fingerprint':fingerprint(saved),'policy_version':pol['version'],
+                       'created_at_unix':time.time(),'code_revision':code_revision,'robot_moved':False}
+                workspace_jobs[key]=value
+                _write(folder/'input.json',{'session':saved,'initial_status':raw,'scene':observation['scene'],'parameters':pol['parameters']})
+                def update(result):
+                    with workspace_lock:
+                        value.update(result);_write(folder/'state.json',value)
+                def worker():
+                    try:update(compute_workspace(saved,raw,observation['scene'],pol['parameters'],progress=update))
+                    except Exception as exc:update({'status':'failed','error':str(exc)[:1200]})
+                _write(folder/'state.json',value);_launch_workspace(worker)
+                return {'workspace_id':key,'status':value['status']}
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:fail(exc)
+
+    @router.get('/workspace/{workspace_id}')
+    def workspace_state(workspace_id:str):
+        if not re.fullmatch('[a-f0-9]{32}',workspace_id):raise HTTPException(status_code=404)
+        with workspace_lock:
+            if workspace_id in workspace_jobs:return copy.deepcopy(workspace_jobs[workspace_id])
+            file=Path.home()/'.evoarm/rsi/workspace_previews'/workspace_id/'state.json'
+            if not file.is_file() or file.is_symlink():raise HTTPException(status_code=404)
+            return json.loads(file.read_text())
 
     @router.post('/prepare')
     def prepare(req:Prepare):
@@ -357,10 +417,12 @@ def install(app,service_provider):
             diagnostic=f'/api/bench/rsi/plans/{draft_id}/preview' if draft_id and (root(draft_id)/'preview.jpg').exists() else None
             publish('failed',status='failed',error=str(exc),diagnostic_url=diagnostic)
             if diagnostic:
-                detail=getattr(exc,'detail',{'message':str(exc)})
+                detail={**getattr(exc,'detail',{'message':str(exc)}),'image_url':diagnostic,'draft_id':draft_id}
+                diagnosis=explain_planning(detail)
                 try:_write(root(draft_id)/'prepare-error.json',{'error':str(exc),'detail':detail,'robot_moved':False,'observation_trial_id':key})
                 except OSError:pass
-                raise HTTPException(status_code=409,detail={**detail,'message':str(exc),'image_url':diagnostic}) from exc
+                if diagnosis:_write(root(draft_id)/'planning-diagnosis.json',diagnosis)
+                raise HTTPException(status_code=409,detail={**detail,'message':str(exc)}) from exc
             fail(exc)
         finally:preparing.release()
 
@@ -398,7 +460,7 @@ def install(app,service_provider):
                 if service.allowed_joints!=set(range(1,7)):raise ValueError('完整抓放需要现有六关节授权')
                 if fingerprint(session())!=current['calibration_fingerprint']:raise ValueError('标定已变化，请重新观察')
                 active_policy=policy(session())
-                if current['plan'].get('route_policy',{}).get('version')!=5 or not current['plan'].get('release_policy'):
+                if current['plan'].get('route_policy',{}).get('version')!=ROUTE_VERSION or not current['plan'].get('release_policy'):
                     raise ValueError('请重新观察，使用抓取与运输/投放独立姿态的新路径')
                 if active_policy['version']!=current['policy_version']:raise ValueError('RSI参数已更新，请用新参数重新观察')
                 if policy_id(current['plan']['parameters'])!=current['plan']['policy_application']['policy_id']:
@@ -768,7 +830,7 @@ def install(app,service_provider):
             parts=image_url.split('/')
             draft=parts[-2] if len(parts)>2 else ''
             if len(draft)==32 and all(c in '0123456789abcdef' for c in draft):
-                for name in ('preview.jpg','prepare-error.json','planning-input.json','calibration-snapshot.json'):
+                for name in ('preview.jpg','prepare-error.json','planning-diagnosis.json','planning-input.json','calibration-snapshot.json'):
                     file=root(draft)/name
                     if file.is_file() and not file.is_symlink():shutil.copy2(file,folder/name)
                 diagnostic=folder/'prepare-error.json'

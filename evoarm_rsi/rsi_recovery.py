@@ -63,7 +63,7 @@ def recover(service,plan,result,verdict,root,stop,publish,*,automation_id,valida
         while time.monotonic()-service.last_motion_at<.85:
             guard();time.sleep(.05)
     try:
-        publish('recovering')
+        publish('checking_home')
         with service.lock:
             guard()
             if not service.arm or service.teach_active or not service.motion_enabled:
@@ -82,6 +82,7 @@ def recover(service,plan,result,verdict,root,stop,publish,*,automation_id,valida
             if not possibly_held and all(abs(degrees[j]-goal)<=2 for j,goal in FACTORY_DEGREES.items()):
                 report.update(status='completed',already_at_official_pose=True,finished_at_unix=time.time(),final_status=raw)
                 persist();append_event(root,'recovery_completed',already_at_official_pose=True);return report
+        publish('recovering')
         already_open=abs(raw['g']-math.radians(110))<=math.radians(3)
         if possibly_held and already_open:report['gripper_already_open']=True
         if possibly_held and not already_open:
