@@ -46,7 +46,13 @@
     snapshot=data;
     checkbox.disabled=externalBusy||data?.learning?.status==='running'||data?.job?.status==='running'||data?.workspace_preview_version!==1;
     if(!busy&&result&&observation&&data?.plan&&data.plan.plan_id!==basisPlanId){
-      if(!same(data.plan.parameters,result.parameters)||!same(data.plan.scene.camera_geometry,observation.scene.camera_geometry))
+      const pose=data.plan.initial_pose;
+      const moved=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&Math.hypot(...a.map((v,i)=>v-b[i]))>3;
+      const changedPose=pose&&(moved(pose.xyz_mm,result.initial_xyz_mm)||
+        Math.abs(pose.pitch_rad-result.initial_pitch_deg*Math.PI/180)>.02||
+        Math.abs(pose.roll_rad-result.initial_roll_rad)>.02);
+      if(changedPose||moved(data.plan.scene.funnel?.mouth_center_robot_mm,result.funnel_xyz_mm)||
+        !same(data.plan.parameters,result.parameters)||!same(data.plan.scene.camera_geometry,observation.scene.camera_geometry))
         invalidate('起步规划条件或策略已变化，请重新计算区域。');
       basisPlanId=data.plan.plan_id;
     }

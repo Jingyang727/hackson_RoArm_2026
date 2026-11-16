@@ -57,6 +57,17 @@ test('uncomputed samples remain blank instead of being shaded as rejected',async
   assert.match(p.elements.get('workspaceStatus').textContent,/空白：未完成采样/);
 });
 
+test('a changed funnel or starting pose hides a workspace computed under different conditions',async()=>{
+  for(const change of ['funnel','pose']){
+    const p=page();p.result.initial_pitch_deg=0;p.result.initial_roll_rad=0;p.result.funnel_xyz_mm=[300,200,-70];
+    p.elements.get('workspaceVisible').checked=true;p.elements.get('workspaceVisible').onchange();await flush();
+    const scene={camera_geometry:p.geometry,funnel:{mouth_center_robot_mm:change==='funnel'?[300,250,-70]:[300,200,-70]}};
+    const plan={plan_id:'changed',parameters:p.parameters,scene,initial_pose:{xyz_mm:change==='pose'?[346,0,180]:[346,0,223],pitch_rad:0,roll_rad:0}};
+    p.api.configure({...p.state,plan});assert.equal(p.elements.get('workspaceVisible').checked,false);
+    assert.equal(p.elements.get('workspaceOverlay').hidden,true);
+  }
+});
+
 test('a preview input error is shown without starting any physical task',async()=>{
   const p=page({fail:true});p.elements.get('workspaceVisible').checked=true;p.elements.get('workspaceVisible').onchange();await flush();
   assert.equal(p.api.isBusy(),false);assert.equal(p.elements.get('workspaceVisible').checked,false);

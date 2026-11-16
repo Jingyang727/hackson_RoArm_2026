@@ -70,7 +70,7 @@ def compute_workspace(session,status,scene,parameters,*,columns=32,rows=18,budge
     result={'schema_version':1,'status':'computing','robot_moved':False,'grid':[],
             'image_size':[width,height],'columns':columns,'rows':rows,'total':columns*rows,'completed':0,
             'selected_ball':selected,'initial_xyz_mm':[status[k] for k in 'xyz'],
-            'initial_pitch_deg':math.degrees(status['tit']),'parameters':copy.deepcopy(parameters),
+            'initial_pitch_deg':math.degrees(status['tit']),'initial_roll_rad':status['r'],'parameters':copy.deepcopy(parameters),
             'funnel_xyz_mm':scene['funnel']['mouth_center_robot_mm'],'source_trial_id':scene.get('source_trial_id'),
             'sampled_ball_center_height_mm':BALL_RADIUS,'route_policy_version':ROUTE_VERSION,
             'note':'绿色为采样球心找到完整抓放路径；灰色为当前候选搜索未通过；空白为未完成采样。边界是估计，不是机械臂的固定限制。'}

@@ -230,6 +230,8 @@ def install(app,service_provider):
                     'scene':p['scene'],'parameters':p['parameters'],'policy_version':current['policy_version'],
                     'target_audit':p.get('target_audit'),'policy_application':p.get('policy_application'),
                     'route_policy':p.get('route_policy'),'object_geometry':p.get('object_geometry'),
+                    'initial_pose':{'xyz_mm':[p['initial_status'][k] for k in 'xyz'],
+                                    'pitch_rad':p['initial_status']['tit'],'roll_rad':p['initial_status']['r']},
                     'release_policy':p.get('release_policy'),
                     'steps':[s['stage'] for s in p['steps']],'pitch_deg':p['grasp_pitch_deg'],
                     'release_pitch_deg':p.get('release_pitch_deg',p['grasp_pitch_deg']),'warnings':p['warnings'],
