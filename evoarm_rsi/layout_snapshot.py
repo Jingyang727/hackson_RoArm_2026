@@ -146,12 +146,32 @@ def atomic(path,raw):
     finally:temp.unlink(missing_ok=True)
 
 
+class TargetPermissionError(PermissionError):
+    def __init__(self,path):
+        self.path=str(path)
+        super().__init__('导入前权限检查失败，尚未写入配置：'+self.path+
+            '。请检查该路径的所有者和当前用户权限；只修复相关目录或文件，不要用sudo运行整个导入。')
+
+
+def check_write_permissions(base,names):
+    for name in names:
+        dest=bounded(base,name);parent=dest.parent
+        while not parent.exists():parent=parent.parent
+        if not parent.is_dir() or not os.access(parent,os.W_OK|os.X_OK):raise TargetPermissionError(parent)
+    parent=base/'layout_backups'
+    while not parent.exists():parent=parent.parent
+    if not parent.is_dir() or not os.access(parent,os.W_OK|os.X_OK):raise TargetPermissionError(parent)
+
+
 def install(bundle,home=None):
     """Explicit maintenance action; stop the web service first. Never install trial history."""
     base=(Path(home) if home is not None else Path.home())/'.evoarm/rsi'
-    names=bundle['pin']['install_paths'];old={name:(bounded(base,name).read_bytes() if bounded(base,name).is_file() else None) for name in names}
+    names=bundle['pin']['install_paths']
+    try:old={name:(bounded(base,name).read_bytes() if bounded(base,name).is_file() else None) for name in names}
+    except PermissionError as exc:raise TargetPermissionError(exc.filename or base) from exc
     changed=[name for name in names if old[name]!=bundle['files'][name]]
     if not changed:return {'installed_files':[],'backup_directory':None,'comparison':compare(bundle,home),'robot_control':False}
+    check_write_permissions(base,changed)
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8]
     backup=base/'layout_backups'/stamp;backup.mkdir(parents=True,exist_ok=False)
     receipt={'snapshot':bundle['pin']['snapshot'],'status':'prepared','files':[]}
@@ -168,7 +188,7 @@ def install(bundle,home=None):
         for name in ordered:
             dest=bounded(base,name);current=dest.read_bytes() if dest.is_file() else None
             if current!=old[name]:raise RuntimeError('安装期间本机数据发生变化，请停止网页后重试：'+name)
-            written.append(name);atomic(dest,bundle['files'][name])
+            atomic(dest,bundle['files'][name]);written.append(name)
         result=compare(bundle,home)
         if not result['matches_snapshot']:raise RuntimeError('安装后SHA256或活动指纹核验失败')
         receipt['status']='completed'
@@ -204,6 +224,14 @@ TRANSFER_README='''# 成功电脑配置迁移包（不安装或升级Python环�
 
 核对：matches_snapshot=true、calibration_matches=true、runtime.session_path_matches_local=true、runtime.fingerprint_matches_snapshot=true。
 local_policies应为单球v64、挑战v13，parameters_match均为true。确认后再在网页开始测试。
+
+若install提示experiments目录Permission denied，先用ls -ld ~/.evoarm/rsi/experiments查看所有者。
+只有确认该目录误属root时，执行以下两条命令修复该目录自身，不递归改整个.evoarm：
+
+    sudo chown "$(id -u):$(id -g)" "$HOME/.evoarm/rsi/experiments"
+    chmod u+rwx "$HOME/.evoarm/rsi/experiments"
+
+然后用普通用户重新install。不要用sudo运行整个导入程序。新脚本会先检查所有待写目录，权限不足时不写入配置。
 
 标定指纹：05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4。
 compare使用的是当前用户目录；若网页用另一用户启动，运行路径核验会指出不同。不要用sudo运行导入程序。
@@ -262,6 +290,9 @@ def main(argv=None):
         if args.action=='compare':return 0 if value['matches_snapshot'] and (not args.controller or
             value['runtime']['fingerprint_matches_snapshot'] and value['runtime']['session_path_matches_local']) else 1
         return 0
+    except TargetPermissionError as exc:
+        print(json.dumps({'error':str(exc),'error_code':'layout_target_permission','permission_path':exc.path,
+                          'destination_modified':False,'robot_control':False},ensure_ascii=False));return 2
     except (OSError,ValueError,KeyError,TypeError,RuntimeError) as exc:
         print(json.dumps({'error':str(exc),'robot_control':False},ensure_ascii=False));return 2
 

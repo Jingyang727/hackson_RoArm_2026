@@ -37,6 +37,8 @@ python -m evoarm_rsi.layout_snapshot install
 
 导入只复制6个数据文件：活动指针、session.json、参考图、两种模式的策略、参考SDK内参。已有不同文件先原样备份到`~/.evoarm/rsi/layout_backups/<时间-标识>/`；先写数据、最后切活动指针，写入失败会回滚。原视频、历史成功执行记录、token、环境配置和串口设置均不安装。文件已一致时不写入、不新建备份。
 
+如果导入报`experiments`目录Permission denied，先用`ls -ld "$HOME/.evoarm/rsi/experiments"`检查。旧相机服务在sudo下可能把顶层目录建为root所有；仅确认是这种情况时，执行`sudo chown "$(id -u):$(id -g)" "$HOME/.evoarm/rsi/experiments"`及`chmod u+rwx "$HOME/.evoarm/rsi/experiments"`，然后用普通用户重新导入。不要sudo整个导入程序或递归改整个用户目录。新导入工具会在任何配置写入前检查所有待写目录，相机服务也会把自己创建的`rsi/`和`experiments/`目录交还给实际用户。
+
 使用原环境重新启动网页服务后，核对真正运行的服务：
 
 ```sh
@@ -44,6 +46,8 @@ python -m evoarm_rsi.layout_snapshot compare --controller http://127.0.0.1:8765
 ```
 
 除本机文件外，这条命令只GET现有网页的标定状态和readiness；readiness可能读取串口反馈，不发送运动命令。核对`runtime.session_path_matches_local=true`、`runtime.fingerprint_matches_snapshot=true`、`matches_snapshot=true`，再由用户开始测试。报告给出服务启动时加载的`code_revision`与实际项目目录，不能只看终端的git分支。
+
+`install`输出中的`source_runtime`是成功电脑的来源记录，并非接收电脑正在运行的进程。安装后文件SHA256一致，只能证明文件复制完成；需重启网页后运行带`--controller`的比较，才能核对服务实际加载的路径。ZIP不部署网页代码；若没有挑战升级页面，检查实际服务的项目目录/提交，更新并重启main网页服务，`/api/challenge/state`应返回`challenge_api_version=2`。
 
 同一内容可以有不同提交号：成功电脑`4aad187`与原main`8d15d54`代码树相同。本次数据更新后的main还会包含新归档与此工具，因此提交号再次变化是正常的。
 
