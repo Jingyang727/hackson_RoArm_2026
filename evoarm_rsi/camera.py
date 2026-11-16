@@ -93,7 +93,7 @@ class TrialVideoRecorder:
         self.fps = fps
         self.max_depth_frames = max_depth_frames
 
-    def capture(self, folder, duration_s, *, clock=time.monotonic, on_start=None):
+    def capture(self, folder, duration_s, *, clock=time.monotonic, on_start=None, finish_event=None):
         if not 0 < duration_s <= 20:
             raise ValueError("recording duration must be 0..20 seconds")
         import cv2
@@ -105,6 +105,7 @@ class TrialVideoRecorder:
         frames = []
         depth_samples = []
         depth_stamps = []
+        ended_early = False
         # Obtain the first *valid* RGB-D frame before starting the trial
         # recording clock. Initial Orbbec SDK/aligner warmup can take seconds.
         # Keep that initialization outside the requested 10s evidence window.
@@ -157,6 +158,16 @@ class TrialVideoRecorder:
                     depth_samples.append(depth.astype(np.uint16).copy())
                     depth_stamps.append(frame.monotonic_ns)
                     next_depth_at = start + len(depth_samples) * depth_interval_s
+                if finish_event is not None and finish_event.is_set() and len(frames)>=3:
+                    # The last frame must also have paired depth. Do not leave
+                    # the next target scan looking at an earlier sampling slot.
+                    if frame.depth_mm is not None and (not depth_stamps or depth_stamps[-1]!=frame.monotonic_ns):
+                        if len(depth_samples)>=self.max_depth_frames:
+                            depth_samples.pop();depth_stamps.pop()
+                        depth_samples.append(np.asarray(frame.depth_mm,dtype=np.uint16).copy())
+                        depth_stamps.append(frame.monotonic_ns)
+                    ended_early = True
+                    break
             if not frames:
                 raise RuntimeError("no camera frames recorded")
             with (folder/"frames.jsonl").open("w", encoding="utf-8") as out:
@@ -194,7 +205,8 @@ class TrialVideoRecorder:
                         backup.rename(original)
                         raise
                     video_timing.update(output_file="rgb.mp4", source_file=backup.name, corrected=True)
-            return {"rgb_file": "rgb.mp4", "frames": len(frames),
+            return {**({'ended_early':ended_early} if finish_event is not None else {}),
+                    "rgb_file": "rgb.mp4", "frames": len(frames),
                     "depth_samples": len(depth_samples), "camera": frames[0]["camera_name"],
                     "video_timing": video_timing}
         finally:

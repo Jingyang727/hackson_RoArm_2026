@@ -10,8 +10,8 @@ import time
 
 
 class LearningEvents:
-    def __init__(self):
-        self.lock=threading.RLock();self.reset(None)
+    def __init__(self,*,folder=None):
+        self.folder=folder;self.lock=threading.RLock();self.reset(None)
 
     def reset(self,session_id):
         with self.lock:
@@ -24,7 +24,7 @@ class LearningEvents:
             self.sequence+=1
             row={'id':f'{self.session_id}:{self.sequence}','sequence':self.sequence,
                  'session_id':self.session_id,'kind':kind,'at_unix':time.time(),**copy.deepcopy(data)}
-            folder=Path.home()/'.evoarm/rsi/learning_sessions'/self.session_id
+            folder=self.folder(self.session_id) if self.folder else Path.home()/'.evoarm/rsi/learning_sessions'/self.session_id
             try:
                 folder.mkdir(parents=True,exist_ok=True)
                 with (folder/'events.jsonl').open('a',encoding='utf-8') as stream:

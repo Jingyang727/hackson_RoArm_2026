@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>EvoArm · 挑战升级</title><link rel="stylesheet" href="/assets/workspace.css"/>
+  <style>
+    .challenge-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(340px,1fr);gap:22px;align-items:start}
+    .challenge-grid>*{min-width:0}.camera{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;border-radius:10px;background:#edf2f1}
+    .controls>button{display:block;width:100%;margin-top:12px}.controls .check-row{margin:20px 0}
+    .quiet{color:var(--muted);font-size:13px;line-height:1.8;white-space:pre-line}.phase{font-size:18px;line-height:1.7}
+    .counts{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:22px 0}.counts div{padding:14px;background:#f4f8f6;border-radius:9px}.counts strong{display:block;font-size:26px;color:var(--green)}
+    .ball-list{padding:0;list-style:none}.ball-list li{display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line);padding:12px 0}.dot{width:13px;height:13px;display:inline-block;border:1px solid #83958d;border-radius:50%;flex-shrink:0}
+    .ball-list small{display:block;color:var(--muted)}.below{margin-top:22px}.events{max-height:300px;overflow:auto;padding-left:24px}.events li{padding:7px 3px;line-height:1.8}
+    .model-text{max-height:250px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.trial{padding:16px 0;border-bottom:1px solid var(--line)}.trial p{margin:6px 0}.trial a{margin-right:18px}.trial video{display:block;width:100%;max-height:450px;margin-top:12px}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+<header><a class="brand" href="/coordinates"><span class="brand-mark">e</span>EvoArm<span class="brand-sub">/ 机械臂工作区</span></a>
+  <nav aria-label="主导航"><a href="/coordinates">坐标验证</a><a href="/calibration">手动标定</a><a href="/experiments">抓取试验</a><a href="/challenge" aria-current="page">挑战升级</a></nav>
+  <span id="connection" class="status-chip">正在读取状态</span></header>
+<main>
+  <section class="page-heading"><div><p class="eyebrow">挑战升级 / 连续抓球</p><h1>逐球抓取，连续入碗。</h1><p>沿用现有标定和收集容器。抓放后从当前位置接着抓，直到桌面没有球。</p></div><span class="setup-badge">球径 34 mm</span></section>
+  <p id="error" class="error-banner" role="alert" hidden></p>
+  <section id="success" class="rsi-success" role="status" aria-live="polite" hidden><strong>✓ 挑战完成：桌面已清空</strong><p>已确认的入碗数量和逐球记录已保存，自动任务已结束。</p></section>
+  <p id="clearNotice" class="inline-note" role="status" hidden></p>
+  <section class="challenge-grid">
+    <div>
+      <section class="card"><div class="card-heading"><h2>工作区画面</h2><span id="viewBadge" class="mini-badge">实时画面</span></div>
+        <img id="liveFrame" class="camera" alt="工作区实时画面"/><p id="cameraStatus" class="quiet">正在连接相机。</p>
+        <details id="observation" hidden><summary>最近定位快照与 XYZ</summary><img id="observationFrame" class="camera" alt="本次 RGB-D 定位快照，标出不同颜色的小球与收集容器"/><p class="quiet">标记来自这一次采集，并非实时跟踪。XYZ 由已保存标定、RGB 与深度计算。</p><ul id="balls" class="ball-list"></ul><p id="bowl" class="quiet"></p></details>
+      </section>
+      <section class="card below"><div class="card-heading"><h2>挑战过程</h2><span id="attempt" class="mini-badge">尚未开始</span></div><ol id="events" class="events"></ol>
+        <details><summary id="modelLabel">视觉模型公开回复</summary><pre id="modelText" class="model-text"></pre></details><p id="storageError" class="quiet"></p>
+      </section>
+    </div>
+    <section class="card controls"><div class="card-heading"><h2>自动清台</h2><span class="mini-badge">不同颜色的小球</span></div>
+      <div class="counts"><div>桌面剩余<strong id="remaining"></strong></div><div>已确认入碗<strong id="placed">0</strong></div></div>
+      <p id="readiness" class="inline-note">正在检查机械臂、标定与视觉模型。</p><p id="modelStatus" class="quiet"></p><p id="recordingStatus" class="quiet"></p>
+      <button id="observe" class="secondary">识别桌面（不运动）</button>
+      <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许连续抓放、故障时自动回位。</span></label>
+      <button id="start" class="primary" disabled>开始挑战</button><button id="stop" class="secondary" hidden>停止挑战</button>
+      <p id="phase" class="phase" role="status" aria-live="polite">尚未开始。</p><p id="target" class="quiet"></p><p id="verdict" class="quiet"></p><p id="changes" class="quiet"></p>
+      <p class="quiet">仅挑战模式首次默认快速转移1.0、下探0.6，保留原有更快设置，后续可根据滑落结果下调。正常轮次不回初始姿态；快速定位后继续抓，失败分析在后台进行。录像覆盖动作和投放后的短暂画面，最多20秒。</p>
+      <p class="quiet">停止会阻止后续指令和重试；已接受的动作可能继续。剩余球不可达或执行异常会显示原因，不计为清台成功。</p>
+    </section>
+  </section>
+  <section class="card below"><div class="card-heading"><h2>逐球记录</h2><span id="trialCount" class="mini-badge">0 次尝试</span></div><p id="trialEmpty" class="quiet">每轮保留录像、RGB-D、动作反馈、模型判断与经验参数，可下载完整试次备份。</p><div id="trials"></div></section>
+</main>
+<footer>本页的任务记录与经验参数单独保存；沿用现有相机服务、标定和收集容器。</footer><script src="/assets/challenge.js"></script>
+</body></html>

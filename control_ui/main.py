@@ -32,6 +32,8 @@ from .coordinates import install as install_coordinates
 install_coordinates(app, lambda: service)
 from .rsi_trial import install as install_rsi_trial
 install_rsi_trial(app, lambda: service)
+from .challenge import install as install_challenge
+install_challenge(app, lambda: service)
 _board_reference_lock = threading.RLock()
 _confirmed_empty_board = None  # only pixel evidence; no motor control
 
