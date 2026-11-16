@@ -83,7 +83,7 @@ def _candidate(pixel,radius,mask,color,frame,g,bowl,heights,*,model_confirmed=Fa
 
 
 def locate(frame,g,bowl,model_balls=()):
-    heights=_height_map(frame,g);image=frame['bgr'];balls=[]
+    heights=_height_map(frame,g);image=frame['bgr'];balls=[];weak=[]
     def add(ball):
         if ball and all(math.dist(ball['pixel_center'],old['pixel_center'])>max(7.,min(ball['radius_px'],old['radius_px'])) for old in balls):balls.append(ball)
     masks=dict(_masks(image,frame['depth_mm'],heights))
@@ -92,7 +92,13 @@ def locate(frame,g,bowl,model_balls=()):
             area=cv2.contourArea(contour);perimeter=cv2.arcLength(contour,True)
             if area<25 or perimeter<=0 or 4*math.pi*area/perimeter**2<.45:continue
             (u,v),radius=cv2.minEnclosingCircle(contour)
-            add(_candidate((u,v),radius,mask,color,frame,g,bowl,heights))
+            candidate=_candidate((u,v),radius,mask,color,frame,g,bowl,heights);add(candidate)
+            if candidate is None:
+                point,camera=pixel_at_height((u,v),BALL_RADIUS,g);expected=g['K'][0,0]*BALL_RADIUS/camera[2]
+                yy,xx=np.indices(mask.shape);central=(mask>0)&((xx-u)**2+(yy-v)**2<(.65*radius)**2)
+                if (.45*expected<=radius<=1.65*expected and not _inside((u,v),point,bowl)
+                        and np.count_nonzero(central&(frame['depth_mm']>0))<9):
+                    h,w=mask.shape;weak.append({'color':color,'bbox_norm':[max(0.,(u-radius)/w),max(0.,(v-radius)/h),min(1.,(u+radius)/w),min(1.,(v+radius)/h)]})
     unresolved=[];height,width=image.shape[:2]
     for row in model_balls:
         x0,y0,x1,y1=row['bbox_norm'];pixel=[(x0+x1)*width/2,(y0+y1)*height/2]
@@ -105,9 +111,28 @@ def locate(frame,g,bowl,model_balls=()):
         else:
             center,_=pixel_at_height(pixel,BALL_RADIUS,g)
             if not _inside(pixel,center,bowl):unresolved.append(row)
+    for row in weak:
+        box=row['bbox_norm'];pixel=[(box[0]+box[2])*width/2,(box[1]+box[3])*height/2]
+        if not any(b['color']==row['color'] and math.dist(pixel,b['pixel_center'])<b['radius_px']*1.5 for b in balls):
+            if not any(old['color']==row['color'] for old in unresolved):unresolved.append(row)
     balls.sort(key=lambda b:(b['color'],b['pixel_center'][0]))
     for i,ball in enumerate(balls):ball['id']=f'ball-{i+1}';ball['label']=f"{i+1}号 {ball['color_label']}"
     return balls,unresolved
+
+
+def container_colours(frame,g,bowl):
+    """Local positive colour evidence inside the mouth, never disappearance alone."""
+    boundary=np.asarray(bowl['mouth_boundary_px'],np.int32);inside=np.zeros(frame['depth_mm'].shape,np.uint8)
+    cv2.fillPoly(inside,[boundary],255);_,camera=pixel_at_height(bowl['pixel_center'],bowl['height_mm'],g)
+    expected=g['K'][0,0]*BALL_RADIUS/camera[2];colors=[]
+    for color,mask in _masks(frame['bgr'],frame['depth_mm'],_height_map(frame,g)):
+        for contour in cv2.findContours(mask,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[-2]:
+            (u,v),radius=cv2.minEnclosingCircle(contour)
+            if not .4*expected<=radius<=1.6*expected:continue
+            if cv2.pointPolygonTest(boundary.astype(np.float32),(u,v),False)<0:continue
+            region=np.zeros_like(mask);cv2.drawContours(region,[contour],-1,255,-1)
+            if np.count_nonzero((region>0)&(inside>0))>=.25*math.pi*expected**2:colors.append(color);break
+    return colors
 
 
 def validate_inventory(value):
@@ -158,15 +183,22 @@ def inventory(image,bowl,candidates,root,stop,on_update=None):
     finally:(root/'inventory-output.txt').write_text(''.join(raw),encoding='utf-8')
 
 
-def observe(folder,session,root,stop,on_update=None,*,model_review=None):
+def observe(folder,session,root,stop,on_update=None,*,model_review=None,fast=False,verified_colors=()):
     frame=load_rgbd(folder);intr=json.loads((Path(folder)/'gemini_color_intrinsics.json').read_text());g=camera_geometry(session,intr)
     bowl=detect_funnel(frame['bgr'],g,frame['depth_mm'])
-    first,_=locate(frame,g,bowl)
-    review=inventory(frame['bgr'],bowl,first,root,stop,on_update) if model_review is None else model_review
+    first,weak=locate(frame,g,bowl)
+    if fast and weak and verified_colors:
+        # Reuse only the colour identity, with a NEW contour in THIS frame.
+        # Coordinates from the previous model image are never carried over.
+        first,weak=locate(frame,g,bowl,[row for row in weak if row['color'] in verified_colors])
+    if fast:
+        review={'view_clear':True,'table_balls':[],'bowl_ball_colors':container_colours(frame,g,bowl),
+                'note':'本机RGB-D快速定位；空桌或证据不足时再调用视觉模型。'}
+    else:review=inventory(frame['bgr'],bowl,first,root,stop,on_update) if model_review is None else model_review
     # A prior VLM box cannot rescue a target in a NEW frame: the ball may
     # have moved while that request was running. Missing depth waits for
     # a fresh model observation instead of acting on stale boxes.
-    balls,pending=locate(frame,g,bowl,review['table_balls'] if model_review is None else ())
+    balls,pending=(first,weak) if fast else locate(frame,g,bowl,review['table_balls'] if model_review is None else ())
     image=frame['bgr'].copy();draw_mouth(image,bowl)
     for ball in balls:
         p=tuple(np.round(ball['pixel_center']).astype(int));cv2.circle(image,p,round(ball['radius_px']),(0,200,250),2)
@@ -174,7 +206,7 @@ def observe(folder,session,root,stop,on_update=None,*,model_review=None):
     root=Path(root);cv2.imwrite(str(root/'preview.jpg'),image);cv2.imwrite(str(root/'observation.jpg'),frame['bgr'])
     result={'balls':balls,'unresolved':pending,'bowl':bowl,'view_clear':review['view_clear'],'note':review.get('note',''),
         'bowl_ball_colors':review['bowl_ball_colors'],
-        'inventory_review':review,'fresh_model_review':model_review is None,
+        'inventory_review':review,'fresh_model_review':not fast and model_review is None,'perception_mode':'rgbd_fast' if fast else 'model',
         'source_trial_id':frame['trial_id'],'frame_index':frame['frame_index'],'host_monotonic_ns':frame['host_monotonic_ns'],
         'image_size':list(image.shape[1::-1]),'table_plane':g['plane'],
         'camera_geometry':{k:g[k].tolist() for k in ('K','inverse_K','R','t','normal_camera')},'warnings':[]}

@@ -57,6 +57,8 @@ class CameraServer(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
         self.phase="idle"
         self.started_monotonic_ns=None
         self.recording_request_id=None
+        self.record_state_lock=threading.RLock()
+        self.finish_event=None
         self.capture_lock=threading.Lock()
         self.hub=hub if hub is not None else CameraHub()
         super().__init__(str(path),CameraHandler)
@@ -125,10 +127,27 @@ class CameraHandler(BaseHTTPRequestHandler):
                            "phase":self.server.phase,
                            "live_preview":True,"preview":self.server.hub.health(),
                            "recording_request_ids":True,
+                           "recording_finish":True,
                            "recording_request_id":self.server.recording_request_id,
                            "recording_started_monotonic_ns":self.server.started_monotonic_ns})
 
     def do_POST(self):
+        if self.path=="/record/finish":
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+                if not 0<size<=128:raise ValueError('invalid finish request')
+                args=json.loads(self.rfile.read(size))
+                if not isinstance(args,dict) or set(args)!={'request_id'}:raise ValueError('invalid finish request')
+                key=args['request_id']
+                if not isinstance(key,str) or len(key)!=32 or any(c not in '0123456789abcdef' for c in key):raise ValueError('invalid request ID')
+            except (ValueError,TypeError,UnicodeError):
+                self._respond(400,{'error':'invalid recording finish request'});return
+            with self.server.record_state_lock:
+                if (not self.server.recording or key!=self.server.recording_request_id
+                        or self.server.phase!='recording' or self.server.finish_event is None):
+                    self._respond(409,{'error':'recording request does not match the active capture'});return
+                self.server.finish_event.set()
+            self._respond(200,{'finish_requested':True,'request_id':key});return
         if self.path=="/preview/start":
             try:
                 size=int(self.headers.get("Content-Length","0"))
@@ -154,12 +173,14 @@ class CameraHandler(BaseHTTPRequestHandler):
             if not 0 <= length <= 2048:
                 raise ValueError("invalid request length")
             args=json.loads(self.rfile.read(length).decode("utf-8"))
-            if not isinstance(args,dict) or "seconds" not in args or set(args)-{"seconds","request_id"}:
+            if not isinstance(args,dict) or "seconds" not in args or set(args)-{"seconds","request_id","allow_early_finish"}:
                 raise ValueError("only seconds and an optional request ID are accepted")
             seconds=args["seconds"]
             if type(seconds) not in (float,int) or not 0<seconds<=20:
                 raise ValueError("seconds must be in (0,20]")
             request_id=args.get("request_id")
+            adaptive=args.get('allow_early_finish',False)
+            if type(adaptive) is not bool or adaptive and request_id is None:raise ValueError('adaptive capture needs a request ID')
             if request_id is not None and (not isinstance(request_id,str) or len(request_id)!=32
                     or any(c not in "0123456789abcdef" for c in request_id)):
                 raise ValueError("request ID must be a lowercase UUID hex string")
@@ -167,10 +188,12 @@ class CameraHandler(BaseHTTPRequestHandler):
             self.server.capture_lock.release()
             self._respond(400,{"error":"invalid capture request"})
             return
-        self.server.recording=True
-        self.server.phase="warming"
-        self.server.started_monotonic_ns=None
-        self.server.recording_request_id=request_id
+        with self.server.record_state_lock:
+            self.server.recording=True
+            self.server.phase="warming"
+            self.server.started_monotonic_ns=None
+            self.server.recording_request_id=request_id
+            finish_event=threading.Event() if adaptive else None;self.server.finish_event=finish_event
         try:
             store=TrialStore(self.server.home/".evoarm"/"rsi"/"experiments")
             store.root.mkdir(parents=True,exist_ok=True)
@@ -181,7 +204,8 @@ class CameraHandler(BaseHTTPRequestHandler):
             try:
                 result=record_observation(
                     camera="gemini",seconds=seconds,store=store,
-                    on_recording_start=on_recording_start,source=self.server.hub.reader()
+                    on_recording_start=on_recording_start,source=self.server.hub.reader(),
+                    **({'finish_event':finish_event} if finish_event is not None else {})
                 )
                 if request_id is not None:
                     manifest=store.read(result["trial_id"])
@@ -205,10 +229,12 @@ class CameraHandler(BaseHTTPRequestHandler):
             self._respond(500,{"error_type":type(exc).__name__,
                                "error":"Gemini recording failed; inspect the camera service terminal"})
         finally:
-            self.server.recording=False
-            self.server.phase="idle"
-            self.server.started_monotonic_ns=None
-            self.server.recording_request_id=None
+            with self.server.record_state_lock:
+                self.server.recording=False
+                self.server.phase="idle"
+                self.server.started_monotonic_ns=None
+                self.server.recording_request_id=None
+                self.server.finish_event=None
             self.server.capture_lock.release()
 
 

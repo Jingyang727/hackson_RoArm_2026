@@ -51,10 +51,10 @@ def install(app,service_provider):
         except (OSError,ValueError,KeyError) as exc:calibrated=False;calibration_error=str(exc)[:500]
         try:revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],cwd=Path(__file__).parent,text=True,stderr=subprocess.DEVNULL).strip()
         except (OSError,subprocess.SubprocessError):revision=None
-        return {'challenge_api_version':1,'expected_balls':3,'ball_diameter_mm':34,'container_unchanged':True,
+        return {'challenge_api_version':2,'expected_balls':None,'ball_diameter_mm':34,'container_unchanged':True,
             'health':health,'feedback_error':feedback_error,'calibrated':calibrated,'calibration_error':calibration_error,
             'model':grok_review.configuration(),'challenge':runner.snapshot(),'process':runner.events.after(),
-            'code_revision':revision,'recording_seconds':20}
+            'code_revision':revision,'recording_limit_seconds':20,'continuous_pose':True,'background_review':True}
 
     @router.post('/observe')
     def observe():

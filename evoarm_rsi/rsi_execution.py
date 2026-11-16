@@ -73,7 +73,7 @@ def observe_pending(service,pending,status,now):
     if elapsed>3:service._latch_fault('rsi_gripper_unverified','夹爪未及时到位或形成稳定接触候选')
 
 
-def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan=None,automation_id=None):
+def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan=None,automation_id=None,finish_recording=False):
     root=Path(root);home=Path.home();run_id=root.name;request_id=uuid.uuid4().hex
     report={'kind':'rsi_pick_place_execution_v1','plan_id':run_id,'setup_id':plan['setup_id'],
             'camera_request_id':request_id,'events':[],'dispatches':[],'feedback':[],
@@ -103,7 +103,8 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
         service.last_command={'status':'sent_not_verified','rsi_run_id':run_id,'rsi_index':index,'command':command}
     grip_hold_target=None
     with ThreadPoolExecutor(max_workers=1) as pool:
-        video=pool.submit(camera,home,'POST','/record',{'seconds':RECORDING_SECONDS,'request_id':request_id})
+        video=pool.submit(camera,home,'POST','/record',{'seconds':RECORDING_SECONDS,'request_id':request_id,
+            **({'allow_early_finish':True} if finish_recording else {})})
         capture_start=None
         try:
             until=time.monotonic()+15
@@ -217,16 +218,29 @@ def execute(service,plan,root,stop,publish,*,camera=client_request,validate_plan
                 service.disarm()
             publish('saving_recording')
             try:
+                if finish_recording and capture_start is not None and not video.done():
+                    # Opt-in challenge mode: cover the actual move and a short
+                    # post-release view, instead of idling until twenty seconds.
+                    if report['motion_completed']:stop.wait(.4)
+                    try:camera(home,'POST','/record/finish',{'request_id':request_id})
+                    except RuntimeError:
+                        if not video.done():raise  # Natural expiry can race the optional finish.
                 capture=video.result(timeout=40);trial_id=capture['trial_id']
                 if capture.get('request_id')!=request_id or len(trial_id)!=32 or any(c not in '0123456789abcdef' for c in trial_id):
                     raise ValueError('录像ID与本轮请求不一致')
                 trial=home/'.evoarm/rsi/experiments'/trial_id;report['capture_trial_id']=trial_id
                 stamps=[json.loads(row)['host_monotonic_ns'] for row in (trial/'frames.jsonl').read_text().splitlines() if row]
-                if len(stamps)<3 or any(b<=a for a,b in zip(stamps,stamps[1:])) or (stamps[-1]-stamps[0])/1e9<RECORDING_SECONDS-1:
+                if (len(stamps)<3 or any(b<=a for a,b in zip(stamps,stamps[1:]))
+                        or not finish_recording and (stamps[-1]-stamps[0])/1e9<RECORDING_SECONDS-1):
                     raise ValueError(f'录像未保留完整{RECORDING_SECONDS}秒观察证据')
                 if not (trial/'depth_samples.npz').is_file():raise ValueError('本轮录像缺少深度样本')
                 report['recording_finished_monotonic_ns']=stamps[-1]
                 report['recording_covers_motion']=bool(report['dispatches'] and stamps[0]<=report['dispatches'][0]['host_monotonic_ns'] and report['events'][-1]['host_monotonic_ns']<=stamps[-1])
+                if finish_recording:
+                    report.update(recording_mode='until_motion_end',recording_limit_s=RECORDING_SECONDS,
+                                  recording_duration_s=(stamps[-1]-stamps[0])/1e9)
+                    if report['dispatches'] and not report['recording_covers_motion']:
+                        raise ValueError('本轮自适应录像没有完整覆盖实际动作')
                 report['keyframes_file']=export_keyframes(trial,report['events'],stages=('close_completed','lift_completed','transport_completed','release_completed','finish','fault'),sample_count=6)
                 _write(trial/'rsi-plan.json',plan);_write(trial/'rsi-trial.json',report)
                 manifest=json.loads((trial/'manifest.json').read_text())

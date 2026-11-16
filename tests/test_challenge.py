@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import math
+import time
 from pathlib import Path
 import tempfile
 import threading
@@ -23,6 +24,7 @@ from evoarm_rsi.ball_trial import camera_geometry
 from evoarm_rsi.coordinate_test import fingerprint
 from evoarm_rsi.pick_place import DEFAULT_PARAMETERS,build_plan
 from evoarm_rsi.rsi_route import TRANSFER_HEIGHT_POLICY
+from evoarm_rsi.roarm_geometry import inverse
 from tests.test_ball_trial import layout,K,SimulatedArm
 from tests.test_serial_transport_errors import api_request
 
@@ -55,7 +57,7 @@ def synthetic(saved,positions=POSITIONS,*,holes=False):
     review={'view_clear':True,'table_balls':boxes,'bowl_ball_colors':[],'note':'synthetic visible table'}
     scene={'balls':balls,'unresolved':unresolved,'bowl':bowl,'view_clear':True,'bowl_ball_colors':[],
         'inventory_review':review,'fresh_model_review':True,'source_trial_id':frame['trial_id'],'frame_index':3,
-        'host_monotonic_ns':1234,'image_size':[1280,720],'table_plane':g['plane'],
+        'host_monotonic_ns':time.monotonic_ns(),'image_size':[1280,720],'table_plane':g['plane'],
         'camera_geometry':{k:g[k].tolist() for k in ('K','inverse_K','R','t','normal_camera')},'warnings':[]}
     return scene,g,image,frame,review
 
@@ -89,6 +91,21 @@ class ColourDepth(unittest.TestCase):
     def test_ball_inside_container_is_excluded_but_outside_ball_remains(self):
         scene,*_=synthetic(self.saved,{'red':[290,-110,-98],'blue':POSITIONS['blue']})
         self.assertEqual([b['color'] for b in scene['balls']],['blue'])
+
+    def test_container_colour_evidence_requires_visible_colour_inside_mouth(self):
+        scene,g,image,frame,*_=synthetic(self.saved,{'red':[290,-110,-52.6],'blue':POSITIONS['blue']})
+        colors=vision.container_colours(frame,g,scene['bowl'])
+        self.assertIn('red',colors);self.assertNotIn('blue',colors);self.assertNotIn('black',colors)
+
+    def test_sparse_depth_stays_unresolved_until_a_current_contour_is_verified(self):
+        scene,g,image,frame,review=synthetic(self.saved,holes=True)
+        self.assertEqual(vision.locate(frame,g,scene['bowl'])[0],[])
+        self.assertEqual(len(vision.locate(frame,g,scene['bowl'])[1]),3)
+        folder=self.home/'capture';folder.mkdir();(folder/'gemini_color_intrinsics.json').write_text(json.dumps(K))
+        root=self.home/'fast';root.mkdir()
+        with patch.object(vision,'load_rgbd',return_value=frame),patch.object(vision,'detect_funnel',return_value=scene['bowl']):
+            updated,*_=vision.observe(folder,self.saved,root,threading.Event(),fast=True,verified_colors={'red','green','blue'})
+        self.assertEqual(len(updated['balls']),3);self.assertEqual(updated['unresolved'],[])
 
     def test_flat_colour_patch_is_not_a_sphere_and_depth_holes_are_explicit_estimates(self):
         _,g,_,frame,review=synthetic(self.saved)
@@ -126,7 +143,7 @@ class CleanupLoop(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);self.home=Path(temp.name);self.saved=layout(self.home)
         self.service=ArmService();self.service.arm=SimulatedArm();self.runner=loop.Challenge(lambda:self.service)
-        self.world=synthetic(self.saved)[0];self.motion=[];self.reviews=[];self.colors=set(POSITIONS);self.outcomes=[];self.placed=set()
+        self.world=synthetic(self.saved)[0];self.motion=[];self.reviews=[];self.colors=set(POSITIONS);self.outcomes=[];self.placed=set();self.executed_outcomes={};self.reset_calls=[]
         for item in (patch.object(Path,'home',return_value=self.home),patch.dict('os.environ',{'EVOARM_ENABLE_MOTION':'1','EVOARM_SETUP_ID':'bench-layout-v2'}),
                      patch.object(loop.grok_review,'configuration',return_value={'configured':True,'model':'test-vlm'}),
                      patch.object(loop,'launch',side_effect=lambda target:target()),patch.object(loop,'recover',side_effect=self.recover),
@@ -136,38 +153,44 @@ class CleanupLoop(unittest.TestCase):
         self.positions=copy.deepcopy(POSITIONS)
 
     def recover(self,service,plan,result,verdict,root,stop,publish,**kwargs):
+        self.reset_calls.append(root)
         self.assertEqual(service.automation_owner,kwargs['automation_id']);service.pending=None;service.fault=None;service.disarm()
         return {'status':'completed'}
 
     def capture(self,saved,folder,**kwargs):
-        if not self.colors and not self.placed: # Missing balls may not be declared placed.
-            if self.runner.snapshot()['empty_checks']>=2:self.runner.stop.set();raise RuntimeError('test stops missing-ball wait')
         scene,g,image,*_=synthetic(self.saved,{c:self.positions[c] for c in self.colors})
-        scene['bowl_ball_colors']=sorted(self.placed)
+        scene['bowl_ball_colors']=sorted(self.placed);scene['fresh_model_review']=kwargs.get('fast',True) is False
         return scene,g,image
 
     def execute(self,service,plan,root,stop,publish,**kwargs):
         self.assertEqual(service.automation_owner,kwargs['automation_id']);self.assertEqual(service.pending['kind'],'rsi_trial')
         self.motion.append(copy.deepcopy(plan));service.pending=None;service.disarm()
+        color=plan['scene']['ball']['color'];outcome=self.outcomes.pop(0) if self.outcomes else 'placed'
+        self.executed_outcomes[root.name]=outcome
+        if outcome=='placed':self.colors.discard(color);self.placed.add(color)
+        elif outcome=='slipped':self.positions[color][1]+=12
+        end=next(s for s in reversed(plan['steps']) if s['kind']=='cartesian')
+        service.arm.raw=inverse(end['xyz_mm'],end['pitch_rad'],end['roll_rad'],plan['steps'][-1]['gripper_rad'])
         return {'motion_completed':True,'grasp_attempted':True,'placement_attempted':True,'physical_elapsed_s':8.1,
                 'recording_covers_motion':True,'capture_trial_id':uuid.uuid4().hex,'motion_error':None,'camera_error':None}
 
     def review(self,context,root,stop,**kwargs):
         color=context['visual_target']['color'];self.reviews.append(color)
-        outcome=self.outcomes.pop(0) if self.outcomes else 'placed'
-        if outcome=='placed':self.colors.discard(color);self.placed.add(color)
-        elif outcome=='slipped':self.positions[color][1]+=12
-        return {'outcome':outcome,'direction':'none','magnitude':'unknown','adjustment':'unknown',
+        outcome=self.executed_outcomes[root.name]
+        return {'outcome':outcome,'direction':'none','magnitude':'unknown','adjustment':'transport_slower' if outcome=='slipped' else 'unknown',
                 'ball_state':'funnel' if outcome=='placed' else 'table','confidence':.9,'note':'test visual pixels'}
 
     def start(self):return self.runner.start(loop.DECLARATION)
 
-    def test_three_sequential_targets_do_not_stop_on_first_success_and_require_empty_rechecks(self):
+    def test_continuous_targets_do_not_reset_and_finish_when_table_empty(self):
         before=(self.home/'.evoarm/rsi/calibrations/bench-layout-v2/session.json').read_bytes()
         self.start();state=self.runner.snapshot()
         self.assertEqual(state['status'],'completed',state.get('error'));self.assertEqual(state['attempt'],3)
-        self.assertEqual(state['remaining'],0);self.assertEqual(state['empty_checks'],2);self.assertEqual(len(state['confirmed_colors']),3)
-        self.assertEqual(set(self.reviews),set(POSITIONS));self.assertIsNone(self.service.automation_owner)
+        self.assertEqual(state['remaining'],0);self.assertTrue(state['placement_confirmed']);self.assertEqual(len(state['confirmed_colors']),3)
+        self.assertEqual(self.reviews,[]);self.assertEqual(self.reset_calls,[]);self.assertIsNone(self.service.automation_owner)
+        for previous,following in zip(self.motion,self.motion[1:]):
+            final=next(s for s in reversed(previous['steps']) if s['kind']=='cartesian')
+            np.testing.assert_allclose([following['initial_status'][k] for k in 'xyz'],final['xyz_mm'],atol=.001)
         self.assertEqual((self.home/'.evoarm/rsi/calibrations/bench-layout-v2/session.json').read_bytes(),before)
         self.assertEqual(len(list((self.home/'.evoarm/rsi/backups').glob('*.zip'))),3)
         for file in (self.home/'.evoarm/rsi/langfuse-outbox').glob('*.json'):
@@ -176,10 +199,10 @@ class CleanupLoop(unittest.TestCase):
     def test_slip_retry_uses_fresh_position_and_continues_to_remaining_balls(self):
         self.outcomes=['slipped'];self.start();state=self.runner.snapshot()
         self.assertEqual(state['status'],'completed',state.get('error'));self.assertEqual(len(self.motion),4)
-        slipped=self.reviews[0];self.assertEqual(self.reviews.count(slipped),2)
+        slipped=self.motion[0]['scene']['ball']['color']
         plans=[p for p in self.motion if p['scene']['ball']['color']==slipped]
         self.assertGreater(math.dist(plans[0]['scene']['ball']['center_robot_mm'],plans[1]['scene']['ball']['center_robot_mm']),10)
-        self.assertLess(self.motion[1]['parameters']['travel_speed'],self.motion[0]['parameters']['travel_speed'])
+        self.assertEqual(self.reset_calls,[])
 
     def test_unknown_failure_may_retry_unchanged_parameters(self):
         self.outcomes=['grasp_missed'];self.start();state=self.runner.snapshot()
@@ -190,11 +213,33 @@ class CleanupLoop(unittest.TestCase):
         self.outcomes=['grasp_missed']*6;self.start();state=self.runner.snapshot()
         self.assertEqual(state['status'],'completed',state.get('error'));self.assertEqual(len(self.motion),9)
 
-    def test_model_error_after_motion_retains_backup_and_does_not_repeat(self):
+    def test_background_model_error_does_not_block_next_ball(self):
+        self.outcomes=['grasp_missed']
         with patch.object(loop.grok_review,'review',side_effect=RuntimeError('test model unavailable')):self.start()
-        state=self.runner.snapshot();self.assertEqual(state['status'],'failed');self.assertEqual(len(self.motion),1)
-        self.assertEqual(len(state['trials']),1);self.assertEqual(state['trials'][0]['outcome'],'unknown')
-        self.assertEqual(len(list((self.home/'.evoarm/rsi/backups').glob('*.zip'))),1)
+        state=self.runner.snapshot();self.assertEqual(state['status'],'completed');self.assertEqual(len(self.motion),4)
+        self.assertEqual(len(list((self.home/'.evoarm/rsi/backups').glob('*.zip'))),4)
+
+    def test_detected_ball_count_can_be_one_two_or_four(self):
+        for positions in ({'red':POSITIONS['red']},{'red':POSITIONS['red'],'blue':POSITIONS['blue']},
+                {**POSITIONS,'white':[285,10,-98]}):
+            self.colors=set(positions);self.positions=copy.deepcopy(positions);self.placed.clear();self.motion.clear()
+            self.start();state=self.runner.snapshot()
+            self.assertEqual(state['status'],'completed',state.get('error'));self.assertEqual(state['detected_total'],len(positions))
+            self.assertEqual(len(self.motion),len(positions));self.assertEqual(len(state['confirmed_colors']),len(positions))
+
+    def test_slow_visual_review_runs_while_following_pick_place_continues(self):
+        self.outcomes=['grasp_missed'];entered=threading.Event();finished=threading.Event();continued=[]
+        original=self.execute
+        def slow(context,root,stop,**kwargs):
+            entered.set();stop.wait(5);finished.set()
+            return {'outcome':'unknown','ball_state':'unknown','direction':'none','magnitude':'unknown'}
+        def execution(*args,**kwargs):
+            if self.motion:
+                self.assertTrue(entered.wait(1));continued.append(not finished.is_set())
+            return original(*args,**kwargs)
+        with patch.object(loop.grok_review,'review',side_effect=slow),patch.object(loop,'execute',side_effect=execution):self.start()
+        self.assertTrue(all(continued));self.assertEqual(len(self.motion),4);self.assertTrue(finished.wait(1))
+        self.assertEqual(self.reset_calls,[])
 
     def test_unclear_table_never_dispatches_or_reports_empty_success(self):
         original=self.capture;calls=[]
@@ -206,6 +251,7 @@ class CleanupLoop(unittest.TestCase):
         self.assertEqual(self.motion,[]);self.assertEqual(self.runner.snapshot()['status'],'stopped')
 
     def test_claimed_placement_without_release_is_not_counted(self):
+        self.outcomes=['unknown']*10
         original=self.execute
         def incomplete(*args,**kwargs):
             report=original(*args,**kwargs);report['placement_attempted']=False;return report
@@ -225,6 +271,45 @@ class CleanupLoop(unittest.TestCase):
         self.assertEqual(len(scene['balls']),3);self.assertIsNone(self.service.automation_owner)
         self.assertEqual(self.motion,[]);self.assertEqual(self.service.arm.commands,[])
 
+    def test_existing_fault_recovers_once_but_normal_following_trials_do_not(self):
+        self.service.fault={'code':'test_fault','message':'synthetic fault'}
+        self.start();self.assertEqual(self.runner.snapshot()['status'],'completed')
+        self.assertEqual(len(self.reset_calls),1);self.assertEqual(self.reset_calls[0].name,'startup')
+
+    def test_real_execution_error_still_recovers_and_does_not_blindly_continue(self):
+        original=self.execute
+        def failed(*args,**kwargs):
+            report=original(*args,**kwargs);report.update(motion_completed=False,motion_error='synthetic unverified move')
+            self.service.fault={'code':'test_unverified','message':'synthetic unverified move'};return report
+        with patch.object(loop,'execute',side_effect=failed):self.start()
+        self.assertEqual(self.runner.snapshot()['status'],'failed');self.assertEqual(len(self.motion),1)
+        self.assertEqual(len(self.reset_calls),1);self.assertIsNone(self.service.automation_owner)
+
+    def test_old_background_review_does_not_overwrite_a_new_policy(self):
+        self.start();state=self.runner.snapshot();trial=state['trials'][0]['plan_id']
+        current=json.loads((self.runner.root(state['session_id'])/'attempts'/trial/'state.json').read_text())
+        pol=self.runner.policy(self.saved);pol['parameters']['pickup_xy_mm']=[10,2]
+        verdict={'outcome':'grasp_missed','ball_state':'table','direction':'image_left','magnitude':'medium'}
+        self.runner._apply_review(self.saved,current,verdict,pol,source='model')
+        self.assertEqual(pol['parameters']['pickup_xy_mm'],[10,2])
+        self.assertEqual(current['review']['proposal']['decision'],'stale_review')
+
+    def test_late_failure_does_not_change_parameters_after_same_colour_succeeds(self):
+        self.start();state=self.runner.snapshot();trial=state['trials'][0]['plan_id']
+        current=json.loads((self.runner.root(state['session_id'])/'attempts'/trial/'state.json').read_text())
+        pol=self.runner.policy(self.saved);before=copy.deepcopy(pol['parameters'])
+        pol['reviews'].append({'session_id':state['session_id'],'target_color':current['task']['target_color'],
+            'outcome':'placed','attempt':current['task']['attempt']+1})
+        verdict={'outcome':'grasp_missed','ball_state':'table','direction':'image_left','magnitude':'medium'}
+        self.runner._apply_review(self.saved,current,verdict,pol,source='model')
+        self.assertEqual(pol['parameters'],before);self.assertEqual(current['review']['proposal']['decision'],'stale_review')
+
+    def test_faster_existing_approach_speed_is_preserved(self):
+        path=self.home/'.evoarm/rsi/pick_place_policies/bench-layout-v2'/f'{fingerprint(self.saved)}.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'version':1,'parameters':{**DEFAULT_PARAMETERS,'approach_speed':.9},'reviews':[]}))
+        self.assertEqual(self.runner.policy(self.saved)['parameters']['approach_speed'],.9)
+
     def test_empty_table_with_no_placement_evidence_is_not_success(self):
         original=self.capture
         def disappearing(saved,folder,**kwargs):
@@ -232,7 +317,7 @@ class CleanupLoop(unittest.TestCase):
             return original(saved,folder,**kwargs)
         self.outcomes=['unknown']
         with patch.object(self.runner,'_capture',side_effect=disappearing):self.start()
-        self.assertEqual(self.runner.snapshot()['status'],'stopped');self.assertEqual(self.runner.snapshot()['confirmed_colors'],[])
+        self.assertEqual(self.runner.snapshot()['phase'],'cleared');self.assertFalse(self.runner.snapshot()['placement_confirmed']);self.assertEqual(self.runner.snapshot()['confirmed_colors'],[])
 
     def test_unreachable_target_does_not_turn_into_clear_table(self):
         with patch.object(loop,'build_plan',side_effect=lambda saved,raw,scene,params: (_ for _ in ()).throw(ValueError('test unreachable')) if scene['ball']['color']=='red' else build_plan(saved,raw,scene,params)):
@@ -252,7 +337,7 @@ class CleanupLoop(unittest.TestCase):
         path=self.home/'.evoarm/rsi/pick_place_policies/bench-layout-v2'/f'{fingerprint(self.saved)}.json'
         path.parent.mkdir(parents=True);policy={'version':7,'parameters':{**DEFAULT_PARAMETERS,'travel_speed':.9},'reviews':[]}
         path.write_text(json.dumps(policy));before=path.read_bytes();self.start()
-        self.assertEqual(self.motion[0]['parameters']['travel_speed'],.9);self.assertEqual(path.read_bytes(),before)
+        self.assertEqual(self.motion[0]['parameters']['travel_speed'],1.);self.assertEqual(self.motion[0]['parameters']['approach_speed'],.6);self.assertEqual(path.read_bytes(),before)
 
     def test_cancel_interrupts_before_first_dispatch_and_releases_owner(self):
         def stop_before_observation(*args,**kwargs):self.runner.cancel();self.runner.guard()
@@ -268,7 +353,7 @@ class ChallengeAPI(unittest.TestCase):
             self.assertEqual(response['status'],200);self.assertIn('挑战升级'.encode(),payload)
             self.assertNotIn(b'type="number"',payload);self.assertIsNone(service.automation_owner)
             response,data=asyncio.run(api_request('/api/challenge/state',{},method='GET'))
-            self.assertEqual(response['status'],200);self.assertEqual(data['challenge_api_version'],1)
+            self.assertEqual(response['status'],200);self.assertEqual(data['challenge_api_version'],2)
             self.assertFalse(data['health']['armed']);self.assertEqual(data['challenge']['status'],'idle')
             response,data=asyncio.run(api_request('/api/challenge/start',{'declaration':''}))
             self.assertEqual(response['status'],409);self.assertIn('确认',data['detail'])

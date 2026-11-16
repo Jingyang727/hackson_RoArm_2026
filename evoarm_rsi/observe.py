@@ -64,7 +64,7 @@ class RecordingCountdown:
 
 def record_observation(*, camera="gemini", seconds=10.0, device=0,
                        store=None, source=None, robot_status_url=None,
-                       on_recording_start=None):
+                       on_recording_start=None, finish_event=None):
     if not 0 < seconds <= 20:
         raise ValueError("observation duration must be in (0,20] seconds")
     store = store if store is not None else TrialStore()
@@ -111,7 +111,8 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
                     if on_recording_start is not None:
                         on_recording_start(when, length)
                 result = TrialVideoRecorder(source, fps=20).capture(
-                    folder, seconds, on_start=recording_started
+                    folder, seconds, on_start=recording_started,
+                    **({'finish_event':finish_event} if finish_event is not None else {})
                 )
                 # Preserve SDK-supplied intrinsics from the SAME stream,
                 # without launching a second camera process.
@@ -138,6 +139,9 @@ def record_observation(*, camera="gemini", seconds=10.0, device=0,
             "robot_telemetry": telemetry,
             "finished_at": datetime.now(timezone.utc).isoformat()
         })
+        if finish_event is not None:
+            manifest.update(adaptive_recording=True,duration_limit_s=seconds,
+                duration_s=(result.get('video_timing') or {}).get('capture_span_s'))
         store.write(trial_id, "manifest.json", manifest)
         store.write(trial_id, "observation.json", {
             "camera": camera, "capture": result, "robot_telemetry": telemetry,

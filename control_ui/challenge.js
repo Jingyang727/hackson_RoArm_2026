@@ -2,16 +2,16 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const declaration = '现场已清空，允许逐个抓球入碗、自动回位和连续尝试';
+  const declaration = '现场已清空，允许连续抓球入碗及故障时自动回位';
   const phases = {idle:'尚未开始',ready:'已完成只读定位',starting:'开始挑战',observing:'观察桌面上的球',
     observed:'桌面定位完成',refreshing:'刷新 RGB-D 位置',planning:'检查完整抓放路径',executing:'执行抓放',
     recovering:'恢复官方初始姿态',checking_home:'检查起步姿态',reviewing:'分析本轮录像',reobserving:'重新扫描剩余球',
-    waiting_view:'等待清晰画面确认三个球',confirming_empty:'复核桌面清空与入碗记录',blocked:'剩余球路径不可达',
+    waiting_view:'等待清晰画面',blocked:'剩余球路径不可达',
     recording_warmup:'启动20秒录像',approach_ball:'接近目标球并张爪',raise_current:'原 XY 向上抬升',
     clearance_adjust:'抬升到通行高度',orient_transport:'高处调整运输姿态',orient_clear:'高处调整姿态',
     align_above_ball:'在球顶上方对齐',descend:'竖直下探',close:'合抓',lift:'抬升',transport:'高处运输至收集容器',
     transit_arc:'经过高处途径点',lower_to_release:'停稳在容器上方',release:'释放球',saving_recording:'保存录像',
-    finished:'本轮动作结束',stopping:'正在停止后续动作',stopped:'挑战已停止',failed:'挑战暂停',completed:'三个球入碗，挑战完成'};
+    finished:'本轮动作结束',stopping:'正在停止后续动作',stopped:'挑战已停止',failed:'挑战暂停',completed:'桌面已清空，挑战完成',cleared:'桌面已清空，部分入碗结果未确认',verifying_table:'最后确认桌面画面'};
   const colours = {red:'#d74c4c',orange:'#e99436',yellow:'#ebca36',green:'#489756',cyan:'#47b8be',blue:'#517dcc',purple:'#995bbb',pink:'#df7dab',white:'#fafafa',black:'#30373b'};
   const names = {red:'红球',orange:'橙球',yellow:'黄球',green:'绿球',cyan:'青球',blue:'蓝球',purple:'紫球',pink:'粉球',white:'白球',black:'黑球'};
   const outcomes = {placed:'已进碗',grasp_missed:'没抓住',pushed_away:'球被推开',slipped:'抓起后滑落',placement_missed:'投放偏了',bounced_out:'投放后弹出',execution_failed:'动作未完成',unknown:'结果未确认'};
@@ -27,16 +27,16 @@
   function error(text){$('error').textContent=text||'';$('error').hidden=!text;}
   function controls() {
     const h=state?.health||{},c=state?.challenge||{},running=c.status==='running',observing=c.status==='observing';
-    const ready=state?.challenge_api_version===1&&h.connected&&h.motion_enabled&&h.teach_active===false&&
+    const ready=state?.challenge_api_version===2&&h.connected&&h.motion_enabled&&h.teach_active===false&&
       h.torque_status?.length===6&&h.torque_status.every(v=>v===1||v===true)&&!h.pending&&!h.automation_owner&&state.calibrated&&state.model?.configured&&!state.feedback_error;
     $('start').disabled=busy||running||observing||!ready||!$('confirmed').checked;
     $('observe').disabled=busy||running||observing||!!h.automation_owner||!!h.pending||!state?.calibrated||!state?.model?.configured;
     $('confirmed').disabled=busy||running||observing;$('stop').hidden=!running;$('stop').disabled=busy;
     $('connection').textContent=h.connected?'机械臂已连接':'机械臂未连接';
-    $('readiness').textContent=running?'挑战执行中；每轮回位后继续处理剩余球。':!h.connected?'请先在坐标验证页连接机械臂。':
+    $('readiness').textContent=state&&state.challenge_api_version!==2?'请重启网页服务以加载新版连续挑战模式。':running?'连续抓放中；正常轮次不回初始姿态。':!h.connected?'请先在坐标验证页连接机械臂。':
       !h.motion_enabled?'当前服务为只读模式，需要开启实物执行。':h.teach_active?'请先锁定六关节扭矩并结束手动调整。':
       !h.torque_status?.every(v=>v===1||v===true)?'尚未确认六关节扭矩全部锁定。':state?.feedback_error||state?.calibration_error||
-      (!state?.model?.configured?state?.model?.reason:null)||(h.automation_owner||h.pending?'其他任务正在占用控制器。':'沿用现有标定、容器与高处运输路径；可以开始。');
+      (!state?.model?.configured?state?.model?.reason:null)||(h.automation_owner||h.pending?'其他任务正在占用控制器。':'沿用现有标定、容器与高处运输路径；可以开始连续抓放。');
   }
   function renderScene(c) {
     if(!c.scene)return;
@@ -57,7 +57,7 @@
     $('trials').replaceChildren();$('trialCount').textContent=rows.length+' 次尝试';$('trialEmpty').hidden=rows.length>0;
     for(const row of [...rows].reverse()){
       const box=document.createElement('div');box.className='trial';const title=document.createElement('strong');
-      title.textContent=(names[row.target_color]||row.target_color)+' · '+(outcomes[row.outcome]||'未确认');box.append(title);
+      title.textContent=(names[row.target_color]||row.target_color)+' · '+(row.review_status==='pending'?'后台复核中':outcomes[row.outcome]||'未确认');box.append(title);
       const p=document.createElement('p');p.className='quiet';p.textContent='试次 '+row.plan_id.slice(0,10)+' · 动作 '+(row.physical_elapsed_s==null?'未确认':row.physical_elapsed_s.toFixed(1)+' 秒');box.append(p);
       for(const [kind,text] of [['archive','下载完整备份'],['keyframes','查看关键帧'],['state','查看参数与反馈']]){
         const a=document.createElement('a');a.href=media(c.session_id,row.plan_id,kind);a.textContent=text;a.target='_blank';a.rel='noopener';box.append(a);
@@ -71,7 +71,7 @@
     if(!process)return;
     if(process.reset){$('events').replaceChildren();for(const row of process.events||[])addEvent(row);}
     const output=process.model_output;
-    if(output){$('modelLabel').textContent=(output.model||'视觉模型')+' · '+(output.status==='generating'?'正在分析':'公开回复');$('modelText').textContent=output.text||'';}
+    if(output){$('modelLabel').textContent=(output.preflight?'当前画面确认':'后台分析 · 第 '+output.attempt+' 次')+' · '+(output.model||'视觉模型')+' · '+(output.status==='generating'?'正在分析':'公开回复');$('modelText').textContent=output.text||'';}
     $('storageError').textContent=process.persistence_error||'';
   }
   function addEvent(row) {
@@ -85,12 +85,15 @@
   }
   function render(value) {
     state=value;const c=value.challenge||{};controls();
-    $('modelStatus').textContent='视觉模型：'+(value.model?.model||'未配置')+' · 每轮录制20秒';
-    $('remaining').textContent=c.remaining??'—';$('placed').textContent=(c.confirmed_colors||[]).length+' / 3';$('empty').textContent=(c.empty_checks||0)+' / 2';
+    $('modelStatus').textContent='视觉模型：'+(value.model?.model||'未配置')+' · 失败时后台分析，空桌时确认';
+    $('recordingStatus').textContent=c.adaptive_recording===false?'当前相机服务仍等待20秒录像；重启新版相机服务后，可在动作结束后停录。':c.adaptive_recording===true?'动作完成后保留短暂投放画面即可停录，最多20秒。':'';
+    $('remaining').textContent=c.remaining??'';$('placed').textContent=String((c.confirmed_colors||[]).length);
     $('attempt').textContent=c.attempt?'第 '+c.attempt+' 次抓放':'尚未开始';$('phase').textContent=phases[c.phase]||c.phase||'尚未开始';
     $('target').textContent=c.status==='running'&&c.target?'当前目标：'+c.target.label:'';
-    $('verdict').textContent=c.last_review?'最近视觉判断：'+(outcomes[c.last_review.outcome]||c.last_review.outcome)+'\n'+(c.last_review.note||c.last_review.evidence||c.last_review.reason||''):'';
-    $('changes').textContent=(c.changes||[]).join('\n');$('success').hidden=c.status!=='completed';
+    $('verdict').textContent=c.last_review?(c.review_source==='rgbd'?'RGB-D画面确认：':'最近视觉判断：')+(outcomes[c.last_review.outcome]||c.last_review.outcome)+'\n'+(c.last_review.note||c.last_review.evidence||c.last_review.reason||''):'';
+    $('changes').textContent=(c.changes||[]).join('\n');$('success').hidden=c.status!=='completed'||c.placement_confirmed!==true;
+    $('clearNotice').hidden=c.status!=='completed'||c.placement_confirmed===true;
+    $('clearNotice').textContent='桌面已清空，已确认入碗 '+(c.confirmed_colors||[]).length+' 个；其他球的去向未确认，录像已保存。';
     if(c.error)error(c.error);renderScene(c);renderTrials(c);renderProcess(value.process);
   }
   async function refresh(){try{render(await api('state'));}catch(e){error(e.message);}}
