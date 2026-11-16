@@ -22,6 +22,7 @@ from evoarm_rsi.pick_place import DEFAULT_PARAMETERS,observe_scene,build_plan
 from evoarm_rsi.rsi_execution import execute,reservation,observe_pending
 from evoarm_rsi.browser_video import browser_video
 from evoarm_rsi.roarm_geometry import inverse
+from evoarm_rsi.rsi_route import at_height
 from tests.test_ball_trial import SimulatedArm,layout
 from tests.test_rsi_pick_place import scene
 from tests.test_serial_transport_errors import api_request
@@ -217,6 +218,10 @@ class Execution(unittest.TestCase):
                 super().send(command)
                 if command['T']==104 and phase['name'] in ('approach_ball','transport'):
                     self.raw=inverse([command['x']+9.,command['y']-5.,command['z']],command['t'],command['r'],command['g'])
+                if command['T']==106 and phase['name']=='close':
+                    # Reproduce the reported post-close below-plane feedback.
+                    point=at_height([self.raw[k] for k in 'xyz'],-.6846675283745469,world['table_plane'])
+                    self.raw=inverse(point,self.raw['tit'],self.raw['r'],self.raw['g'])
         arm=OffsetArm();service=ArmService();service.arm=arm
         plan=build_plan(saved,arm.status(),world,copy.deepcopy(DEFAULT_PARAMETERS));key=uuid.uuid4().hex
         root=home/'.evoarm/rsi/pick_place_runs'/key;camera_state={};camera_started=threading.Event()
@@ -251,11 +256,20 @@ class Execution(unittest.TestCase):
         self.assertTrue(any(c['T']==106 and c['spd']==1000 and c['acc']==20 for c in arm.commands))
         self.assertFalse(any('acc' in c for c in arm.commands if c['T']==104))
         self.assertEqual(service.armed_until,0);self.assertIsNone(service.pending)
+        stages=[row['stage'] for row in result['dispatches']]
+        self.assertLess(stages.index('close'),stages.index('lift'))
+        self.assertLess(stages.index('lift'),stages.index('transport'))
+        self.assertLess(stages.index('transport'),stages.index('release'))
         anchored=0
+        departure=[]
         for path in root.glob('stage-*.json'):
             report=json.loads(path.read_text())
+            if report.get('table_departure'):departure.append(report['table_departure'])
             if report.get('vertical_only'):
                 target=report['plan']['target_xyz_mm'];initial=report['plan']['initial_status']
                 self.assertEqual(target[:2],[initial['x'],initial['y']])
                 if target[:2]!=report['nominal_target_xyz_mm'][:2]:anchored+=1
         self.assertGreaterEqual(anchored,2)
+        self.assertTrue(departure)
+        self.assertAlmostEqual(departure[0]['start_tip_height_mm'],-.6846675283745469)
+        self.assertEqual(departure[0]['direction'],'upward_only')

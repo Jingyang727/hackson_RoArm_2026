@@ -8,6 +8,7 @@ from .roarm_geometry import height_above_plane,inverse,MotionConstraintError
 from .planning_diagnostics import search_summary
 
 ROUTE_VERSION=6
+LIFT_DEPARTURE_VERSION=1
 
 
 def at_height(point,height,plane):
@@ -24,9 +25,21 @@ def execution_target(stage,actual,plane):
         target['xyz_mm']=at_height([actual[k] for k in 'xyz'],height,plane)
     if stage.get('hold_orientation'):
         target.update(pitch_rad=actual['tit'],roll_rad=actual['r'])
-    if stage['stage']=='raise_current':
-        target['minimum_tip_height_mm']=min(0.,height_above_plane([actual[k] for k in 'xyz'],plane))
-        if target['xyz_mm'][2]<actual['z']-.01:raise ValueError('起步抬升目标已低于实际位置，请重新规划')
+    if stage['stage'] in ('raise_current','lift'):
+        if not stage.get('vertical_only'):raise ValueError('离桌抬升必须保持实际XY，不能低处平移')
+        start_height=height_above_plane([actual[k] for k in 'xyz'],plane)
+        goal_height=height_above_plane(target['xyz_mm'],plane)
+        required=stage['minimum_tip_height_mm']
+        if target['xyz_mm'][2]<actual['z']-.01:raise ValueError('抬升目标已低于实际位置，请重新规划')
+        if goal_height<max(0.,required):raise ValueError('离桌抬升的终点必须回到桌面之上')
+        # Feedback can be slightly below the fitted plane after closing. The
+        # upward segment may start there, but cannot go any deeper or sideways.
+        # Transport and descent retain their original clearance requirements.
+        target['minimum_tip_height_mm']=min(required,start_height)
+        if start_height<required:
+            target['table_departure']={'start_tip_height_mm':start_height,'target_tip_height_mm':goal_height,
+                'nominal_minimum_tip_height_mm':required,'applied_minimum_tip_height_mm':start_height,
+                'keeps_measured_xy':True,'direction':'upward_only'}
     return target
 
 

@@ -47,7 +47,7 @@ from evoarm_rsi.learning_basis import basis as learning_basis,execution_proposal
 from evoarm_rsi.roarm_geometry import MotionConstraintError
 from evoarm_rsi.planning_diagnostics import explain as explain_planning
 from evoarm_rsi.workspace_preview import compute_workspace
-from evoarm_rsi.rsi_route import ROUTE_VERSION
+from evoarm_rsi.rsi_route import ROUTE_VERSION,LIFT_DEPARTURE_VERSION
 
 DECLARATION='已核对黄球、漏斗和完整抓放路径，现场有人看护且双手离开运动范围'
 
@@ -223,13 +223,28 @@ def install(app,service_provider):
                 agent_phase=signature;learner.events.emit('motion',phase=phase,plan_id=job.get('plan_id'))
     def validate_live(state):
         packet=preview_frame(Path.home());image=cv2.imdecode(np.frombuffer(packet['jpeg'],np.uint8),cv2.IMREAD_COLOR)
-        if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
-        ball=find_yellow_ball(image);expected=state['plan']['scene']['ball']
-        if not ball or math.dist(ball['center_px'],expected['pixel_center'])>max(6.,expected['radius_px']*.4):
-            raise ValueError('黄球位置已改变，请重新观察本轮目标')
-        funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
-        if math.dist(funnel['rgb_pixel_center'],old.get('rgb_pixel_center',old['pixel_center']))>max(6.,old['expected_diameter_px']*.15):
-            raise ValueError('漏斗位置已改变，请重新观察本轮目标')
+        folder=root(state['id']);(folder/'preflight-live.jpg').write_bytes(packet['jpeg'])
+        evidence={'plan_id':state['id'],'code_revision':code_revision,'checked_at_unix':time.time(),
+                  'phase':'before_motion','grasp_motion_sent_before_check':False,'status':'checking'}
+        try:
+            if image is None or list(image.shape[1::-1])!=state['plan']['scene']['image_size']:raise ValueError('当前RGB画面或分辨率发生变化')
+            ball=find_yellow_ball(image);expected=state['plan']['scene']['ball']
+            evidence['ball']={'expected_pixel':expected['pixel_center'],'current_pixel':ball['center_px'] if ball else None,
+                'limit_px':max(6.,expected['radius_px']*.4),
+                'delta_px':math.dist(ball['center_px'],expected['pixel_center']) if ball else None}
+            if not ball or evidence['ball']['delta_px']>evidence['ball']['limit_px']:
+                raise ValueError('黄球位置已改变，请重新观察本轮目标')
+            funnel=detect_funnel(image,state['geometry']);old=state['plan']['scene']['funnel']
+            expected_pixel=old.get('rgb_pixel_center',old['pixel_center'])
+            evidence['funnel']={'expected_rgb_pixel':expected_pixel,'current_rgb_pixel':funnel['rgb_pixel_center'],
+                'delta_px':math.dist(funnel['rgb_pixel_center'],expected_pixel),
+                'limit_px':max(6.,old['expected_diameter_px']*.15),'method':'RGB rim center before depth refinement'}
+            if evidence['funnel']['delta_px']>evidence['funnel']['limit_px']:
+                raise ValueError('漏斗位置已改变，请重新观察本轮目标')
+            evidence['status']='matched'
+        except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
+            evidence.update(status='rejected',error=str(exc));raise
+        finally:_write(folder/'live-scene-validation.json',evidence)
 
     @router.get('/state')
     def state():
@@ -261,6 +276,7 @@ def install(app,service_provider):
         return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
                 'workspace_preview_version':1,
                 'continuous_learning_version':1,
+                'lift_departure_version':LIFT_DEPARTURE_VERSION,
                 'speed_settings_version':1,'speed_settings':speeds,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,

@@ -1,0 +1,18 @@
+{
+  "source_plan_id": "e74cebc16a87491db61b67ccdd953540",
+  "source_code_revision": "61f79d17080477b371f6cbf939b54bdf798e1535",
+  "provenance": "User supplied read-only close feedback, table plane and route policy; no motion replay on hardware.",
+  "table_plane": {
+    "normal_up": [-0.039554646428220194, -0.0027193923730313265, 0.9992137082982099],
+    "d_mm": 133.10620371681316
+  },
+  "actual_xyz_mm": [386.8582738, -2.967223983, -118.5901445],
+  "actual_pitch_rad": 1.322291439,
+  "actual_gripper_rad": 2.623107147,
+  "synthetic_roll_rad_for_ik_test": 0.0,
+  "transfer_height_mm": 154.75669197211047,
+  "minimum_transfer_height_mm": 72.4,
+  "lift_pitch_rad": 0.3490658503988659,
+  "release_tip_xyz_mm": [359.5225745975735, 276.3825414996748, 26.64381896561766],
+  "expected_start_height_mm": -0.6846675283745469
+}
