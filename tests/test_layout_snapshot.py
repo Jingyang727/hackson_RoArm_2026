@@ -2,6 +2,7 @@
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -109,6 +110,42 @@ class Snapshot(unittest.TestCase):
             with self.assertRaisesRegex(OSError,'synthetic'):layout.install(self.bundle,self.home)
         for name in names:
             path=base/name;self.assertEqual(path.read_bytes() if path.is_file() else None,before[name])
+        receipt=next((base/'layout_backups').glob('*/restore-manifest.json'))
+        self.assertEqual(json.loads(receipt.read_bytes())['status'],'rolled_back')
+
+    @unittest.skipIf(os.geteuid()==0,'root bypasses ordinary directory write permissions')
+    def test_unwritable_experiments_is_detected_before_any_configuration_changes(self):
+        base=self.home/'.evoarm/rsi';experiments=base/'experiments';experiments.mkdir(parents=True)
+        policy=base/self.bundle['policy_names']['pick_place_policies'];policy.parent.mkdir(parents=True);policy.write_bytes(b'old policy')
+        experiments.chmod(0o500);self.addCleanup(experiments.chmod,0o700)
+        with self.assertRaises(layout.TargetPermissionError) as raised:layout.install(self.bundle,self.home)
+        self.assertEqual(raised.exception.path,str(experiments));self.assertEqual(policy.read_bytes(),b'old policy')
+        self.assertFalse((base/'calibrations').exists());self.assertFalse((base/'layout_backups').exists())
+        experiments.chmod(0o700)
+        self.assertTrue(layout.install(self.bundle,self.home)['comparison']['matches_snapshot'])
+
+    @unittest.skipIf(os.geteuid()==0,'root bypasses ordinary directory write permissions')
+    def test_matching_data_needs_no_write_permission(self):
+        layout.install(self.bundle,self.home);experiments=self.home/'.evoarm/rsi/experiments'
+        experiments.chmod(0o500);self.addCleanup(experiments.chmod,0o700)
+        self.assertEqual(layout.install(self.bundle,self.home)['installed_files'],[])
+
+    def test_failed_unreadable_destination_is_not_revisited_during_rollback(self):
+        base=self.home/'.evoarm/rsi';name=self.bundle['policy_names']['pick_place_policies']
+        target=base/name;target.parent.mkdir(parents=True);target.write_bytes(b'old policy')
+        blocked=next(n for n in self.bundle['pin']['install_paths'] if n.startswith('experiments/'))
+        original_write=layout.atomic;original_bounded=layout.bounded;failed=[]
+        def write(path,raw):
+            if path==base/blocked:
+                failed.append(True);raise PermissionError('synthetic destination failure')
+            return original_write(path,raw)
+        def resolve(folder,path):
+            if folder==base and path==blocked and failed:raise PermissionError('destination now inaccessible')
+            return original_bounded(folder,path)
+        with patch.object(layout,'atomic',side_effect=write),patch.object(layout,'bounded',side_effect=resolve):
+            with self.assertRaisesRegex(PermissionError,'synthetic destination'):layout.install(self.bundle,self.home)
+        self.assertEqual(target.read_bytes(),b'old policy')
+        self.assertFalse((base/self.bundle['session_name']).exists())
         receipt=next((base/'layout_backups').glob('*/restore-manifest.json'))
         self.assertEqual(json.loads(receipt.read_bytes())['status'],'rolled_back')
 

@@ -48,6 +48,19 @@ def socket_path(home):
     return Path(home)/".evoarm"/"rsi_camera.sock"
 
 
+def ensure_recording_root_owner(root,uid,gid):
+    """The privileged camera may create BOTH rsi/ and experiments/ as root."""
+    if os.geteuid()!=0:return  # Ordinary camera processes do not take ownership of existing parents.
+    root=Path(root)
+    for folder in (root.parent,root):
+        if folder.is_symlink():raise RuntimeError('camera recording root must not be a symlink')
+        info=folder.stat()
+        if info.st_uid not in (uid,os.geteuid()):raise RuntimeError('recording root belongs to another user')
+        if (info.st_uid,info.st_gid)!=(uid,gid):os.chown(folder,uid,gid)
+        mode=stat.S_IMODE(info.st_mode)|stat.S_IRWXU
+        if mode!=stat.S_IMODE(info.st_mode):os.chmod(folder,mode)
+
+
 class CameraServer(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
     allow_reuse_address=False
     daemon_threads=True
@@ -197,6 +210,7 @@ class CameraHandler(BaseHTTPRequestHandler):
         try:
             store=TrialStore(self.server.home/".evoarm"/"rsi"/"experiments")
             store.root.mkdir(parents=True,exist_ok=True)
+            ensure_recording_root_owner(store.root,self.server.uid,self.server.gid)
             before=set(p.name for p in store.root.iterdir() if p.is_dir())
             def on_recording_start(start, duration):
                 self.server.phase="recording"
