@@ -1,0 +1,3871 @@
+{
+  "id": "6802332810004bffa5caa893d004114c",
+  "status": "completed",
+  "plan": {
+    "kind": "rsi_pick_place_v1",
+    "setup_id": "bench-layout-v2",
+    "initial_status": {
+      "T": 1051,
+      "x": 361.2910773,
+      "y": 258.6180262,
+      "z": 8.158662505,
+      "tit": 0.572174834,
+      "b": 0.621262219,
+      "s": 0.682621451,
+      "e": 1.257864246,
+      "t": 0.202485464,
+      "r": 0.003067962,
+      "g": 1.931281812,
+      "tB": 0,
+      "tS": 96,
+      "tE": 0,
+      "tT": 64,
+      "tR": 0,
+      "tG": 24,
+      "torswitchB": 1,
+      "torswitchS": 1,
+      "torswitchE": 1,
+      "torswitchT": 1,
+      "torswitchR": 1,
+      "torswitchG": 1,
+      "v": 1144
+    },
+    "scene": {
+      "ball": {
+        "pixel_center": [
+          578.6,
+          329.5
+        ],
+        "radius_px": 33.4,
+        "center_robot_mm": [
+          346.37478092732294,
+          -13.901453316726128,
+          -106.18072655472314
+        ],
+        "frame_index": 30,
+        "host_monotonic_ns": 225261643404583,
+        "source_trial_id": "2101e465822940208a4a97cecbb24b4c",
+        "board_check": {
+          "status": "saved_calibration_in_use",
+          "calibration_source": "saved_five_point_session",
+          "rgb_corners": null,
+          "depth_corners": null,
+          "visible_corners": null,
+          "warnings": [],
+          "board_required": false,
+          "layout_assumption": "operator_declared_static"
+        },
+        "size_evidence": {
+          "source_trial_id": "2101e465822940208a4a97cecbb24b4c",
+          "frame_index": 30,
+          "measured_ball_diameter_mm": 34.0,
+          "observed_area_diameter_px": 58.68,
+          "observed_enclosing_diameter_px": 66.78,
+          "expected_diameter_px": 50.8,
+          "relative_error_percent": 15.51,
+          "inferred_diameter_mm": 39.27,
+          "reference_relative_error_percent": 22.0,
+          "predicted_center_camera_z_mm": 407.7,
+          "pixel_center": [
+            578.6,
+            329.5
+          ],
+          "method": "equal-area contour radius; enclosing circle retained as a diagnostic",
+          "passed": true,
+          "blocks_execution": false
+        },
+        "depth_evidence": {
+          "method": "rgbd_known_radius_sphere_fit",
+          "valid_samples": 1579,
+          "fit_residual_mm": 0.6408526415979132,
+          "center_robot_mm": [
+            346.37478092732294,
+            -13.901453316726128,
+            -106.18072655472314
+          ],
+          "depth_used": true,
+          "fit_samples": 1579,
+          "fitted_center_robot_mm": [
+            346.37478092732294,
+            -13.901453316726128,
+            -106.18072655472314
+          ]
+        },
+        "warnings": [],
+        "observation_file": "grasp-observation.json",
+        "reprojection_rms_px": 0.2969957212929519
+      },
+      "funnel": {
+        "pixel_center": [
+          1013.1748916882881,
+          354.67897773151594
+        ],
+        "rgb_pixel_center": [
+          1013.1748916882881,
+          354.67897773151594
+        ],
+        "mouth_center_robot_mm": [
+          374.7245256813285,
+          255.33481602242134,
+          -72.24655891400192
+        ],
+        "mouth_boundary_px": [
+          [
+            1029.4846136307513,
+            412.98268446653367
+          ],
+          [
+            1035.750840050909,
+            412.8155539674638
+          ],
+          [
+            1041.7834520732624,
+            412.06342539801057
+          ],
+          [
+            1047.5170260425118,
+            410.735794441635
+          ],
+          [
+            1052.8901396035055,
+            408.8491231796139
+          ],
+          [
+            1057.8462206886647,
+            406.42651702637437
+          ],
+          [
+            1062.3342859543648,
+            403.49728334476725
+          ],
+          [
+            1066.3095534646004,
+            400.09638721181256
+          ],
+          [
+            1069.7339195138393,
+            396.2638227099414
+          ],
+          [
+            1072.576294761364,
+            392.04392003140606
+          ],
+          [
+            1074.812800007841,
+            387.48460955915704
+          ],
+          [
+            1076.4268267037937,
+            382.6366639542626
+          ],
+          [
+            1077.4089714124002,
+            377.5529382306345
+          ],
+          [
+            1077.7568567920596,
+            372.28762597590895
+          ],
+          [
+            1077.4748541225822,
+            366.8955474601892
+          ],
+          [
+            1076.573723944967,
+            361.4314825555329
+          ],
+          [
+            1075.0701920506515,
+            355.94955836167287
+          ],
+          [
+            1072.9864779226978,
+            350.50269837620795
+          ],
+          [
+            1070.3497919145038,
+            345.1421371142081
+          ],
+          [
+            1067.1918160882076,
+            339.91700139531787
+          ],
+          [
+            1063.5481818698036,
+            334.873957164363
+          ],
+          [
+            1059.4579556525853,
+            330.0569187489981
+          ],
+          [
+            1054.9631413243953,
+            325.50681590945993
+          ],
+          [
+            1050.1082065191674,
+            321.2614128997311
+          ],
+          [
+            1044.9396372902,
+            317.3551730151741
+          ],
+          [
+            1039.505523940714,
+            313.8191617136309
+          ],
+          [
+            1033.855178974829,
+            310.68098132125385
+          ],
+          [
+            1028.0387865790751,
+            307.964730523345
+          ],
+          [
+            1022.1070817254603,
+            305.6909822467418
+          ],
+          [
+            1016.1110559045447,
+            303.87677411936966
+          ],
+          [
+            1010.1016856451557,
+            302.5356064048913
+          ],
+          [
+            1004.1296793453024,
+            301.6774431222589
+          ],
+          [
+            998.2452375131547,
+            301.3087129438654
+          ],
+          [
+            992.4978212841958,
+            301.43230740009847
+          ],
+          [
+            986.9359240290318,
+            302.04757488552485
+          ],
+          [
+            981.6068409868592,
+            303.15030994945346
+          ],
+          [
+            976.5564321466159,
+            304.7327383503027
+          ],
+          [
+            971.8288740491449,
+            306.78349934873864
+          ],
+          [
+            967.4663967999667,
+            309.2876276977413
+          ],
+          [
+            963.5090033660197,
+            312.2265387448667
+          ],
+          [
+            959.9941691839549,
+            315.5780209752492
+          ],
+          [
+            956.9565212336579,
+            319.316241170446
+          ],
+          [
+            954.4274970261578,
+            323.41176810903085
+          ],
+          [
+            952.4349854110595,
+            327.8316213544894
+          ],
+          [
+            951.0029527069088,
+            332.5393521227777
+          ],
+          [
+            950.1510593683454,
+            337.4951634491186
+          ],
+          [
+            949.8942741820142,
+            342.65607683124136
+          ],
+          [
+            950.2424947682977,
+            347.97615216418194
+          ],
+          [
+            951.2001848804827,
+            353.40676705366724
+          ],
+          [
+            952.7660405431693,
+            358.896960463599
+          ],
+          [
+            954.9326983501276,
+            364.3938440954416
+          ],
+          [
+            957.6865001318708,
+            369.843082911313
+          ],
+          [
+            961.0073285862733,
+            375.18944382278556
+          ],
+          [
+            964.8685282299152,
+            380.37740882977914
+          ],
+          [
+            969.2369250796058,
+            385.3518458990558
+          ],
+          [
+            974.0729567485546,
+            390.05872774529695
+          ],
+          [
+            979.3309221172523,
+            394.4458855772734
+          ],
+          [
+            984.9593564443223,
+            398.4637819801253
+          ],
+          [
+            990.9015338053212,
+            402.06628461951306
+          ],
+          [
+            997.0960942370166,
+            405.21142057153884
+          ],
+          [
+            1003.4777881284193,
+            407.86208998386394
+          ],
+          [
+            1009.9783254933833,
+            409.9867176031958
+          ],
+          [
+            1016.5273130705137,
+            411.5598215549747
+          ],
+          [
+            1023.0532580223702,
+            412.5624806594244
+          ]
+        ],
+        "bbox_px": [
+          927,
+          296,
+          201,
+          131
+        ],
+        "score": 0.2511301705971507,
+        "observed_diameter_px": 134.7369457798632,
+        "expected_diameter_px": 127.86258261004537,
+        "radius_mm": 38.0,
+        "height_mm": 45.400000000000006,
+        "rim_fit": {
+          "method": "rgb_contour_rectified_circle",
+          "radius_mm": 42.65195457893738,
+          "residual_mm": 0.46289634801071244,
+          "angular_coverage": 0.7083333333333334
+        },
+        "depth_evidence": {
+          "method": "rgb_rim_circle_and_saved_table",
+          "depth_used": false,
+          "valid_samples": 2753,
+          "rim_samples": 1150,
+          "hole_depth_used_as_rim": false,
+          "median_rim_height_mm": 41.13314174950507,
+          "reason": "口沿深度分布不足，未采用不稳定的圆心修正"
+        },
+        "candidate_count": 1,
+        "ambiguous": false
+      },
+      "warnings": [
+        "漏斗口沿深度不足或不可靠；使用RGB口沿拟合与实测45.4mm高度。"
+      ],
+      "source_trial_id": "2101e465822940208a4a97cecbb24b4c",
+      "frame_index": 30,
+      "host_monotonic_ns": 225261643404583,
+      "image_size": [
+        1280,
+        720
+      ],
+      "camera_geometry": {
+        "K": [
+          [
+            609.1817016601562,
+            0.0,
+            638.2649536132812
+          ],
+          [
+            0.0,
+            609.0792236328125,
+            361.9005126953125
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "inverse_K": [
+          [
+            0.0016415463518926728,
+            0.0,
+            -1.0477415061448279
+          ],
+          [
+            0.0,
+            0.0016418225432737084,
+            -0.594176420165477
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "R": [
+          [
+            -0.016210317326517322,
+            0.9177860911131939,
+            -0.39674414497423616
+          ],
+          [
+            0.9997313465326696,
+            0.02145204288310083,
+            0.008777506258444586
+          ],
+          [
+            0.016566845570265932,
+            -0.3964952721222609,
+            -0.9178872691199857
+          ]
+        ],
+        "t": [
+          530.1694470071174,
+          23.14024158060728,
+          263.87542483498316
+        ],
+        "normal_camera": [
+          0.014476350768567557,
+          -0.432544552032515,
+          -0.9014963370837489
+        ]
+      },
+      "d_camera": 375.74055307506626,
+      "table_plane": {
+        "normal_up": [
+          -0.039554646428220194,
+          -0.0027193923730313265,
+          0.9992137082982099
+        ],
+        "d_mm": 133.10620371681316
+      },
+      "depth_scale": {
+        "near_mm": 330.0,
+        "far_mm": 568.0
+      }
+    },
+    "table_plane": {
+      "normal_up": [
+        -0.039554646428220194,
+        -0.0027193923730313265,
+        0.9992137082982099
+      ],
+      "d_mm": 133.10620371681316
+    },
+    "steps": [
+      {
+        "stage": "approach_ball",
+        "kind": "cartesian",
+        "xyz_mm": [
+          343.6897569541409,
+          -16.545671755997645,
+          -37.18591004556345
+        ],
+        "pitch_rad": 1.3962634015954636,
+        "roll_rad": 0.003067962,
+        "gripper_rad": 1.931281812,
+        "spd": 1.0,
+        "minimum_tip_height_mm": 72.4,
+        "vertical_only": false,
+        "hold_orientation": false
+      },
+      {
+        "stage": "descend",
+        "kind": "cartesian",
+        "xyz_mm": [
+          343.6897569541409,
+          -16.545671755997645,
+          -108.48081269488588
+        ],
+        "pitch_rad": 1.3962634015954636,
+        "roll_rad": 0.003067962,
+        "gripper_rad": 1.931281812,
+        "spd": 1.0,
+        "minimum_tip_height_mm": 0.0,
+        "vertical_only": true,
+        "hold_orientation": false
+      },
+      {
+        "stage": "close",
+        "kind": "gripper",
+        "gripper_rad": 3.14,
+        "spd": 1000,
+        "acc": 20
+      },
+      {
+        "stage": "lift",
+        "kind": "cartesian",
+        "xyz_mm": [
+          343.6897569541409,
+          -16.545671755997645,
+          46.20063700923579
+        ],
+        "pitch_rad": 0.5235987755982988,
+        "roll_rad": 0.003067962,
+        "gripper_rad": 3.14,
+        "spd": 1.0,
+        "minimum_tip_height_mm": 0.0,
+        "vertical_only": true,
+        "hold_orientation": false
+      },
+      {
+        "stage": "transport",
+        "kind": "cartesian",
+        "xyz_mm": [
+          361.8793030871483,
+          265.6202330310927,
+          47.688607863759614
+        ],
+        "pitch_rad": 0.5235987755982988,
+        "roll_rad": 0.003067962,
+        "gripper_rad": 3.14,
+        "spd": 1.0,
+        "minimum_tip_height_mm": 72.4,
+        "vertical_only": false,
+        "hold_orientation": false
+      },
+      {
+        "stage": "lower_to_release",
+        "kind": "cartesian",
+        "xyz_mm": [
+          361.8793030871483,
+          265.6202330310927,
+          24.210184889741647
+        ],
+        "pitch_rad": 0.5235987755982988,
+        "roll_rad": 0.003067962,
+        "gripper_rad": 3.14,
+        "spd": 1.0,
+        "minimum_tip_height_mm": 45.400000000000006,
+        "vertical_only": true,
+        "hold_orientation": false,
+        "settle_s": 0.2
+      },
+      {
+        "stage": "release",
+        "kind": "gripper",
+        "gripper_rad": 1.9198621771937625,
+        "spd": 1000,
+        "acc": 20
+      }
+    ],
+    "parameters": {
+      "pickup_xy_mm": [
+        16.053076115024975,
+        -3.3336109393538624
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "route_policy": {
+      "version": 7,
+      "mode": "lift_transfer_descend",
+      "vertical_axis": "robot_z_keep_xy",
+      "minimum_transfer_height_mm": 72.4,
+      "transfer_height_mm": 165.72098090480912,
+      "entry_transfer_height_mm": 126.2644264249388,
+      "transfer_height_policy": "main_shared_candidate_max",
+      "pickup_hover_height_mm": 70.0,
+      "release_settle_s": 0.2,
+      "release_pitch_rad": 0.5235987755982988,
+      "release_tip_xyz_mm": [
+        361.8793030871483,
+        265.6202330310927,
+        24.210184889741647
+      ],
+      "merged_high_approach": true,
+      "lift_pitch_rad": 0.5235987755982988,
+      "feedback_anchoring": "vertical segments keep measured XY; high transfers recheck actual clearance"
+    },
+    "release_policy": {
+      "version": 1,
+      "lip_height_mm": 45.400000000000006,
+      "ball_bottom_clearance_mm": 96.0,
+      "minimum_tip_height_mm": 105.4,
+      "minimum_tip_clearance_mm": 60.0,
+      "height_reference": "above_calibrated_table_not_robot_z"
+    },
+    "object_geometry": {
+      "ball_diameter_mm": 34.0,
+      "ball_top_xyz_mm": [
+        345.7023519380432,
+        -13.94768298706766,
+        -89.19409351365357
+      ],
+      "grasp_center_xyz_mm": [
+        362.3883023959197,
+        -17.23778364845302,
+        -105.18151284642492
+      ],
+      "release_ball_center_xyz_mm": [
+        369.69715417233147,
+        271.01780218828964,
+        40.66459012369579
+      ],
+      "finger_offset_mm": 19.0,
+      "reference": "stock_fixed_fingertip_is_not_ball_center"
+    },
+    "gripper_hold": {
+      "feedback_rad": 1.931281812,
+      "command_rad": 1.931281812,
+      "feedback_deg": 110.6542968779781,
+      "command_deg": 110.6542968779781,
+      "normalized": false
+    },
+    "grasp_tip_xyz_mm": [
+      343.6897569541409,
+      -16.545671755997645,
+      -108.48081269488588
+    ],
+    "release_tip_xyz_mm": [
+      361.8793030871483,
+      265.6202330310927,
+      24.210184889741647
+    ],
+    "grasp_pitch_deg": 80.0,
+    "release_pitch_deg": 29.999999999999996,
+    "target_duration_s": 10,
+    "recording_duration_s": 20,
+    "board_required": false,
+    "camera_frame": "unmirrored_rgb",
+    "warnings": [
+      "漏斗口沿深度不足或不可靠；使用RGB口沿拟合与实测45.4mm高度。"
+    ],
+    "timing_verified": false,
+    "pose_reference": "stock_firmware_fixed_fingertip",
+    "target_audit": {
+      "frame": "unmirrored_rgb",
+      "ball_pixel": [
+        578.6,
+        329.5
+      ],
+      "funnel_pixel": [
+        1013.1748916882881,
+        354.67897773151594
+      ],
+      "funnel_side_of_ball": "right",
+      "grasp_center_target_px": [
+        572.4352075674442,
+        349.08005718281817
+      ],
+      "release_center_target_px": [
+        1193.419149705861,
+        241.62623181410032
+      ],
+      "note": "空中投放点因透视可能不与漏斗像素中心重合；原始目标圈标明实际识别区域"
+    },
+    "policy_application": {
+      "policy_id": "8d5f08501807",
+      "parameters_verified": true,
+      "source_trial_id": "613bdbf80fb74f3da49b64ff1c548b78",
+      "baseline_reset_id": null,
+      "changed_parameters": [],
+      "note": "已核对新计划实际参数；方向投影检查只验证坐标计算，实际效果仍由下一轮录像判断。"
+    }
+  },
+  "policy_version": 63,
+  "calibration_fingerprint": "05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4",
+  "code_revision": "4aad187991f07a897f7da053a70e0c7dcd6a75a6",
+  "source": "web",
+  "created_at_unix": 1794831732.442872,
+  "learning_session_id": "f9cdfc0bdd21478eba64352a1c9188fb",
+  "worker_finished": true,
+  "result": {
+    "kind": "rsi_pick_place_execution_v1",
+    "plan_id": "6802332810004bffa5caa893d004114c",
+    "setup_id": "bench-layout-v2",
+    "camera_request_id": "a1db36c954ba45ce9d1727e5cd36234f",
+    "events": [
+      {
+        "stage": "start",
+        "host_monotonic_ns": 225265180968541
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225265181761000
+      },
+      {
+        "stage": "approach_ball_completed",
+        "host_monotonic_ns": 225267365846291
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225267414692250
+      },
+      {
+        "stage": "descend_completed",
+        "host_monotonic_ns": 225268958299041
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269007113250
+      },
+      {
+        "stage": "close_completed",
+        "host_monotonic_ns": 225271131041041
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225271180770500
+      },
+      {
+        "stage": "lift_completed",
+        "host_monotonic_ns": 225273210094166
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225273267462583
+      },
+      {
+        "stage": "transport_completed",
+        "host_monotonic_ns": 225275293843250
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275356272958
+      },
+      {
+        "stage": "lower_to_release_completed",
+        "host_monotonic_ns": 225276660973208
+      },
+      {
+        "stage": "settle_over_funnel",
+        "host_monotonic_ns": 225276663854166
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225276916279666
+      },
+      {
+        "stage": "release_completed",
+        "host_monotonic_ns": 225277934313708
+      },
+      {
+        "stage": "finish",
+        "host_monotonic_ns": 225277938674583
+      }
+    ],
+    "dispatches": [
+      {
+        "index": 0,
+        "stage": "approach_ball",
+        "command": {
+          "T": 104,
+          "x": 343.6897569541409,
+          "y": -16.545671755997645,
+          "z": -37.18591004556345,
+          "t": 1.3962634015954636,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "spd": 1.0
+        },
+        "host_monotonic_ns": 225265184663500
+      },
+      {
+        "index": 1,
+        "stage": "descend",
+        "command": {
+          "T": 104,
+          "x": 337.8068874,
+          "y": -8.811215112,
+          "z": -108.69264105655904,
+          "t": 1.3962634015954636,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "spd": 1.0
+        },
+        "host_monotonic_ns": 225267415986291
+      },
+      {
+        "index": 2,
+        "stage": "close",
+        "command": {
+          "T": 106,
+          "cmd": 3.14,
+          "spd": 1000,
+          "acc": 20
+        },
+        "host_monotonic_ns": 225269007573125
+      },
+      {
+        "index": 2,
+        "stage": "hold_contact",
+        "command": {
+          "T": 106,
+          "cmd": 2.6601272165598298,
+          "spd": 1000,
+          "acc": 20
+        },
+        "host_monotonic_ns": 225270574459875
+      },
+      {
+        "index": 3,
+        "stage": "lift",
+        "command": {
+          "T": 104,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": 45.91218559785628,
+          "t": 0.5235987755982988,
+          "r": 0.003067962,
+          "g": 2.6601272165598298,
+          "spd": 1.0
+        },
+        "host_monotonic_ns": 225271182124541
+      },
+      {
+        "index": 4,
+        "stage": "transport",
+        "command": {
+          "T": 104,
+          "x": 361.8793030871483,
+          "y": 265.6202330310927,
+          "z": 47.688607863759614,
+          "t": 0.5235987755982988,
+          "r": 0.003067962,
+          "g": 2.6601272165598298,
+          "spd": 1.0
+        },
+        "host_monotonic_ns": 225273268892958
+      },
+      {
+        "index": 5,
+        "stage": "lower_to_release",
+        "command": {
+          "T": 104,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 24.28430181738675,
+          "t": 0.5235987755982988,
+          "r": 0.003067962,
+          "g": 2.6601272165598298,
+          "spd": 1.0
+        },
+        "host_monotonic_ns": 225275357292125
+      },
+      {
+        "index": 6,
+        "stage": "release",
+        "command": {
+          "T": 106,
+          "cmd": 1.9198621771937625,
+          "spd": 1000,
+          "acc": 20
+        },
+        "host_monotonic_ns": 225276923838375
+      }
+    ],
+    "feedback": [
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225265846011083,
+        "status": {
+          "T": 1051,
+          "x": 363.1816236,
+          "y": 158.328222,
+          "z": -42.30738838,
+          "tit": 0.908116626,
+          "b": 0.411106851,
+          "s": 0.678019508,
+          "e": 1.352971055,
+          "t": 0.44792239,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "tB": -264,
+          "tS": 204,
+          "tE": 156,
+          "tT": -216,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225265999357083,
+        "status": {
+          "T": 1051,
+          "x": 372.1779671,
+          "y": 102.3811385,
+          "z": -44.72420621,
+          "tit": 1.006291397,
+          "b": 0.268446638,
+          "s": 0.684155431,
+          "e": 1.291611823,
+          "t": 0.601320469,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "tB": -308,
+          "tS": -40,
+          "tE": 240,
+          "tT": -292,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266136735958,
+        "status": {
+          "T": 1051,
+          "x": 372.1875653,
+          "y": 37.23383008,
+          "z": -62.80640597,
+          "tit": 1.178097245,
+          "b": 0.099708751,
+          "s": 0.762388452,
+          "e": 1.158155495,
+          "t": 0.828349625,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "tB": -204,
+          "tS": 60,
+          "tE": 284,
+          "tT": -328,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266264425750,
+        "status": {
+          "T": 1051,
+          "x": 365.8784956,
+          "y": 3.928905085,
+          "z": -59.32826618,
+          "tit": 1.268602112,
+          "b": 0.010737866,
+          "s": 0.783864183,
+          "e": 1.05231082,
+          "t": 1.003223435,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "tB": -124,
+          "tS": 92,
+          "tE": 216,
+          "tT": -272,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266401315166,
+        "status": {
+          "T": 1051,
+          "x": 355.049077,
+          "y": -8.71596562,
+          "z": -52.25773669,
+          "tit": 1.345301151,
+          "b": -0.024543693,
+          "s": 0.783864183,
+          "e": 0.984815666,
+          "t": 1.147417629,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 128,
+          "tT": -176,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266538230458,
+        "status": {
+          "T": 1051,
+          "x": 342.7341845,
+          "y": -8.939736691,
+          "z": -52.11529186,
+          "tit": 1.418932229,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.9740778,
+          "t": 1.231786573,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 112,
+          "tT": -92,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266676437791,
+        "status": {
+          "T": 1051,
+          "x": 337.7251071,
+          "y": -8.809081989,
+          "z": -52.40480389,
+          "tit": 1.448077864,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.9740778,
+          "t": 1.260932208,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 112,
+          "tT": -40,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266814583541,
+        "status": {
+          "T": 1051,
+          "x": 337.5023167,
+          "y": -8.803270815,
+          "z": -52.19818828,
+          "tit": 1.449611845,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.97254382,
+          "t": 1.264000169,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 104,
+          "tT": -32,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225266947060708,
+        "status": {
+          "T": 1051,
+          "x": 337.8068874,
+          "y": -8.811215112,
+          "z": -51.96912844,
+          "tit": 1.448077864,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.971009839,
+          "t": 1.264000169,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 104,
+          "tT": -36,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225267083774458,
+        "status": {
+          "T": 1051,
+          "x": 337.8068874,
+          "y": -8.811215112,
+          "z": -51.96912844,
+          "tit": 1.448077864,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.971009839,
+          "t": 1.264000169,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 104,
+          "tT": -36,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225267231145916,
+        "status": {
+          "T": 1051,
+          "x": 337.8068874,
+          "y": -8.811215112,
+          "z": -51.96912844,
+          "tit": 1.448077864,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.971009839,
+          "t": 1.264000169,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 104,
+          "tT": -36,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "approach_ball",
+        "host_monotonic_ns": 225267365545666,
+        "status": {
+          "T": 1051,
+          "x": 337.8068874,
+          "y": -8.811215112,
+          "z": -51.96912844,
+          "tit": 1.448077864,
+          "b": -0.026077673,
+          "s": 0.783864183,
+          "e": 0.971009839,
+          "t": 1.264000169,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": -64,
+          "tS": 88,
+          "tE": 104,
+          "tT": -36,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225267608481416,
+        "status": {
+          "T": 1051,
+          "x": 337.4935151,
+          "y": -8.803041237,
+          "z": -55.58586027,
+          "tit": 1.457281748,
+          "b": -0.026077673,
+          "s": 0.794602048,
+          "e": 0.971009839,
+          "t": 1.262466188,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": 20,
+          "tS": 52,
+          "tE": 32,
+          "tT": 60,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225267736823583,
+        "status": {
+          "T": 1051,
+          "x": 334.7804309,
+          "y": -8.732274272,
+          "z": -75.44360685,
+          "tit": 1.497165249,
+          "b": -0.026077673,
+          "s": 0.842155453,
+          "e": 0.998621493,
+          "t": 1.22718463,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 44,
+          "tE": -84,
+          "tT": 136,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225267873820416,
+        "status": {
+          "T": 1051,
+          "x": 328.5061668,
+          "y": -8.568618962,
+          "z": -96.68222784,
+          "tit": 1.521708942,
+          "b": -0.026077673,
+          "s": 0.868233126,
+          "e": 1.09066034,
+          "t": 1.133611802,
+          "r": 0.004601942,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 84,
+          "tE": -140,
+          "tT": 220,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268001971333,
+        "status": {
+          "T": 1051,
+          "x": 326.2314959,
+          "y": -8.509287388,
+          "z": -110.4090952,
+          "tit": 1.501767191,
+          "b": -0.026077673,
+          "s": 0.871301088,
+          "e": 1.18730113,
+          "t": 1.013961301,
+          "r": 0.003067962,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 92,
+          "tE": -96,
+          "tT": 196,
+          "tR": 0,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268138470125,
+        "status": {
+          "T": 1051,
+          "x": 329.0725141,
+          "y": -8.583391331,
+          "z": -115.7282851,
+          "tit": 1.463417672,
+          "b": -0.026077673,
+          "s": 0.868233126,
+          "e": 1.237922496,
+          "t": 0.928058377,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 84,
+          "tE": -52,
+          "tT": 132,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268278769416,
+        "status": {
+          "T": 1051,
+          "x": 333.808884,
+          "y": -8.706932845,
+          "z": -115.764716,
+          "tit": 1.432738056,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.892776819,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -40,
+          "tT": 68,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268411903125,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268548693916,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268685328333,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268822793833,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "descend",
+        "host_monotonic_ns": 225268958092500,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269076226416,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.931281812,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": 0,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269213473833,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 1.942019677,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": -56,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269350103541,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 2.020252698,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": -104,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269486796208,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 2.156776988,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": -136,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269623457166,
+        "status": {
+          "T": 1051,
+          "x": 334.4856191,
+          "y": -8.724584523,
+          "z": -115.9065986,
+          "tit": 1.428136114,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.2455924,
+          "t": 0.886640895,
+          "r": 0.001533981,
+          "g": 2.351592548,
+          "tB": 0,
+          "tS": 80,
+          "tE": -36,
+          "tT": 60,
+          "tR": 20,
+          "tG": -160,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269760427208,
+        "status": {
+          "T": 1051,
+          "x": 335.1267412,
+          "y": -8.741307287,
+          "z": -115.6824585,
+          "tit": 1.425068152,
+          "b": -0.026077673,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.885106915,
+          "r": 0.004601942,
+          "g": 2.549476069,
+          "tB": 0,
+          "tS": 80,
+          "tE": -44,
+          "tT": 56,
+          "tR": 0,
+          "tG": -204,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225269896630000,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270033449083,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270170489708,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270298999083,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270435913541,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270572997833,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270720165333,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270857166625,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225270993445500,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "close",
+        "host_monotonic_ns": 225271130432125,
+        "status": {
+          "T": 1051,
+          "x": 335.9033033,
+          "y": -9.277203628,
+          "z": -115.6282515,
+          "tit": 1.42046621,
+          "b": -0.027611654,
+          "s": 0.866699145,
+          "e": 1.244058419,
+          "t": 0.880504972,
+          "r": 0.004601942,
+          "g": 2.607767339,
+          "tB": 20,
+          "tS": 80,
+          "tE": -40,
+          "tT": 44,
+          "tR": 0,
+          "tG": -300,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1139
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225271584453500,
+        "status": {
+          "T": 1051,
+          "x": 335.4368509,
+          "y": -9.26432083,
+          "z": -115.2787569,
+          "tit": 1.388252613,
+          "b": -0.027611654,
+          "s": 0.843689433,
+          "e": 1.30541765,
+          "t": 0.809941856,
+          "r": 0.004601942,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 244,
+          "tE": -136,
+          "tT": 116,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225271721445458,
+        "status": {
+          "T": 1051,
+          "x": 331.0966576,
+          "y": -9.144450449,
+          "z": -109.6909656,
+          "tit": 1.346835132,
+          "b": -0.027611654,
+          "s": 0.790000106,
+          "e": 1.406660382,
+          "t": 0.72097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 396,
+          "tE": -172,
+          "tT": 188,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1137
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225271858619083,
+        "status": {
+          "T": 1051,
+          "x": 327.9810904,
+          "y": -9.058402616,
+          "z": -89.13800826,
+          "tit": 1.242524438,
+          "b": -0.027611654,
+          "s": 0.674951547,
+          "e": 1.553922538,
+          "t": 0.58444668,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 516,
+          "tE": -236,
+          "tT": 268,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1136
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225271994715416,
+        "status": {
+          "T": 1051,
+          "x": 326.8574077,
+          "y": -9.02736799,
+          "z": -51.94152186,
+          "tit": 1.056912763,
+          "b": -0.027611654,
+          "s": 0.503145698,
+          "e": 1.728796348,
+          "t": 0.395767043,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 444,
+          "tE": -204,
+          "tT": 336,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272132820958,
+        "status": {
+          "T": 1051,
+          "x": 326.4459557,
+          "y": -9.016004232,
+          "z": -20.60988229,
+          "tit": 0.874369049,
+          "b": -0.027611654,
+          "s": 0.371223351,
+          "e": 1.871456561,
+          "t": 0.202485464,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 360,
+          "tE": -136,
+          "tT": 284,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272268581291,
+        "status": {
+          "T": 1051,
+          "x": 327.449604,
+          "y": -9.043723667,
+          "z": -0.172067406,
+          "tit": 0.740912721,
+          "b": -0.027611654,
+          "s": 0.299126254,
+          "e": 1.958893466,
+          "t": 0.053689328,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 272,
+          "tE": -44,
+          "tT": 204,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272405898375,
+        "status": {
+          "T": 1051,
+          "x": 333.4727883,
+          "y": -9.210076027,
+          "z": 8.559715786,
+          "tit": 0.664213681,
+          "b": -0.027611654,
+          "s": 0.289922369,
+          "e": 1.981903178,
+          "t": -0.036815539,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 260,
+          "tE": 0,
+          "tT": 116,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272534130625,
+        "status": {
+          "T": 1051,
+          "x": 336.9690406,
+          "y": -9.306637877,
+          "z": 13.01925015,
+          "tit": 0.632000085,
+          "b": -0.027611654,
+          "s": 0.288388388,
+          "e": 1.981903178,
+          "t": -0.067495155,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 256,
+          "tE": 0,
+          "tT": 60,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272663074791,
+        "status": {
+          "T": 1051,
+          "x": 337.4637193,
+          "y": -9.320300245,
+          "z": 14.13851939,
+          "tit": 0.625864161,
+          "b": -0.027611654,
+          "s": 0.286854407,
+          "e": 1.981903178,
+          "t": -0.072097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 252,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272799616125,
+        "status": {
+          "T": 1051,
+          "x": 337.4637193,
+          "y": -9.320300245,
+          "z": 14.13851939,
+          "tit": 0.625864161,
+          "b": -0.027611654,
+          "s": 0.286854407,
+          "e": 1.981903178,
+          "t": -0.072097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 252,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225272936884958,
+        "status": {
+          "T": 1051,
+          "x": 337.4637193,
+          "y": -9.320300245,
+          "z": 14.13851939,
+          "tit": 0.625864161,
+          "b": -0.027611654,
+          "s": 0.286854407,
+          "e": 1.981903178,
+          "t": -0.072097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 252,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225273073953125,
+        "status": {
+          "T": 1051,
+          "x": 337.4637193,
+          "y": -9.320300245,
+          "z": 14.13851939,
+          "tit": 0.625864161,
+          "b": -0.027611654,
+          "s": 0.286854407,
+          "e": 1.981903178,
+          "t": -0.072097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 252,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "lift",
+        "host_monotonic_ns": 225273209627291,
+        "status": {
+          "T": 1051,
+          "x": 337.4637193,
+          "y": -9.320300245,
+          "z": 14.13851939,
+          "tit": 0.625864161,
+          "b": -0.027611654,
+          "s": 0.286854407,
+          "e": 1.981903178,
+          "t": -0.072097097,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 252,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225273896968041,
+        "status": {
+          "T": 1051,
+          "x": 346.7622754,
+          "y": 61.26543347,
+          "z": -41.27915547,
+          "tit": 0.840621472,
+          "b": 0.17487381,
+          "s": 0.504679679,
+          "e": 1.802427426,
+          "t": 0.104310694,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 248,
+          "tS": -68,
+          "tE": 252,
+          "tT": -184,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274033950000,
+        "status": {
+          "T": 1051,
+          "x": 344.1761523,
+          "y": 111.3628385,
+          "z": -63.54522658,
+          "tit": 0.929592357,
+          "b": 0.312932081,
+          "s": 0.612058334,
+          "e": 1.670505078,
+          "t": 0.217825272,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 304,
+          "tS": 24,
+          "tE": 324,
+          "tT": -164,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1140
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274200529083,
+        "status": {
+          "T": 1051,
+          "x": 347.6598307,
+          "y": 178.352402,
+          "z": -49.72086024,
+          "tit": 0.871301088,
+          "b": 0.474000063,
+          "s": 0.66114572,
+          "e": 1.48029146,
+          "t": 0.300660234,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 220,
+          "tS": 84,
+          "tE": 344,
+          "tT": -80,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1141
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274334619250,
+        "status": {
+          "T": 1051,
+          "x": 353.46318,
+          "y": 230.7254845,
+          "z": -12.28851273,
+          "tit": 0.725572913,
+          "b": 0.578310757,
+          "s": 0.664213681,
+          "e": 1.30541765,
+          "t": 0.326737908,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 132,
+          "tS": 84,
+          "tE": 268,
+          "tT": -32,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274470109083,
+        "status": {
+          "T": 1051,
+          "x": 359.4329842,
+          "y": 250.6747109,
+          "z": 12.9271738,
+          "tit": 0.630466104,
+          "b": 0.608990373,
+          "s": 0.664213681,
+          "e": 1.20724288,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 192,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274606454875,
+        "status": {
+          "T": 1051,
+          "x": 364.1195313,
+          "y": 254.7743058,
+          "z": 24.18189447,
+          "tit": 0.589048623,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.165825399,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274743595791,
+        "status": {
+          "T": 1051,
+          "x": 364.1195313,
+          "y": 254.7743058,
+          "z": 24.18189447,
+          "tit": 0.589048623,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.165825399,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 128,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225274880931833,
+        "status": {
+          "T": 1051,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 25.02562857,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.162757437,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225275017039250,
+        "status": {
+          "T": 1051,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 25.02562857,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.162757437,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225275153332583,
+        "status": {
+          "T": 1051,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 25.02562857,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.162757437,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "transport",
+        "host_monotonic_ns": 225275290106708,
+        "status": {
+          "T": 1051,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 25.02562857,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.162757437,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": -24,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275438003291,
+        "status": {
+          "T": 1051,
+          "x": 364.4799385,
+          "y": 255.0264826,
+          "z": 25.02562857,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.664213681,
+          "e": 1.162757437,
+          "t": 0.329805869,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 76,
+          "tS": 84,
+          "tE": 120,
+          "tT": 0,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275574723541,
+        "status": {
+          "T": 1051,
+          "x": 365.1167488,
+          "y": 255.4720585,
+          "z": 22.22725888,
+          "tit": 0.587514642,
+          "b": 0.610524354,
+          "s": 0.671883585,
+          "e": 1.164291418,
+          "t": 0.322135965,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": -20,
+          "tS": 84,
+          "tE": -44,
+          "tT": 116,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275711880708,
+        "status": {
+          "T": 1051,
+          "x": 363.3408534,
+          "y": 254.2294652,
+          "z": 13.69383767,
+          "tit": 0.585980661,
+          "b": 0.610524354,
+          "s": 0.673417566,
+          "e": 1.224116669,
+          "t": 0.259242753,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 80,
+          "tE": -48,
+          "tT": 144,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275848714625,
+        "status": {
+          "T": 1051,
+          "x": 362.809584,
+          "y": 253.8577362,
+          "z": 9.265343468,
+          "tit": 0.575242795,
+          "b": 0.610524354,
+          "s": 0.674951547,
+          "e": 1.264000169,
+          "t": 0.207087406,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 84,
+          "tE": 20,
+          "tT": 68,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225275984457541,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 48,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225276121061791,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225276252992916,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225276387948291,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225276523138791,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "lower_to_release",
+        "host_monotonic_ns": 225276660672583,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -128,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225276993231458,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.60930132,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -120,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277129946500,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.604699378,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": -36,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1142
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277266869083,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.558679954,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 80,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277394791666,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.442097414,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 132,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1145
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277532019041,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.254951758,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 148,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277668917666,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 2.090815814,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 108,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1145
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277797179583,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 1.988039101,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 72,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1143
+        }
+      },
+      {
+        "stage": "release",
+        "host_monotonic_ns": 225277933777166,
+        "status": {
+          "T": 1051,
+          "x": 363.8931403,
+          "y": 254.6159001,
+          "z": 8.905715754,
+          "tit": 0.567572892,
+          "b": 0.610524354,
+          "s": 0.679553489,
+          "e": 1.264000169,
+          "t": 0.19481556,
+          "r": 0.003067962,
+          "g": 1.935883754,
+          "tB": 0,
+          "tS": 96,
+          "tE": 0,
+          "tT": 52,
+          "tR": 0,
+          "tG": 32,
+          "torswitchB": 1,
+          "torswitchS": 1,
+          "torswitchE": 1,
+          "torswitchT": 1,
+          "torswitchR": 1,
+          "torswitchG": 1,
+          "v": 1144
+        }
+      }
+    ],
+    "parameters": {
+      "pickup_xy_mm": [
+        16.053076115024975,
+        -3.3336109393538624
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "policy_application": {
+      "policy_id": "8d5f08501807",
+      "parameters_verified": true,
+      "source_trial_id": "613bdbf80fb74f3da49b64ff1c548b78",
+      "baseline_reset_id": null,
+      "changed_parameters": [],
+      "note": "已核对新计划实际参数；方向投影检查只验证坐标计算，实际效果仍由下一轮录像判断。"
+    },
+    "target_audit": {
+      "frame": "unmirrored_rgb",
+      "ball_pixel": [
+        578.6,
+        329.5
+      ],
+      "funnel_pixel": [
+        1013.1748916882881,
+        354.67897773151594
+      ],
+      "funnel_side_of_ball": "right",
+      "grasp_center_target_px": [
+        572.4352075674442,
+        349.08005718281817
+      ],
+      "release_center_target_px": [
+        1193.419149705861,
+        241.62623181410032
+      ],
+      "note": "空中投放点因透视可能不与漏斗像素中心重合；原始目标圈标明实际识别区域"
+    },
+    "robot_moved": true,
+    "grasp_attempted": true,
+    "placement_attempted": true,
+    "motion_completed": true,
+    "visual_success": null,
+    "motion_error": null,
+    "camera_error": null,
+    "created_at_unix": 1794831734.7163079,
+    "recording_duration_s": 20,
+    "execution_budget_s": 19.6,
+    "target_duration_s": 10,
+    "recording_started_monotonic_ns": 225265115496083,
+    "last_preflight": {
+      "stage": "release",
+      "status": {
+        "T": 1051,
+        "x": 363.8931403,
+        "y": 254.6159001,
+        "z": 8.905715754,
+        "tit": 0.567572892,
+        "b": 0.610524354,
+        "s": 0.679553489,
+        "e": 1.264000169,
+        "t": 0.19481556,
+        "r": 0.003067962,
+        "g": 2.60930132,
+        "tB": 0,
+        "tS": 96,
+        "tE": 0,
+        "tT": 52,
+        "tR": 0,
+        "tG": -128,
+        "torswitchB": 1,
+        "torswitchS": 1,
+        "torswitchE": 1,
+        "torswitchT": 1,
+        "torswitchR": 1,
+        "torswitchG": 1,
+        "v": 1144
+      }
+    },
+    "contact_candidate": {
+      "g": 2.607767339,
+      "tG": -300,
+      "meaning": "stable stop while closing; ball contact or other obstruction remains unproven"
+    },
+    "contact_preload": {
+      "target_rad": 2.6601272165598298,
+      "squeeze_deg": 3.0,
+      "force_measured": false,
+      "writes": 1
+    },
+    "release_clearance_check": {
+      "actual_tip_xyz_mm": [
+        363.8931403,
+        254.6159001,
+        8.905715754
+      ],
+      "actual_tip_height_mm": 126.91885194141162,
+      "minimum_tip_height_mm": 105.4,
+      "lip_height_mm": 45.400000000000006,
+      "actual_tip_clearance_mm": 81.51885194141161,
+      "verified": true
+    },
+    "physical_elapsed_s": 12.757706042,
+    "within_10s": false,
+    "execution_diagnosis": {
+      "category": "complete",
+      "error": null,
+      "failed_stage": null,
+      "grasp_attempted": true,
+      "placement_attempted": true,
+      "stage_timings": [
+        {
+          "stage": "approach_ball",
+          "started_s": 0.001,
+          "completed_s": 2.185,
+          "duration_s": 2.184
+        },
+        {
+          "stage": "descend",
+          "started_s": 2.234,
+          "completed_s": 3.777,
+          "duration_s": 1.543
+        },
+        {
+          "stage": "close",
+          "started_s": 3.826,
+          "completed_s": 5.95,
+          "duration_s": 2.124
+        },
+        {
+          "stage": "lift",
+          "started_s": 6.0,
+          "completed_s": 8.029,
+          "duration_s": 2.029
+        },
+        {
+          "stage": "transport",
+          "started_s": 8.086,
+          "completed_s": 10.113,
+          "duration_s": 2.027
+        },
+        {
+          "stage": "lower_to_release",
+          "started_s": 10.175,
+          "completed_s": 11.48,
+          "duration_s": 1.305
+        },
+        {
+          "stage": "settle_over_funnel",
+          "started_s": 11.483
+        },
+        {
+          "stage": "release",
+          "started_s": 11.735,
+          "completed_s": 12.753,
+          "duration_s": 1.018
+        }
+      ],
+      "execution_trial_parameters": [],
+      "lift": {
+        "target_xyz_mm": [
+          335.9033033,
+          -9.277203628,
+          45.91218559785628
+        ],
+        "actual_xyz_mm": [
+          337.4637193,
+          -9.320300245,
+          14.13851939
+        ],
+        "target_height_mm": 165.72098090480912,
+        "actual_height_mm": 133.91069356047817,
+        "required_transfer_height_mm": 72.4,
+        "height_reference": "distance_above_calibrated_table_not_robot_z",
+        "undershoot_mm": 31.81028734433096
+      },
+      "elapsed_s": 12.758,
+      "target_duration_s": 10,
+      "recording_duration_s": 20,
+      "execution_budget_s": 19.6,
+      "retry_instruction": "先保存视觉复核与决策；未解决的执行故障不原样重试。"
+    },
+    "capture_trial_id": "90b0b455fe984ff0a9c02d57adedd184",
+    "recording_finished_monotonic_ns": 225285106230250,
+    "recording_covers_motion": true,
+    "keyframes_file": "/Users/jyang51/.evoarm/rsi/experiments/90b0b455fe984ff0a9c02d57adedd184/grasp-keyframes.jpg"
+  },
+  "backup_file": "/Users/jyang51/.evoarm/rsi/backups/6802332810004bffa5caa893d004114c.zip",
+  "recovery": {
+    "status": "completed",
+    "request_id": "6802332810004bffa5caa893d004114c",
+    "mode": "direct_official_t100",
+    "commands": [
+      {
+        "command": {
+          "T": 100
+        },
+        "stage": "official_reset",
+        "at_unix": 1794831758.45425,
+        "host_monotonic_ns": 225288818526625,
+        "status": "feedback_confirmed"
+      }
+    ],
+    "started_at_unix": 1794831757.682383,
+    "started_monotonic_ns": 225288046655500,
+    "requires_cartesian_plan": false,
+    "stationary_feedback": [
+      {
+        "T": 1051,
+        "x": 363.5021364,
+        "y": 255.1738054,
+        "z": 8.905715754,
+        "tit": 0.567572892,
+        "b": 0.612058334,
+        "s": 0.679553489,
+        "e": 1.264000169,
+        "t": 0.19481556,
+        "r": 0.003067962,
+        "g": 1.931281812,
+        "tB": 0,
+        "tS": 96,
+        "tE": 0,
+        "tT": 52,
+        "tR": 0,
+        "tG": 24,
+        "torswitchB": 1,
+        "torswitchS": 1,
+        "torswitchE": 1,
+        "torswitchT": 1,
+        "torswitchR": 1,
+        "torswitchG": 1,
+        "v": 1143
+      },
+      {
+        "T": 1051,
+        "x": 363.5021364,
+        "y": 255.1738054,
+        "z": 8.905715754,
+        "tit": 0.567572892,
+        "b": 0.612058334,
+        "s": 0.679553489,
+        "e": 1.264000169,
+        "t": 0.19481556,
+        "r": 0.003067962,
+        "g": 1.931281812,
+        "tB": 0,
+        "tS": 96,
+        "tE": 0,
+        "tT": 52,
+        "tR": 0,
+        "tG": 24,
+        "torswitchB": 1,
+        "torswitchS": 1,
+        "torswitchE": 1,
+        "torswitchT": 1,
+        "torswitchR": 1,
+        "torswitchG": 1,
+        "v": 1144
+      },
+      {
+        "T": 1051,
+        "x": 363.5021364,
+        "y": 255.1738054,
+        "z": 8.905715754,
+        "tit": 0.567572892,
+        "b": 0.612058334,
+        "s": 0.679553489,
+        "e": 1.264000169,
+        "t": 0.19481556,
+        "r": 0.003067962,
+        "g": 1.931281812,
+        "tB": 0,
+        "tS": 96,
+        "tE": 0,
+        "tT": 52,
+        "tR": 0,
+        "tG": 24,
+        "torswitchB": 1,
+        "torswitchS": 1,
+        "torswitchE": 1,
+        "torswitchT": 1,
+        "torswitchR": 1,
+        "torswitchG": 1,
+        "v": 1144
+      }
+    ],
+    "previous_fault": null,
+    "gripper_already_open": true,
+    "finished_at_unix": 1794831763.886244,
+    "final_status": {
+      "T": 1051,
+      "x": 360.9278367,
+      "y": 7.198487015,
+      "z": 192.9694925,
+      "tit": 0.095106809,
+      "b": 0.01994175,
+      "s": 0.073631078,
+      "e": 1.573864288,
+      "t": 0.018407769,
+      "r": 0.001533981,
+      "g": 3.124718865,
+      "tB": -60,
+      "tS": 208,
+      "tE": 24,
+      "tT": 64,
+      "tR": 0,
+      "tG": -36,
+      "torswitchB": 1,
+      "torswitchS": 1,
+      "torswitchE": 1,
+      "torswitchT": 1,
+      "torswitchR": 1,
+      "torswitchG": 1,
+      "v": 1142
+    },
+    "verification_trial_id": "7190f411274c43ce8d085120706f8619"
+  },
+  "review": {
+    "plan_id": "6802332810004bffa5caa893d004114c",
+    "outcome": "placed",
+    "direction": "none",
+    "source": "company_grok",
+    "note": "夹爪夹起黄球并抬升，释放后球落入黑色漏斗内，末帧仍稳定停留于漏斗中，未见滑落或弹出。",
+    "before_version": 63,
+    "after_version": 64,
+    "before": {
+      "pickup_xy_mm": [
+        16.053076115024975,
+        -3.3336109393538624
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "after": {
+      "pickup_xy_mm": [
+        16.053076115024975,
+        -3.3336109393538624
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "changes": [
+      "本轮成功，保留参数；下一轮换一个球位置验证。"
+    ],
+    "proposal": {
+      "observed_direction": "none",
+      "correction_direction": "none",
+      "frame": "unmirrored_rgb",
+      "step_mm": null,
+      "parameters_changed": [],
+      "before": {},
+      "after": {},
+      "comparison": "first_observation",
+      "allow_retry": true,
+      "decision": "directional_trial",
+      "comparison_evidence_bound": false,
+      "effect_assessed": false,
+      "effect_verified": false,
+      "improvement_confirmed": false,
+      "previous_motion_visual_check": "unknown",
+      "before_policy_id": "8d5f08501807",
+      "after_policy_id": "8d5f08501807",
+      "source_trial_id": null,
+      "status": "unchanged",
+      "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+    },
+    "at_unix": 1794831770.449761,
+    "comparison": {
+      "available": false,
+      "reference_plan_id": "613bdbf80fb74f3da49b64ff1c548b78",
+      "reason": "前后不是单项参数试验，不能归因修正效果",
+      "parameter_changes": [],
+      "feedback": {
+        "available": false,
+        "status": "missing",
+        "note": "固件反馈并非图像实测位移"
+      },
+      "current_pitch_deg": 80.0,
+      "plan_id": "6802332810004bffa5caa893d004114c",
+      "assessment": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无可用对比试验，未比较。"
+      },
+      "panel_url": null
+    },
+    "confidence": 0.9,
+    "ball_state": "funnel",
+    "magnitude": "small",
+    "adjustment": "keep",
+    "execution_diagnosis": {
+      "category": "complete",
+      "error": null,
+      "failed_stage": null,
+      "grasp_attempted": true,
+      "placement_attempted": true,
+      "stage_timings": [
+        {
+          "stage": "approach_ball",
+          "started_s": 0.001,
+          "completed_s": 2.185,
+          "duration_s": 2.184
+        },
+        {
+          "stage": "descend",
+          "started_s": 2.234,
+          "completed_s": 3.777,
+          "duration_s": 1.543
+        },
+        {
+          "stage": "close",
+          "started_s": 3.826,
+          "completed_s": 5.95,
+          "duration_s": 2.124
+        },
+        {
+          "stage": "lift",
+          "started_s": 6.0,
+          "completed_s": 8.029,
+          "duration_s": 2.029
+        },
+        {
+          "stage": "transport",
+          "started_s": 8.086,
+          "completed_s": 10.113,
+          "duration_s": 2.027
+        },
+        {
+          "stage": "lower_to_release",
+          "started_s": 10.175,
+          "completed_s": 11.48,
+          "duration_s": 1.305
+        },
+        {
+          "stage": "settle_over_funnel",
+          "started_s": 11.483
+        },
+        {
+          "stage": "release",
+          "started_s": 11.735,
+          "completed_s": 12.753,
+          "duration_s": 1.018
+        }
+      ],
+      "execution_trial_parameters": [],
+      "lift": {
+        "target_xyz_mm": [
+          335.9033033,
+          -9.277203628,
+          45.91218559785628
+        ],
+        "actual_xyz_mm": [
+          337.4637193,
+          -9.320300245,
+          14.13851939
+        ],
+        "target_height_mm": 165.72098090480912,
+        "actual_height_mm": 133.91069356047817,
+        "required_transfer_height_mm": 72.4,
+        "height_reference": "distance_above_calibrated_table_not_robot_z",
+        "undershoot_mm": 31.81028734433096
+      },
+      "elapsed_s": 12.758,
+      "target_duration_s": 10,
+      "recording_duration_s": 20,
+      "execution_budget_s": 19.6,
+      "retry_instruction": "先保存视觉复核与决策；未解决的执行故障不原样重试。"
+    },
+    "learning_basis": {
+      "scope": "visual",
+      "allow_visual": true,
+      "execution_issue_pending": false,
+      "reason": "按本轮实际画面选择单项抓取或投放修正；没有可比前轮不妨碍首次试验。"
+    },
+    "ball_xyz_mm": [
+      346.37478092732294,
+      -13.901453316726128,
+      -106.18072655472314
+    ],
+    "grasp_pitch_deg": 80.0,
+    "funnel_xyz_mm": [
+      374.7245256813285,
+      255.33481602242134,
+      -72.24655891400192
+    ]
+  }
+}

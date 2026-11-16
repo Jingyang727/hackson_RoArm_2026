@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "snapshot": "2026-11-16-success-demo",
+  "manifest": "SUCCESS_DEMO_COMPUTER_MANIFEST.json",
+  "manifest_sha256": "260a642d07d55af2a835e91540ecb2d2bd78e61f0b3fed2d13737712337f0c29",
+  "source_archive_sha256": "ca69b092f2e4bf003f22d17f0b65e0269000e9335eadc2f134c1e1bd4d84fd84",
+  "calibration_fingerprint": "05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4",
+  "install_paths": [
+    "calibrations/bench-layout-v2/active-session.json",
+    "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+    "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.png",
+    "pick_place_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+    "challenge_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+    "experiments/a7a3ea63fdd84775a0e7681bd8de1bf6/gemini_color_intrinsics.json"
+  ]
+}

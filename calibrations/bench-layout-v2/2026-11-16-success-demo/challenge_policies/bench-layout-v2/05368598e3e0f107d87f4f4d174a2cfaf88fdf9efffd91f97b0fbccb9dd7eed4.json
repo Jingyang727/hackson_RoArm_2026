@@ -1,0 +1,1288 @@
+{
+  "version": 13,
+  "parameters": {
+    "pickup_xy_mm": [
+      15.980074883328133,
+      0.6657444042862757
+    ],
+    "release_xy_mm": [
+      -0.5576964626081287,
+      15.990277504020822
+    ],
+    "grasp_z_offset_mm": 1.0,
+    "finger_offset_mm": 19.0,
+    "hover_height_mm": 70.0,
+    "lift_height_mm": 125.0,
+    "release_clearance_mm": 96.0,
+    "open_deg": 110.0,
+    "close_deg": 180.0,
+    "travel_speed": 1.0,
+    "approach_speed": 1.0,
+    "gripper_speed": 1000,
+    "gripper_acc": 20,
+    "squeeze_deg": 3.0
+  },
+  "reviews": [
+    {
+      "plan_id": "ec1bec1337af4853b15c65cd67c9f1ef",
+      "before": {
+        "pickup_xy_mm": [
+          16.053076115024975,
+          -3.3336109393538624
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          16.31754597943817,
+          -15.330696239159698
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "image_right",
+        "correction_direction": "image_left",
+        "frame": "unmirrored_rgb",
+        "step_mm": 12.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            16.053076115024975,
+            -3.3336109393538624
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            16.31754597943817,
+            -15.330696239159698
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "8d5f08501807",
+        "after_policy_id": "1eceff5ef372",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          0.26446986441319353,
+          -11.997085299805835
+        ],
+        "predicted_pixel_delta": [
+          -18.848252891937136,
+          0.0
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 12.0,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化12.0mm。\npickup_xy_mm按视觉模型判断的方向和幅度调整12mm；数值是试验步长，不是视觉模型测得的绝对误差。"
+      },
+      "changes": [
+        "观察到夹爪在目标的画面右侧，下一轮向画面左侧修正，保存的补偿变化12.0mm。",
+        "pickup_xy_mm按视觉模型判断的方向和幅度调整12mm；数值是试验步长，不是视觉模型测得的绝对误差。"
+      ],
+      "outcome": "grasp_missed",
+      "direction": "image_right",
+      "ball_state": "table",
+      "magnitude": "medium",
+      "adjustment": "pickup_xy",
+      "confidence": 0.82,
+      "note": "闭合帧夹爪在黄球右上方，有明显间隙；抬升后黄球仍在桌面原位，未被带起。",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无参考对比"
+      },
+      "ball_xyz_mm": [
+        384.9137624173992,
+        39.826127283037884,
+        -103.65786222809785
+      ],
+      "funnel_xyz_mm": [
+        355.5201050354595,
+        243.3288810096916,
+        -77.4222068840471
+      ],
+      "grasp_pitch_deg": 75.0,
+      "target_color": "yellow",
+      "at_unix": 1794828178.286402
+    },
+    {
+      "plan_id": "258c69b516c64ca8ac5a93f2f75b86ab",
+      "before": {
+        "pickup_xy_mm": [
+          16.31754597943817,
+          -15.330696239159698
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          16.31754597943817,
+          -15.330696239159698
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "1eceff5ef372",
+        "after_policy_id": "1eceff5ef372",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "direction": "none",
+      "ball_state": "funnel",
+      "magnitude": "small",
+      "adjustment": "keep",
+      "confidence": 0.9,
+      "note": "夹爪夹起红球，搬运到容器上方释放，释放后红球位于容器内，末帧仍在容器中。",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无参考对比"
+      },
+      "ball_xyz_mm": [
+        371.08624871253403,
+        -93.75682546678136,
+        -102.71926779957566
+      ],
+      "funnel_xyz_mm": [
+        354.41148142175234,
+        242.44219565947452,
+        -77.39183993741534
+      ],
+      "grasp_pitch_deg": 75.0,
+      "target_color": "red",
+      "at_unix": 1794828216.42012
+    },
+    {
+      "plan_id": "91cf8d1a8e69494ab34f8bdf5818fdcf",
+      "before": {
+        "pickup_xy_mm": [
+          16.31754597943817,
+          -15.330696239159698
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "image_left",
+        "correction_direction": "image_right",
+        "frame": "unmirrored_rgb",
+        "step_mm": 16.0,
+        "parameters_changed": [
+          "pickup_xy_mm"
+        ],
+        "before": {
+          "pickup_xy_mm": [
+            16.31754597943817,
+            -15.330696239159698
+          ]
+        },
+        "after": {
+          "pickup_xy_mm": [
+            15.980074883328133,
+            0.6657444042862757
+          ]
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "1eceff5ef372",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "robot_delta_mm": [
+          -0.33747109611003623,
+          15.996440643445974
+        ],
+        "predicted_pixel_delta": [
+          25.90170019790554,
+          5.684341886080802e-14
+        ],
+        "projection_direction_alignment": 1.0,
+        "requested_step_preserved": true,
+        "projection_direction_verified": true,
+        "saved_xy_step_mm": 15.999999999999998,
+        "status": "applied",
+        "reason": "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化16.0mm。\npickup_xy_mm按视觉模型判断的方向和幅度调整16mm；数值是试验步长，不是视觉模型测得的绝对误差。"
+      },
+      "changes": [
+        "观察到夹爪在目标的画面左侧，下一轮向画面右侧修正，保存的补偿变化16.0mm。",
+        "pickup_xy_mm按视觉模型判断的方向和幅度调整16mm；数值是试验步长，不是视觉模型测得的绝对误差。"
+      ],
+      "outcome": "grasp_missed",
+      "direction": "image_left",
+      "ball_state": "table",
+      "magnitude": "large",
+      "adjustment": "pickup_xy",
+      "confidence": 0.9,
+      "note": "黄色球在桌面位置未变，夹爪停在球左上方，未接触也未抬起球",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无可用参考对比"
+      },
+      "ball_xyz_mm": [
+        407.692249516525,
+        -37.5913599927801,
+        -103.05257445216576
+      ],
+      "funnel_xyz_mm": [
+        357.07405751817384,
+        241.0744240234705,
+        -77.35732500840338
+      ],
+      "grasp_pitch_deg": 70.0,
+      "target_color": "yellow",
+      "at_unix": 1794828255.2087731
+    },
+    {
+      "plan_id": "9c80c86967d543e89470f6fe6f352bfc",
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [
+          "travel_speed"
+        ],
+        "before": {
+          "travel_speed": 1.0
+        },
+        "after": {
+          "travel_speed": 0.85
+        },
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "69d39ee9bd82",
+        "source_trial_id": null,
+        "status": "applied",
+        "reason": "画面报告抓起后滑落，下一轮运输速度降低15%；不把角度预紧当作夹持力控制。"
+      },
+      "changes": [
+        "画面报告抓起后滑落，下一轮运输速度降低15%；不把角度预紧当作夹持力控制。"
+      ],
+      "outcome": "slipped",
+      "direction": "none",
+      "ball_state": "table",
+      "magnitude": "unknown",
+      "adjustment": "transport_slower",
+      "confidence": 0.7,
+      "note": "夹爪闭合后黄球被抬起（frame 152），但释放阶段黄球已回到台面（frame 218、299），未进入容器，判定为搬运滑落。",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无参考对比轮次"
+      },
+      "ball_xyz_mm": [
+        407.71128567490865,
+        -37.4591026031743,
+        -103.15045308970173
+      ],
+      "funnel_xyz_mm": [
+        353.971508616698,
+        241.56676183056592,
+        -77.79600296769078
+      ],
+      "grasp_pitch_deg": 70.0,
+      "target_color": "yellow",
+      "at_unix": 1794828311.959096
+    },
+    {
+      "plan_id": "73d61c6f671c43e1bbdff36d040e33a5",
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 0.85,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "69d39ee9bd82",
+        "after_policy_id": "69d39ee9bd82",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "direction": "none",
+      "ball_state": "funnel",
+      "magnitude": "small",
+      "adjustment": "keep",
+      "confidence": 0.9,
+      "note": "夹爪夹起黄色球，运输后在容器上方释放，最终帧黄色球位于容器内。",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无参考对比"
+      },
+      "ball_xyz_mm": [
+        339.08747408290185,
+        -157.19564006301883,
+        -105.44018555485383
+      ],
+      "funnel_xyz_mm": [
+        355.1004032404117,
+        242.10490946418727,
+        -77.19381308491883
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "yellow",
+      "at_unix": 1794828351.064854
+    },
+    {
+      "plan_id": "86ef884dce5448a68c09fc17d0e5ef43",
+      "session_id": "f73d928a00334222a2a79a0c00657496",
+      "attempt": 1,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        383.37344358320007,
+        -17.900155414610744,
+        -102.64705386344079
+      ],
+      "funnel_xyz_mm": [
+        360.98999318239936,
+        255.00852583254758,
+        -72.79113900071084
+      ],
+      "grasp_pitch_deg": 75.0,
+      "target_color": "red",
+      "at_unix": 1794831443.35313
+    },
+    {
+      "plan_id": "235b518769304b978872dcc27af8ccf9",
+      "session_id": "f73d928a00334222a2a79a0c00657496",
+      "attempt": 2,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        325.54764890494147,
+        48.35551108899869,
+        -106.48080539114721
+      ],
+      "funnel_xyz_mm": [
+        364.7394973125302,
+        259.7965275578157,
+        -76.6647758404893
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "yellow",
+      "at_unix": 1794831467.629798
+    },
+    {
+      "plan_id": "eb3cb97e2ece44639b38182b12f6f983",
+      "session_id": "f73d928a00334222a2a79a0c00657496",
+      "attempt": 3,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        342.6117436050499,
+        -52.89909598493933,
+        -105.05481482854101
+      ],
+      "funnel_xyz_mm": [
+        363.076723513762,
+        263.0229411664212,
+        -77.25790352666255
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "blue",
+      "at_unix": 1794831491.866722
+    },
+    {
+      "plan_id": "cf3476d105b7481a92a052ebcfe74475",
+      "session_id": "ad240f5dd1dd42dbbe125a26adbd9ef9",
+      "attempt": 1,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        349.83672583263404,
+        60.896433863422004,
+        -103.9119969472885
+      ],
+      "funnel_xyz_mm": [
+        375.10321157261967,
+        254.51462769221962,
+        -72.23380050952659
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "red",
+      "at_unix": 1794831571.275451
+    },
+    {
+      "plan_id": "806c8595c55d4e0595e7688880d197d0",
+      "session_id": "ad240f5dd1dd42dbbe125a26adbd9ef9",
+      "attempt": 3,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        374.34696963744153,
+        -39.609885281902166,
+        -104.07846858507304
+      ],
+      "funnel_xyz_mm": [
+        373.99981040480714,
+        258.5513292426869,
+        -76.40085486938513
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "yellow",
+      "at_unix": 1794831619.7310889
+    },
+    {
+      "plan_id": "5352d852631a4ffb9f0bc2f4fd845717",
+      "session_id": "ad240f5dd1dd42dbbe125a26adbd9ef9",
+      "attempt": 2,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": false,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮没有产生新的有效参数，保留现有参数；动作已确认完成时可以重新定位后再次尝试。\n证据不足或方向不明确，保留参数，重新观察后再试。"
+      },
+      "changes": [
+        "本轮没有产生新的有效参数，保留现有参数；动作已确认完成时可以重新定位后再次尝试。",
+        "证据不足或方向不明确，保留参数，重新观察后再试。"
+      ],
+      "outcome": "placement_missed",
+      "direction": "none",
+      "ball_state": "table",
+      "magnitude": "unknown",
+      "adjustment": "release_xy",
+      "confidence": 0.8,
+      "note": "闭合与抬升帧可见蓝球被夹住并抬起，但释放后蓝球回到桌面，未进入容器。",
+      "comparison": {
+        "reference_plan_id": null,
+        "effect": "not_compared",
+        "movement": "unknown",
+        "note": "无可用参考对比"
+      },
+      "source": "model",
+      "ball_xyz_mm": [
+        424.8214778798015,
+        54.426107587579395,
+        -101.5565295037652
+      ],
+      "funnel_xyz_mm": [
+        373.2566288937565,
+        259.0585454547301,
+        -76.07913965293463
+      ],
+      "grasp_pitch_deg": 60.0,
+      "target_color": "blue",
+      "at_unix": 1794831620.244288
+    },
+    {
+      "plan_id": "6f17a650d30046ddbb653a36c492529b",
+      "session_id": "ad240f5dd1dd42dbbe125a26adbd9ef9",
+      "attempt": 4,
+      "before": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "after": {
+        "pickup_xy_mm": [
+          15.980074883328133,
+          0.6657444042862757
+        ],
+        "release_xy_mm": [
+          -0.5576964626081287,
+          15.990277504020822
+        ],
+        "grasp_z_offset_mm": 1.0,
+        "finger_offset_mm": 19.0,
+        "hover_height_mm": 70.0,
+        "lift_height_mm": 125.0,
+        "release_clearance_mm": 96.0,
+        "open_deg": 110.0,
+        "close_deg": 180.0,
+        "travel_speed": 1.0,
+        "approach_speed": 1.0,
+        "gripper_speed": 1000,
+        "gripper_acc": 20,
+        "squeeze_deg": 3.0
+      },
+      "proposal": {
+        "observed_direction": "none",
+        "correction_direction": "none",
+        "frame": "unmirrored_rgb",
+        "step_mm": null,
+        "parameters_changed": [],
+        "before": {},
+        "after": {},
+        "comparison": "first_observation",
+        "allow_retry": true,
+        "decision": "directional_trial",
+        "comparison_evidence_bound": false,
+        "effect_assessed": false,
+        "effect_verified": false,
+        "improvement_confirmed": false,
+        "previous_motion_visual_check": "unknown",
+        "before_policy_id": "de69b84fc4a9",
+        "after_policy_id": "de69b84fc4a9",
+        "source_trial_id": null,
+        "status": "unchanged",
+        "reason": "本轮成功，保留参数；下一轮换一个球位置验证。"
+      },
+      "changes": [
+        "本轮成功，保留参数；下一轮换一个球位置验证。"
+      ],
+      "outcome": "placed",
+      "ball_state": "funnel",
+      "direction": "none",
+      "magnitude": "unknown",
+      "adjustment": "keep",
+      "note": "实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。",
+      "source": "rgbd",
+      "ball_xyz_mm": [
+        359.37130810762454,
+        40.29605916348201,
+        -104.28521402268734
+      ],
+      "funnel_xyz_mm": [
+        373.294443157187,
+        258.7542034658019,
+        -75.92298306381544
+      ],
+      "grasp_pitch_deg": 80.0,
+      "target_color": "blue",
+      "at_unix": 1794831644.687855
+    }
+  ],
+  "source_single_ball_policy_id": "8d5f08501807",
+  "challenge_motion_profile": 2,
+  "speed_profile_migration": {
+    "before": {
+      "pickup_xy_mm": [
+        15.980074883328133,
+        0.6657444042862757
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 0.85,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "after": {
+      "pickup_xy_mm": [
+        15.980074883328133,
+        0.6657444042862757
+      ],
+      "release_xy_mm": [
+        -0.5576964626081287,
+        15.990277504020822
+      ],
+      "grasp_z_offset_mm": 1.0,
+      "finger_offset_mm": 19.0,
+      "hover_height_mm": 70.0,
+      "lift_height_mm": 125.0,
+      "release_clearance_mm": 96.0,
+      "open_deg": 110.0,
+      "close_deg": 180.0,
+      "travel_speed": 1.0,
+      "approach_speed": 1.0,
+      "gripper_speed": 1000,
+      "gripper_acc": 20,
+      "squeeze_deg": 3.0
+    },
+    "reason": "仅挑战模式采用快速转移1.0、下探0.6；后续滑落学习可下调，不每轮强行覆盖。"
+  }
+}

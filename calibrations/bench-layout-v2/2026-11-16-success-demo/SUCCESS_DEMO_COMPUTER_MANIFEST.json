@@ -1,0 +1,65 @@
+{
+  "machine_role": "success-demo-computer",
+  "created_at": "2026-11-16T20:29:57+08:00",
+  "active_session_from_api": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+  "calibration_fingerprint": "05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4",
+  "successful_pick_place_plan_id": "6802332810004bffa5caa893d004114c",
+  "runtime": {
+    "code_revision": "4aad187991f07a897f7da053a70e0c7dcd6a75a6",
+    "project_directory": "/Users/jyang51/workdir/hackson_RoArm_2026-challenge-upgrade-demo",
+    "web_pid": 21476,
+    "worktree_status": "clean",
+    "branch": "detached HEAD at origin/feature/challenge-upgrade-demo"
+  },
+  "missing": [],
+  "files": [
+    {
+      "archive_path": "calibrations/bench-layout-v2/active-session.json",
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/active-session.json",
+      "sha256": "21564027717d95719e3d7b202a40273c909bbfdb3450c8cd5cca13073d7dcdb2",
+      "bytes": 244
+    },
+    {
+      "archive_path": "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.json",
+      "sha256": "0fe6f3b63d467e38cd7a8b692ed64f5744ef015898e2a8fbf5071edff0fe5b00",
+      "bytes": 35216
+    },
+    {
+      "archive_path": "calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.png",
+      "source": "/Users/jyang51/.evoarm/rsi/calibrations/bench-layout-v2/revisions/eef40afc17fa4533a4d4198c0edf2676/session.png",
+      "sha256": "cacdea30027ede9b866c9dbb68c9c592c40695c3725a45733f8e0da730b92818",
+      "bytes": 537429
+    },
+    {
+      "archive_path": "pick_place_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "source": "/Users/jyang51/.evoarm/rsi/pick_place_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "sha256": "a06d92368513cda804db152da4fb0de5996f3ef2cff233bec108293612e2583d",
+      "bytes": 407345
+    },
+    {
+      "archive_path": "challenge_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "source": "/Users/jyang51/.evoarm/rsi/challenge_policies/bench-layout-v2/05368598e3e0f107d87f4f4d174a2cfaf88fdf9efffd91f97b0fbccb9dd7eed4.json",
+      "sha256": "df5844a2b3bfeaf048ceb136c67d1ed71eac499f55583ee84cb2497a30312529",
+      "bytes": 39164
+    },
+    {
+      "archive_path": "experiments/a7a3ea63fdd84775a0e7681bd8de1bf6/gemini_color_intrinsics.json",
+      "source": "/Users/jyang51/.evoarm/rsi/experiments/a7a3ea63fdd84775a0e7681bd8de1bf6/gemini_color_intrinsics.json",
+      "sha256": "f776e70ac523887ee786bcf20c7dbeddc9e9f604c0936948dc4d2919961064d6",
+      "bytes": 305
+    },
+    {
+      "archive_path": "pick_place_runs/6802332810004bffa5caa893d004114c/state.json",
+      "source": "/Users/jyang51/.evoarm/rsi/pick_place_runs/6802332810004bffa5caa893d004114c/state.json",
+      "sha256": "4683db1becfc7e9ebc9c9b1fe62f74e9c6f848ca09fd80dbd6042859eaa2694a",
+      "bytes": 96433
+    },
+    {
+      "archive_path": "pick_place_runs/6802332810004bffa5caa893d004114c/calibration-snapshot.json",
+      "source": "/Users/jyang51/.evoarm/rsi/pick_place_runs/6802332810004bffa5caa893d004114c/calibration-snapshot.json",
+      "sha256": "0fe6f3b63d467e38cd7a8b692ed64f5744ef015898e2a8fbf5071edff0fe5b00",
+      "bytes": 35216
+    }
+  ]
+}
