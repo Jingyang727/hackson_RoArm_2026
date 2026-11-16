@@ -73,10 +73,13 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         feedback=context.get('feedback',{})
         if outcome=='placed':
             comparison_status=effect;decision='keep';why.append('本轮已成功，保留本轮实际使用的参数。')
+        elif not changed_before or previous.get('proposal',{}).get('status')=='rolled_back':
+            comparison_status='baseline_recheck'
+            why.append('上轮为保留或回滚参数，不把回滚本身当作新修正再次撤销；按本轮画面选择试验并保留已否定策略的记录。')
         elif movement=='opposite' or feedback.get('status')=='opposite' or effect=='worsened':
             comparison_status='direction_disproved' if movement=='opposite' or feedback.get('status')=='opposite' else 'error_worsened'
             rollback=True;allow_retry=False;decision='undo'
-            why.append('前后实帧或反馈否定了上一轮修正，撤销该项参数；回位后停止重复同向叠加，保留对照证据。')
+            why.append('前后实帧或反馈否定了上一轮修正，撤销该项参数并保留对照证据；后续使用回滚后的参数，不继续叠加被否定的修正。')
         elif (movement=='no_visible_motion' and effect=='unchanged' and previous_step and previous_step<MIN_XY_STEP_MM
               and feedback.get('status') not in ('too_small','opposite')):
             requested=previous.get('proposal',{}).get('step_mm') or previous_step
@@ -159,18 +162,21 @@ def propose(parameters,scene,outcome,direction,magnitude='medium',adjustment='un
         old_pitch=record.get('grasp_pitch_deg');current_pitch=context.get('current_pitch_deg')
         same_pose=old_pitch is None or current_pitch is None or abs(old_pitch-current_pitch)<=5
         rejected=record.get('before',{});rejected_id=record.get('proposal',{}).get('rejected_policy_id')
+        old_proposal=record.get('proposal',{})
+        disproved_direction=(old_proposal.get('comparison')=='direction_disproved' and
+            old_proposal.get('observed_direction')==direction and key in old_proposal.get('rollback_parameters',[]) and key in changed)
         same_trial=bool(rejected_id and set(rejected)==set(after) and rejected_id==policy_id(rejected) and
                         all(math.dist(after[k],rejected[k])<=1. if k in ('pickup_xy_mm','release_xy_mm') else after[k]==rejected[k] for k in after))
         if (same_pose and old_location and math.dist(old_location[:2],location[:2])<=BALL_RADIUS and
-                same_trial and changed and (not rollback or replacement)):
+                (same_trial or disproved_direction) and changed and (not rollback or replacement)):
             after=copy.deepcopy(before);changed=[];changes=[]
             proposal.update(after={},before={},parameters_changed=[],after_policy_id=policy_id(before),allow_retry=False,decision='avoid_rejected_policy')
             if 'robot_delta_mm' in proposal:proposal.update(robot_delta_mm=[0.,0.],predicted_pixel_delta=[0.,0.],saved_xy_step_mm=0.)
-            why=['该位置和姿态的同一策略已被前后录像否定，本轮未重复应用。'];break
+            why=['该位置和姿态的同一策略或修正方向已被前后录像否定，本轮保留当前参数，不重新应用被否定的修正。'];break
     actionable=outcome in ('grasp_missed','placement_missed','pushed_away','slipped','bounced_out')
     if actionable and not changed:
         proposal['allow_retry']=False
-        why.append('本轮没有产生新的有效参数，停止重复相同策略。')
+        why.append('本轮没有产生新的有效参数，保留现有参数；动作已确认完成时可以重新定位后再次尝试。')
     proposal['status']='replanned' if replacement else 'rolled_back' if rollback else 'applied' if changed else 'unchanged'
     proposal['reason']='\n'.join(why+changes)
     return after,why+changes,proposal

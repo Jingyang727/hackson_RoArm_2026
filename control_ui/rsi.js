@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id),prefix='/api/bench/rsi';
 const declaration='现场已清空，允许自动抓放、失败后恢复官方姿态并连续重试';
 const outcomes={placed:'已抓起并进入漏斗',grasp_missed:'没夹住',pushed_away:'球被推走',slipped:'球滑落',placement_missed:'投放偏了',bounced_out:'球弹出了漏斗',execution_failed:'动作未完成',unknown:'画面不足以判断'};
 const phases={idle:'尚未开始。',starting:'检查当前状态…',observing:'观察黄球与漏斗，规划本轮路径…',planning_failed:'当前候选路径未通过，正在检查起步状态…',checking_home:'正在核对当前姿态与官方初始姿态…',home_checked:'起步姿态检查完成。',scene_check:'视觉模型正在确认当前球与漏斗…',
-  analyzing:'视觉模型正在分析本轮20秒录像…',learning:'根据视觉模型判断更新策略…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
+  analyzing:'视觉模型正在分析本轮20秒录像…',learning:'根据视觉模型判断更新策略…',retrying:'保留本轮记录，准备重新定位并继续尝试…',recovering:'正在恢复官方初始姿态…',replanning:'已复位，重新定位并规划…',reset_completed:'已恢复官方初始姿态。',
   completed:'本轮成功，策略已保存。',exhausted:'本次尝试次数已用完，策略和证据已保存。',stopping:'正在停止；不会继续恢复或重试。',stopped:'自动任务已停止。',
   recording_warmup:'启动本轮录像…',raise_current:'先在原XY竖直抬高…',clearance_adjust:'竖直调整到高处通道…',orient_transport:'高处调整运输姿态…',orient_clear:'高处调整姿态…',align_above_ball:'在球顶上方竖直调整姿态…',lower_to_release:'到漏斗高处投放点，停稳…',open:'张爪…',align:'调整接近姿态…',approach_ball:'在高处移到球顶上方，同时张爪…',
   descend:'下降接近黄球…',close:'合抓…',lift:'提升…',transit_arc:'经过过渡点…',transport:'移动到漏斗上方…',release:'释放小球…',saving_recording:'保存本轮录像与反馈…'};
@@ -11,6 +11,10 @@ let state=null,busy=false,polling=false,revision=0,historyKey=null;
 const stream={active:false,sequence:0,generation:0,controller:null,timer:null,url:null};
 const number=v=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(1):'—';
 const xyz=v=>Array.isArray(v)?v.map(number).join(', '):'—';
+function attemptLimit(){
+  const value=$('maxAttempts').value;
+  return value==='continuous'?null:Number(value==='custom'?$('customAttempts').value:value);
+}
 const parameterNames={pickup_xy_mm:'抓取 XY 补偿（mm）',release_xy_mm:'投放 XY 补偿（mm）',grasp_z_offset_mm:'抓取高度补偿（mm）',finger_offset_mm:'指尖偏移（mm）',squeeze_deg:'预紧角度（°）',travel_speed:'移动速度',release_clearance_mm:'投放间隙（mm）',lift_height_mm:'抬升目标离桌高度（mm）',approach_speed:'下探速度'};
 function targets(plan){
   const overlay=$('targetOverlay'),caption=$('targetCaption');overlay.replaceChildren();overlay.toggleAttribute('hidden',!plan);caption.hidden=!plan;
@@ -49,14 +53,17 @@ function render(){
   $('connect').hidden=Boolean(h.connected);$('connect').disabled=busy||running;
   $('readiness').textContent=!h.connected?'先连接机械臂，现场看护串口初始化。':!locked?'六关节扭矩反馈尚未全部确认锁定。':h.fault?'启动后先确认新鲜静止反馈，直接恢复官方姿态。':'沿用已有标定。发生规划或动作异常时自动恢复官方姿态。';
   const grok=state?.grok||{};$('grokStatus').textContent=grok.configured?`视觉模型 ${grok.model} · API直接调用`:(grok.reason||'正在检查视觉模型API配置。');
-  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3;
+  const compatible=state?.api_version===10&&state?.web_learning_version===3&&state?.visual_pipeline_version===3&&state?.continuous_learning_version===1;
   $('observeObjects').disabled=busy||workspaceBusy||running||!compatible;
   if(state&&!compatible)$('grokStatus').textContent='网页服务仍是旧版，请更新并重启服务后再开始。';
-  $('start').disabled=busy||workspaceBusy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked||Boolean(window.RSISpeed?.isDirty());
+  const limit=attemptLimit(),validLimit=limit===null||Number.isSafeInteger(limit)&&limit>=1;
+  $('start').disabled=busy||workspaceBusy||running||!compatible||!h.connected||!locked||!h.motion_enabled||Boolean(h.pending)||!grok.configured||!$('confirmed').checked||Boolean(window.RSISpeed?.isDirty())||!validLimit;
   $('reset').hidden=running;$('reset').disabled=busy||running||!h.connected||!locked||!h.motion_enabled||!$('confirmed').checked;
   $('confirmed').disabled=running||busy;$('maxAttempts').disabled=running||busy;
+  $('customAttempts').disabled=running||busy;$('customAttemptsField').hidden=$('maxAttempts').value!=='custom';
+  $('attemptHint').textContent=!validLimit?'请输入正整数轮数。':limit===null?'持续尝试没有轮数上限。成功或手动停止后结束；执行异常仍会暂停。每轮重新定位，参数相同也可以重试。':`最多尝试 ${limit} 轮，成功即停止；没有新修正时保留参数继续尝试。`;
   $('stop').hidden=!running;$('stop').disabled=a.phase==='stopping'||j.phase==='stopping';
-  $('attemptBadge').textContent=a.attempt?`第 ${a.attempt} / ${a.max_attempts} 轮`:'尚未开始';
+  $('attemptBadge').textContent=a.attempt?(a.max_attempts===null?`第 ${a.attempt} 轮 · 持续尝试`:`第 ${a.attempt} / ${a.max_attempts} 轮`):'尚未开始';
   const phase=a.status==='running'?(a.phase==='executing'?j.phase:a.phase):j.status==='running'?j.phase:a.phase;
   $('phase').textContent=a.status==='failed'?(a.error?.startsWith('已恢复官方初始姿态')?a.error:'任务已停止：'+(a.error||'请查看本轮记录')):phases[phase]||phases[j.phase]||'尚未开始。';
   const diagnostic=a.planning_diagnosis;$('planningIssue').hidden=!diagnostic;
@@ -126,6 +133,7 @@ $('observeObjects').onclick=()=>action(async()=>{
   }catch(error){$('observationFacts').textContent='本次定位失败，当前没有可验证的新坐标；请查看错误信息。';throw error;}
 });
 $('confirmed').onchange=render;
+$('maxAttempts').onchange=render;$('customAttempts').oninput=render;
 $('loadXYAudit').onclick=async()=>{
   const button=$('loadXYAudit'),facts=$('xyAuditFacts');button.disabled=true;facts.textContent='正在读取已有记录，不采样或运动…';
   try{
@@ -140,7 +148,7 @@ $('loadXYAudit').onclick=async()=>{
     }
   }catch(error){facts.textContent='读取失败：'+error.message;}finally{button.disabled=false;}
 };
-$('start').onclick=()=>{if($('start').disabled)return;return action(async()=>{await api(prefix+'/learning/start','POST',{declaration,max_attempts:Number($('maxAttempts').value)});$('confirmed').checked=false;});};
+$('start').onclick=()=>{if($('start').disabled)return;return action(async()=>{await api(prefix+'/learning/start','POST',{declaration,max_attempts:attemptLimit()});$('confirmed').checked=false;});};
 $('reset').onclick=()=>{if($('reset').disabled)return;return action(async()=>{await api(prefix+'/learning/reset','POST',{declaration});$('confirmed').checked=false;});};
 $('stop').onclick=async()=>{if($('stop').disabled)return;$('stop').disabled=true;try{if(state.learning?.status==='running')await api(prefix+'/learning/stop','POST',{});else await api(prefix+'/stop','POST',{plan_id:state.job.plan_id});await refresh();}catch(error){showError(error);}};
 $('trialVideo').onerror=()=>showError(Error('回放暂不可用，可下载原录像或查看关键帧；请检查回放编码器依赖。'));

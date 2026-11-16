@@ -1,7 +1,8 @@
-"""Bounded RSI loop with a separate official reset for every new failure."""
+"""Finite or continuous RSI, with a separate recovery for every new failure."""
 from __future__ import annotations
 
 import copy
+import itertools
 from pathlib import Path
 import threading
 import time
@@ -68,9 +69,10 @@ class LearningLoop:
             if self.value.get('session_id'):
                 _write(Path.home()/'.evoarm/rsi/learning_sessions'/self.value['session_id']/'state.json',self.value)
 
-    def start(self,declaration,max_attempts=5):
+    def start(self,declaration,max_attempts=None):
         if declaration!=LEARNING_DECLARATION:raise ValueError('请确认自动抓放、恢复和连续重试的范围')
-        if type(max_attempts) is not int or not 1<=max_attempts<=20:raise ValueError('自动试次需为1～20次')
+        if max_attempts is not None and (type(max_attempts) is not int or max_attempts<1):
+            raise ValueError('自动试次需为正整数，或用null持续尝试')
         config=grok_review.configuration()
         if not config['configured']:raise ValueError(config['reason'])
         service=self.service_provider()
@@ -82,6 +84,7 @@ class LearningLoop:
             if any(raw.get('torswitch'+k)!=1 for k in 'BSETRG'):raise ValueError('六关节锁定反馈尚未确认')
             key=uuid.uuid4().hex;self.stop_event.clear();self.trial_stop.clear()
             self.value={'session_id':key,'status':'running','phase':'starting','attempt':0,'max_attempts':max_attempts,
+                        'continuous':max_attempts is None,'trial_count':0,
                         'trials':[],'recovery_events':[],'started_at_unix':time.time(),'error':None}
             self.events.reset(key);self._event_phase=None;self._motion_phase=None
             service.automation_owner=key
@@ -188,7 +191,8 @@ class LearningLoop:
             if service.fault:
                 report=self._reset_error(session_id,None,RuntimeError(service.fault['message']),'startup')
                 if report['status']!='completed':raise ResetHandledError(RuntimeError('起步复位未确认'),report)
-            for attempt in range(1,max_attempts+1):
+            for attempt in itertools.count(1):
+                if max_attempts is not None and attempt>max_attempts:break
                 # Forget the old trial BEFORE preparing a new one. Its receipt
                 # cannot stand in for recovery of a later planning failure.
                 current=None;phase='planning';key=self._prepare_from_home_if_needed(session_id,attempt)
@@ -216,19 +220,24 @@ class LearningLoop:
                 phase='analyzing';self.publish('analyzing');root=Path.home()/'.evoarm/rsi/pick_place_runs'/key
                 append_event(root,'grok_review_started');verdict=self._review(key)
                 append_event(root,'grok_review_completed',verdict=verdict)
+                self._guard()
                 if not result.get('grasp_attempted') and verdict['outcome'] not in ('unknown','execution_failed','pushed_away'):
                     verdict.update(outcome='execution_failed',direction='none')
                 decision=self.apply_review(key,verdict)
+                with self.lock:
+                    self.value['trial_count']+=1
+                    self.value['trials'].append({'plan_id':key,'outcome':verdict['outcome'],'policy_version':decision['after_version']})
+                    # Full records remain on disk; polling keeps a recent window.
+                    self.value['trials']=self.value['trials'][-100:]
                 self.publish('learning',review=decision,changes=decision['changes'],policy_version=decision['after_version'])
-                self.value['trials'].append({'plan_id':key,'outcome':verdict['outcome'],'policy_version':decision['after_version']})
                 if verdict['outcome']=='placed':
                     self.archive(current);self.publish('completed',status='completed',finished_at_unix=time.time());return
                 self.archive(current)
-                if verdict['outcome']=='unknown':
-                    raise ResetHandledError(RuntimeError('视觉模型无法可靠判断本轮，已保留证据'),current['recovery'])
                 if decision.get('proposal',{}).get('allow_retry') is False:
                     reason=decision.get('proposal',{}).get('reason') or '当前画面与反馈不足以选择新参数。'
-                    raise ResetHandledError(RuntimeError('本轮没有可验证的新修正：'+reason),current['recovery'])
+                    raise ResetHandledError(RuntimeError('本轮执行问题尚未解决：'+reason),current['recovery'])
+                if max_attempts is None or attempt<max_attempts:
+                    self.publish('retrying',message=decision.get('proposal',{}).get('retry_reason') or '重新定位并规划下一轮。')
             self.publish('exhausted',status='completed',finished_at_unix=time.time(),message='尝试次数已用完，机械臂已恢复官方姿态，策略与证据已保存')
         except Exception as exc:
             report=(exc.report if isinstance(exc,ResetHandledError) else

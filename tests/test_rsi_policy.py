@@ -97,6 +97,10 @@ class CameraRelativePolicy(unittest.TestCase):
         retried,_,decision=propose(restored,self.scene,'grasp_missed','image_right','medium',history=history)
         self.assertEqual(retried,restored);self.assertFalse(decision['allow_retry'])
         self.assertEqual(decision['decision'],'avoid_rejected_policy')
+        smaller,_,decision=propose(restored,self.scene,'grasp_missed','image_right','small',history=history)
+        self.assertEqual(smaller,restored);self.assertEqual(decision['decision'],'avoid_rejected_policy')
+        different,_,_=propose(restored,self.scene,'grasp_missed','image_left','small',history=history)
+        self.assertNotEqual(different,restored)
 
     def test_wrong_reference_does_not_control_the_policy(self):
         first,_,proposal=propose(self.parameters,self.scene,'grasp_missed','image_right')

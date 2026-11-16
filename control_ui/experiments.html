@@ -81,7 +81,12 @@
       <details id="changeDetails" hidden><summary>本轮参数变化</summary><p id="changeFacts" class="facts"></p></details>
       <a id="sessionBackupLink" class="text-button" download hidden>下载本次任务诊断</a>
       <div id="grokVerdict" class="verdict" hidden></div>
-      <details><summary>尝试次数</summary><label class="quiet" for="maxAttempts">本次最多尝试</label> <select id="maxAttempts"><option value="1">1轮</option><option value="3">3轮</option><option value="5" selected>5轮</option><option value="10">10轮</option></select><p class="quiet">成功即停止；每轮会重新定位球和漏斗。</p></details>
+      <details id="attemptSettings"><summary>尝试次数（默认持续尝试）</summary>
+        <label class="quiet" for="maxAttempts">尝试模式</label>
+        <select id="maxAttempts"><option value="continuous" selected>持续尝试，成功或手动停止</option><option value="1">1轮</option><option value="3">3轮</option><option value="5">5轮</option><option value="10">10轮</option><option value="50">50轮</option><option value="100">100轮</option><option value="custom">自定义轮数</option></select>
+        <label id="customAttemptsField" class="quiet" for="customAttempts" hidden>最多尝试轮数 <input id="customAttempts" type="number" min="1" step="1" value="50"/></label>
+        <p id="attemptHint" class="quiet">持续尝试没有轮数上限。成功或手动停止后结束；执行异常仍会暂停。每轮重新定位，参数相同也可以重试。</p>
+      </details>
       <p class="limits-note">每轮录像20秒，抓放仍以10秒为性能目标；录像结束后回位，再分析，下一轮重新开始计时。停止会阻止后续动作和重试；已接受的动作可能继续。</p>
     </div>
   </section>

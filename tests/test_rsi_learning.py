@@ -113,8 +113,8 @@ class AutoAPI(unittest.TestCase):
                 answer=verdict('grasp_missed' if first or opposite or len(captured)==2 else 'placed','image_right',
                                'medium' if first else 'small')
                 answer['comparison']={'reference_plan_id':pair['reference_plan_id'] if pair['available'] else None,
-                    'effect':'not_compared' if first else 'worsened' if opposite else 'improved',
-                    'movement':'unknown' if first else 'opposite' if opposite else 'as_expected','note':'synthetic paired evidence'}
+                    'effect':'not_compared' if not pair['available'] else 'worsened' if opposite else 'improved',
+                    'movement':'unknown' if not pair['available'] else 'opposite' if opposite else 'as_expected','note':'synthetic paired evidence'}
             return json.dumps(answer)
         self.fixture.execute_mock.side_effect=execute
         with (patch.object(grok_review,'configuration',return_value={'configured':True,'model':'grok-test','backend':'company_api'}),
@@ -124,23 +124,26 @@ class AutoAPI(unittest.TestCase):
         _,state=self.request('state',method='GET')
         return state,contexts,recovery.call_count
 
-    def test_real_review_pipeline_compares_trials_and_rolls_back_wrong_way_instead_of_third_attempt(self):
+    def test_real_review_pipeline_rolls_back_wrong_way_and_continues_with_restored_policy(self):
         state,contexts,resets=self.paired_run(opposite=True)
-        self.assertEqual(len(self.policies),2);self.assertEqual(resets,2)
-        self.assertEqual(state['learning']['status'],'failed',state['learning'].get('error'))
-        entry=state['plan']['review'];self.assertEqual(entry['proposal']['comparison'],'direction_disproved')
+        self.assertEqual(len(self.policies),5);self.assertEqual(resets,5)
+        self.assertEqual(state['learning']['phase'],'exhausted',state['learning'].get('error'))
+        entry=state['plan']['review']
         self.assertEqual(entry['after'],DEFAULT_PARAMETERS)
-        self.assertEqual(entry['comparison']['feedback']['status'],'opposite')
-        self.assertEqual(entry['comparison']['assessment']['movement'],'opposite')
-        self.assertTrue(entry['comparison']['panel_url'])
-        self.assertTrue(contexts[-1]['comparison']['available'])
+        self.assertTrue(all(p==DEFAULT_PARAMETERS for p in self.policies[2:]))
+        self.assertTrue(entry['proposal']['allow_retry'])
+        rollback=next(row['review'] for row in state['process']['events'] if row['kind']=='policy' and
+                      row['review']['proposal']['comparison']=='direction_disproved')
+        self.assertTrue(rollback['comparison']['panel_url'])
+        paired=next(c for c in contexts if c.get('plan_id')==rollback['plan_id'])
+        self.assertTrue(paired['comparison']['available'])
         self.assertTrue(any(row['kind']=='comparison' for row in state['process']['events']))
-        response,image=asyncio.run(loop_fixtures.api_request(entry['comparison']['panel_url'],{},method='GET',decode_json=False))
+        response,image=asyncio.run(loop_fixtures.api_request(rollback['comparison']['panel_url'],{},method='GET',decode_json=False))
         self.assertEqual(response['status'],200);self.assertGreater(len(image),1000)
         import zipfile
-        with zipfile.ZipFile(self.fixture.home/'.evoarm/rsi/backups'/f"{state['plan']['plan_id']}.zip") as archive:
+        with zipfile.ZipFile(self.fixture.home/'.evoarm/rsi/backups'/f"{rollback['plan_id']}.zip") as archive:
             self.assertIn('trial/comparison.jpg',archive.namelist())
-            self.assertNotIn('path',contexts[-1]['comparison']['previous_frame'])
+            self.assertNotIn('path',paired['comparison']['previous_frame'])
             stored=json.loads(archive.read('trial/grok-request.json'))
             original=stored['context']['comparison']['previous_frame']['path']
             self.assertEqual(archive.read('trial/model-frames/raw-review-00.jpg'),Path(original).read_bytes())
@@ -170,20 +173,16 @@ class AutoAPI(unittest.TestCase):
         saved=json.loads((self.fixture.home/'.evoarm/rsi/pick_place_runs'/state['plan']['plan_id']/'state.json').read_text())
         self.assertEqual(saved['result']['policy_application'],audit)
 
-    def test_no_effective_new_parameter_recovers_and_stops_instead_of_replaying(self):
-        miss=verdict('grasp_missed','image_right','small')
-        from evoarm_rsi.rsi_policy import propose
-        def bounded(*args,**kwargs):
-            parameters,changes,proposal=propose(*args,**kwargs)
-            proposal['allow_retry']=False
-            return parameters,changes,proposal
-        with (patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''},miss]),
-              patch('control_ui.rsi_trial.propose',side_effect=bounded),
+    def test_no_new_parameter_recovers_reobserves_and_uses_all_requested_rounds(self):
+        miss=verdict('grasp_missed','none')
+        with (patch('evoarm_rsi.grok_review.review',side_effect=[{'ready':True,'note':''}]+[miss]*5),
               patch('control_ui.rsi_trial.recover_trial',return_value={'status':'completed'}) as recovery):
             self.start()
-        self.assertEqual(len(self.policies),1);self.assertEqual(recovery.call_count,1)
+        self.assertEqual(len(self.policies),5);self.assertEqual(recovery.call_count,5)
+        self.assertTrue(all(p==DEFAULT_PARAMETERS for p in self.policies))
         _,state=self.request('state',method='GET')
-        self.assertIn('没有可验证的新修正',state['learning']['error'])
+        self.assertEqual(state['learning']['phase'],'exhausted')
+        self.assertEqual(state['plan']['review']['proposal']['retry_mode'],'same_parameters')
 
     def test_scene_rejection_stops_before_physical_attempt(self):
         with patch('evoarm_rsi.grok_review.review', return_value={'ready': False, 'note': 'wrong funnel'}):
@@ -247,12 +246,13 @@ class AutoAPI(unittest.TestCase):
         event=state['learning']['recovery_events'][0]
         self.assertTrue(event['t100_attempted']);self.assertFalse(event['t100_sent'])
 
-    def test_unknown_review_recovers_once_and_does_not_train_or_repeat_blindly(self):
-        with (patch('evoarm_rsi.grok_review.review', side_effect=[{'ready': True, 'note': ''}, verdict('unknown')]),
+    def test_unknown_visual_verdict_keeps_parameters_and_continues_fresh_trials(self):
+        with (patch('evoarm_rsi.grok_review.review', side_effect=[{'ready': True, 'note': ''}]+[verdict('unknown')]*5),
                 patch('control_ui.rsi_trial.recover_trial', return_value={'status': 'completed'}) as recovery):
             self.start()
-        self.assertEqual(len(self.policies), 1); self.assertEqual(recovery.call_count, 1)
-        _, state = self.request('state', method='GET'); self.assertEqual(state['learning']['status'], 'failed')
+        self.assertEqual(len(self.policies),5);self.assertEqual(recovery.call_count,5)
+        self.assertTrue(all(p==DEFAULT_PARAMETERS for p in self.policies))
+        _,state=self.request('state',method='GET');self.assertEqual(state['learning']['phase'],'exhausted')
 
     def test_model_transport_failure_after_motion_still_recovers_and_backs_up(self):
         with (patch('evoarm_rsi.grok_review.review', side_effect=[{'ready': True, 'note': ''}, RuntimeError('Grok offline')]),

@@ -120,7 +120,7 @@ class Review(PlanID):
 
 class Learn(Empty):
     declaration:str
-    max_attempts:int=Field(default=5,ge=1,le=20,strict=True)
+    max_attempts:int|None=Field(default=None,ge=1,strict=True)
 
 
 class Reset(Empty):
@@ -260,6 +260,7 @@ def install(app,service_provider):
         health=snapshot.get('health') if snapshot.get('status')=='running' or automatic['status']=='running' else None
         return {'api_version':10,'web_learning_version':3,'visual_pipeline_version':3,
                 'workspace_preview_version':1,
+                'continuous_learning_version':1,
                 'speed_settings_version':1,'speed_settings':speeds,
                 'recording_duration_s':RECORDING_SECONDS,'model_long_edge_px':MODEL_LONG_EDGE,'model_review_frame_limit':MODEL_REVIEW_FRAMES,
                 'minimum_xy_step_mm':MIN_XY_STEP_MM,'setup_id':bench_ui.setup_id(),'health':health or service.health(),'job':snapshot,'plan':plan,
@@ -464,6 +465,8 @@ def install(app,service_provider):
                 old=plans.get(latest)
                 if old and old['status']=='prepared':old['status']='superseded';save(old)
                 plans[plan_id]=state;latest=plan_id;job.update(status='ready',phase='ready',plan_id=plan_id)
+                terminal=[key for key,value in plans.items() if value['status'] in ('completed','failed','superseded')]
+                for key in terminal[:-8]:plans.pop(key,None)  # Historical context stays readable from disk.
             return {'plan_id':plan_id,'preview_url':f'/api/bench/rsi/plans/{plan_id}/preview'}
         except (OSError,RuntimeError,ValueError,KeyError,TypeError) as exc:
             diagnostic=f'/api/bench/rsi/plans/{draft_id}/preview' if draft_id and (root(draft_id)/'preview.jpg').exists() else None
@@ -662,6 +665,17 @@ def install(app,service_provider):
                                 proposal.pop(key,None)
                             proposal.update(status='unchanged',decision='candidate_path_rejected',parameters_changed=[],before={},after={},
                                 step_mm=None,allow_retry=False,after_policy_id=policy_id(parameters),reason=changes[0])
+                if execution_diagnosis['category']=='complete' and req.outcome!='placed':
+                    same=parameters==pol['parameters']
+                    retry_reason=('本轮保留相同参数；重新定位球与漏斗、重新规划后继续尝试。' if same else
+                                  '下一轮使用已保存的参数，重新定位并规划后继续尝试。')
+                    proposal.update(allow_retry=True,retry_mode='same_parameters' if same else 'updated_parameters',retry_reason=retry_reason)
+                    if same:changes.append(retry_reason)
+                    proposal['reason']='\n'.join(changes)
+                elif execution_diagnosis['category'] in ('execution_error','camera_error','not_started'):
+                    reason='本轮执行或证据采集未确认：'+str(execution_diagnosis.get('error') or '没有已确认的动作结果')
+                    proposal.update(allow_retry=False,retry_reason=reason,reason=reason)
+                    changes.append(reason)
                 entry={'plan_id':req.plan_id,'outcome':req.outcome,'direction':req.direction,'source':req.source,
                        'note':req.note,'before_version':pol['version'],'after_version':pol['version']+1,
                        'before':pol['parameters'],'after':parameters,'changes':changes,'proposal':proposal,'at_unix':time.time(),
