@@ -1,6 +1,7 @@
 """Multi-colour 34mm table balls; the existing calibrated container is reused."""
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -183,9 +184,27 @@ def inventory(image,bowl,candidates,root,stop,on_update=None):
     finally:(root/'inventory-output.txt').write_text(''.join(raw),encoding='utf-8')
 
 
-def observe(folder,session,root,stop,on_update=None,*,model_review=None,fast=False,verified_colors=()):
+def container_reference(scene):
+    """Freeze this challenge's measured opening, never a previous job's scene."""
+    return copy.deepcopy({key:scene[key] for key in ('bowl','source_trial_id','frame_index',
+        'image_size','camera_geometry','table_plane')})
+
+
+def _reference_bowl(reference,frame,g):
+    # Pixel masks remain valid only with the same camera profile/calibration.
+    # A new challenge always measures again, including after moving the bowl.
+    if (reference['image_size']!=list(frame['bgr'].shape[1::-1])
+            or any(not np.allclose(reference['camera_geometry'][key],g[key],rtol=0,atol=1e-6)
+                   for key in ('K','R','t'))
+            or reference['table_plane']!=g['plane']):
+        raise ValueError('相机画幅、内参或标定已变化，本次锁定的漏斗位置失效；请重新开始挑战。')
+    return copy.deepcopy(reference['bowl'])
+
+
+def observe(folder,session,root,stop,on_update=None,*,model_review=None,fast=False,verified_colors=(),bowl_reference=None):
     frame=load_rgbd(folder);intr=json.loads((Path(folder)/'gemini_color_intrinsics.json').read_text());g=camera_geometry(session,intr)
-    bowl=detect_funnel(frame['bgr'],g,frame['depth_mm'])
+    bowl=(_reference_bowl(bowl_reference,frame,g) if bowl_reference is not None
+          else detect_funnel(frame['bgr'],g,frame['depth_mm']))
     first,weak=locate(frame,g,bowl)
     if fast and weak and verified_colors:
         # Reuse only the colour identity, with a NEW contour in THIS frame.
@@ -205,6 +224,9 @@ def observe(folder,session,root,stop,on_update=None,*,model_review=None,fast=Fal
         cv2.putText(image,f"{ball['id']} {ball['color']}",p,cv2.FONT_HERSHEY_SIMPLEX,.5,(30,80,230),2)
     root=Path(root);cv2.imwrite(str(root/'preview.jpg'),image);cv2.imwrite(str(root/'observation.jpg'),frame['bgr'])
     result={'balls':balls,'unresolved':pending,'bowl':bowl,'view_clear':review['view_clear'],'note':review.get('note',''),
+        'bowl_location':{'mode':'challenge_locked' if bowl_reference is not None else 'current_frame',
+            'source_trial_id':bowl_reference['source_trial_id'] if bowl_reference is not None else frame['trial_id'],
+            'frame_index':bowl_reference['frame_index'] if bowl_reference is not None else frame['frame_index']},
         'bowl_ball_colors':review['bowl_ball_colors'],
         'inventory_review':review,'fresh_model_review':not fast and model_review is None,'perception_mode':'rgbd_fast' if fast else 'model',
         'source_trial_id':frame['trial_id'],'frame_index':frame['frame_index'],'host_monotonic_ns':frame['host_monotonic_ns'],

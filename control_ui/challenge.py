@@ -43,17 +43,21 @@ def install(app,service_provider):
     def state():
         service=service_provider();feedback_error=None
         with service.lock:
-            if service.arm and not service.automation_owner and not service.pending:
+            # An unowned pending move (e.g. T100 from the coordinate page)
+            # needs real feedback to complete or become a visible fault.
+            # Active automation already samples its own serial feedback.
+            if service.arm and not service.automation_owner:
                 try:service.status()
                 except Exception as exc:feedback_error=str(exc)[:500]
             health=service.health()
+            challenge=runner.snapshot()
         try:runner.session();calibrated=True;calibration_error=None
         except (OSError,ValueError,KeyError) as exc:calibrated=False;calibration_error=str(exc)[:500]
         try:revision=subprocess.check_output(['git','rev-parse','--short','HEAD'],cwd=Path(__file__).parent,text=True,stderr=subprocess.DEVNULL).strip()
         except (OSError,subprocess.SubprocessError):revision=None
         return {'challenge_api_version':2,'expected_balls':None,'ball_diameter_mm':34,'container_unchanged':True,
             'health':health,'feedback_error':feedback_error,'calibrated':calibrated,'calibration_error':calibration_error,
-            'model':grok_review.configuration(),'challenge':runner.snapshot(),'process':runner.events.after(),
+            'model':grok_review.configuration(),'challenge':challenge,'process':runner.events.after(),
             'code_revision':revision,'recording_limit_seconds':20,'continuous_pose':True,'background_review':True}
 
     @router.post('/observe')

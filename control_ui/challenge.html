@@ -12,6 +12,7 @@
     .ball-list{padding:0;list-style:none}.ball-list li{display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line);padding:12px 0}.dot{width:13px;height:13px;display:inline-block;border:1px solid #83958d;border-radius:50%;flex-shrink:0}
     .ball-list small{display:block;color:var(--muted)}.below{margin-top:22px}.events{max-height:300px;overflow:auto;padding-left:24px}.events li{padding:7px 3px;line-height:1.8}
     .model-text{max-height:250px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.trial{padding:16px 0;border-bottom:1px solid var(--line)}.trial p{margin:6px 0}.trial a{margin-right:18px}.trial video{display:block;width:100%;max-height:450px;margin-top:12px}
+    .pause-reason{padding:14px;border:1px solid #e2b4a4;background:#fff5f0;border-radius:9px;overflow-wrap:anywhere}.pause-reason p{margin:8px 0 0;white-space:pre-line;line-height:1.8}
     [hidden]{display:none!important}
   </style>
 </head>
@@ -36,11 +37,13 @@
     </div>
     <section class="card controls"><div class="card-heading"><h2>自动清台</h2><span class="mini-badge">不同颜色的小球</span></div>
       <div class="counts"><div>桌面剩余<strong id="remaining"></strong></div><div>已确认入碗<strong id="placed">0</strong></div></div>
-      <p id="readiness" class="inline-note">正在检查机械臂、标定与视觉模型。</p><p id="modelStatus" class="quiet"></p><p id="recordingStatus" class="quiet"></p>
+      <p id="readiness" class="inline-note">正在检查机械臂、标定与视觉模型。</p><p id="containerStatus" class="quiet">每次开始挑战时定位漏斗，本次挑战内沿用该位置；移动漏斗后请停止并重新开始。</p><p id="modelStatus" class="quiet"></p><p id="recordingStatus" class="quiet"></p>
       <button id="observe" class="secondary">识别桌面（不运动）</button>
       <label class="check-row"><input id="confirmed" type="checkbox"/><span>现场已清空，允许连续抓放、故障时自动回位。</span></label>
       <button id="start" class="primary" disabled>开始挑战</button><button id="stop" class="secondary" hidden>停止挑战</button>
-      <p id="phase" class="phase" role="status" aria-live="polite">尚未开始。</p><p id="target" class="quiet"></p><p id="verdict" class="quiet"></p><p id="changes" class="quiet"></p>
+      <p id="phase" class="phase" role="status" aria-live="polite">尚未开始。</p>
+      <div id="pauseReason" class="pause-reason" role="alert" hidden><strong>暂停原因</strong><p id="pauseText"></p></div>
+      <p id="target" class="quiet"></p><p id="verdict" class="quiet"></p><p id="changes" class="quiet"></p>
       <p class="quiet">仅挑战模式首次默认快速转移1.0、下探0.6，保留原有更快设置，后续可根据滑落结果下调。正常轮次不回初始姿态；快速定位后继续抓，失败分析在后台进行。录像覆盖动作和投放后的短暂画面，最多20秒。</p>
       <p class="quiet">停止会阻止后续指令和重试；已接受的动作可能继续。剩余球不可达或执行异常会显示原因，不计为清台成功。</p>
     </section>
