@@ -53,6 +53,16 @@ def check(url,output):
         assert page.locator('#start').is_disabled();page.locator('#observe').click();page.locator('#remaining').filter(has_text='3').wait_for()
         page.locator('#observation summary').click();assert page.locator('#balls li').count()==3
         page.locator('#confirmed').check();assert page.locator('#start').is_enabled() # armed=false is valid.
+        state['challenge'].update(status='failed',phase='failed',session_id=session,error='漏斗口沿未识别')
+        state['health']['pending']={'kind':'factory','target':'official_init','elapsed_s':3.5,'max_error_deg':25.75,'worst_joint':6}
+        page.locator('#readiness').filter(has_text='官方回位待确认').wait_for()
+        assert '25.8°' in page.locator('#readiness').inner_text()
+        assert '其他任务' not in page.locator('#readiness').inner_text()
+        assert page.locator('#start').is_disabled();assert page.locator('#observe').is_disabled()
+        state['health']['pending']=None
+        page.locator('#readiness').filter(has_text='本次挑战已暂停').wait_for()
+        assert page.locator('#start').is_enabled()
+        assert not any(c[1]=='/challenge/start' for c in calls) # Completion enables; it never starts a grab.
         page.locator('#start').click();page.locator('#stop').wait_for(state='visible');assert page.locator('#start').is_disabled()
         assert '漏斗位置已锁定' in page.locator('#containerStatus').inner_text()
         assert page.locator('#pauseReason').is_hidden()
@@ -75,6 +85,13 @@ def check(url,output):
         assert '已暂停' in page.locator('#readiness').inner_text()
         assert reason in page.locator('#events').inner_text()
         page.screenshot(path=str(output/'challenge-pause-reason.png'),full_page=True)
+        state['health']['automation_owner']=session
+        page.locator('#readiness').filter(has_text='本次挑战正在收尾').wait_for()
+        assert '其他任务' not in page.locator('#readiness').inner_text();assert page.locator('#start').is_disabled()
+        state['health']['automation_owner']='d'*32
+        page.locator('#readiness').filter(has_text='其他任务正在占用控制器，任务 dddddddddd').wait_for()
+        assert page.locator('#start').is_disabled();state['health']['automation_owner']=None
+        page.locator('#readiness').filter(has_text='本次挑战已暂停').wait_for()
         # Explicit restart and stop work; page reload never starts anything.
         page.locator('#confirmed').check();page.locator('#start').click();page.locator('#stop').wait_for(state='visible');page.locator('#stop').click()
         page.locator('#phase').filter(has_text='已停止').wait_for()
@@ -83,11 +100,24 @@ def check(url,output):
         page.wait_for_timeout(1700)  # State polling must not erase a failed action's explanation.
         assert page.locator('#error').is_visible()
         fail_observe=False;page.locator('#observe').click();page.locator('#error').wait_for(state='hidden')
+        page.evaluate('''() => {
+          const original=window.fetch.bind(window);window.pendingStateReads=0;window.maxStateReads=0;
+          window.fetch=async (...args) => {
+            if(!String(args[0]).includes('/api/challenge/state'))return original(...args);
+            window.pendingStateReads++;window.maxStateReads=Math.max(window.maxStateReads,window.pendingStateReads);
+            try {await new Promise(resolve=>setTimeout(resolve,2100));return await original(...args);}
+            finally {window.pendingStateReads--;}
+          };
+        }''')
+        page.wait_for_timeout(4600)
+        assert page.evaluate('window.maxStateReads')==1 # A slow serial response cannot queue overlapping polls.
         assert [c[1] for c in calls if c[0]=='POST']==['/challenge/observe','/challenge/start','/challenge/start','/challenge/stop','/challenge/observe','/challenge/observe']
         browser.close()
     result={'hardware_called':False,'model_called':False,'browser_errors':errors,'checks':[
         'separate navigation','no size inputs','read-only preview','actual RGB-D XYZ labels','armed=false permits explicit start',
         'continue after first and second ball','locked container explanation','pause reason and stage shown in controls and timeline',
+        'factory pending has its own explanation; confirmed feedback enables without auto-start',
+        'own cleanup and foreign task ownership are distinguished','slow state reads never overlap',
         'restart clears stale errors','polling preserves failed action explanations',
         'dynamic counts with no denominator or empty-check counter','reload does not replay','explicit stop']}
     (output/'report.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));return result

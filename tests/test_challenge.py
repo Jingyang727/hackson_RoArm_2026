@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from control_ui import main
 from control_ui.challenge import install
 from control_ui.service import ArmService
+from control_ui.safety import FACTORY_DEGREES
 from evoarm_rsi import challenge_scene as vision,challenge_loop as loop
 from evoarm_rsi.ball_trial import camera_geometry
 from evoarm_rsi.coordinate_test import fingerprint
@@ -466,3 +467,82 @@ class ChallengeAPI(unittest.TestCase):
             self.assertEqual(response['status'],409);self.assertIn('确认',data['detail'])
             response,_=asyncio.run(api_request('/api/challenge/sessions/not-an-id/observations/not-an-id',{},method='GET'))
             self.assertEqual(response['status'],404)
+
+
+class ChallengePendingAPI(unittest.TestCase):
+    """A paused challenge must still observe another page's unowned motion."""
+    def setUp(self):
+        app=FastAPI();self.service=ArmService();self.arm=SimulatedArm();self.service.arm=self.arm
+        self.runner=install(app,lambda:self.service)
+        self.runner.value.update(session_id='a'*32,status='failed',phase='failed',error='漏斗口沿未识别')
+        self.arm.raw.update({k:math.radians(FACTORY_DEGREES[j]) for j,k in enumerate('bsetrg',1)})
+        self.arm.raw['g']=math.radians(154.25)
+        self.service.pending={'kind':'factory','target':'official_init','since':time.monotonic()-3.5,
+            'elapsed_s':3.5,'initial_angles':{**FACTORY_DEGREES,6:110.66},'stable_intervals':0}
+        self.service.last_command={'status':'factory_reset_sent_unverified','command':{'T':100}}
+        for item in (patch.object(main,'app',app),patch.object(self.runner,'session',return_value={}),
+                patch.object(loop.grok_review,'configuration',return_value={'configured':True,'model':'test-vlm'})):
+            item.start();self.addCleanup(item.stop)
+
+    def state(self):
+        response,value=asyncio.run(api_request('/api/challenge/state',{},method='GET'))
+        self.assertEqual(response['status'],200)
+        return value
+
+    def test_paused_challenge_updates_factory_feedback_and_releases_verified_pending(self):
+        with patch.object(self.arm,'status',wraps=self.arm.status) as read:
+            value=self.state();pending=value['health']['pending']
+            self.assertEqual(pending['kind'],'factory');self.assertEqual(pending['max_error_deg'],25.75)
+            self.assertEqual(pending['worst_joint'],6);self.assertIsNone(value['health']['automation_owner'])
+            self.assertIsNone(value['health']['fault']);self.assertEqual(value['challenge']['error'],'漏斗口沿未识别')
+            read.assert_called_once_with(timeout=20)
+            self.arm.raw['g']=math.radians(180)
+            value=self.state()
+        self.assertIsNone(value['health']['pending']);self.assertIsNone(value['health']['fault'])
+        self.assertEqual(value['health']['last_command']['status'],'feedback_confirmed')
+        self.assertFalse(value['health']['armed']);self.assertEqual(self.arm.commands,[])
+
+    def test_unowned_cartesian_pending_also_gets_real_feedback(self):
+        start=[self.arm.raw[k] for k in 'xyz'];target=[start[0]+50,*start[1:]]
+        self.service.pending={'kind':'cartesian','since':time.monotonic()-3.5,'xyz_start':start,'xyz_target':target}
+        with patch.object(self.arm,'status',wraps=self.arm.status) as read:
+            value=self.state();self.assertEqual(value['health']['pending']['position_error_mm'],50)
+            read.assert_called_once_with(timeout=30)
+            self.arm.raw['x']+=50;value=self.state()
+        self.assertIsNone(value['health']['pending']);self.assertEqual(self.arm.commands,[])
+
+    def test_stalled_factory_becomes_visible_fault_instead_of_pending_forever(self):
+        self.service.pending['since']=96.5
+        with patch('control_ui.service.time') as clock:
+            for now in (100.,101.,102.):
+                clock.monotonic.return_value=now;value=self.state()
+        self.assertIsNone(value['health']['pending'])
+        self.assertEqual(value['health']['fault']['code'],'motion_stalled_or_offset')
+        self.assertEqual(value['health']['fault']['error_deg'],25.75)
+        self.assertFalse(value['health']['armed']);self.assertEqual(self.arm.commands,[])
+
+    def test_factory_timeout_is_reported_without_resetting_or_clearing_the_fault(self):
+        self.service.pending['since']-=50
+        value=self.state()
+        self.assertIsNone(value['health']['pending'])
+        self.assertEqual(value['health']['fault']['code'],'motion_not_confirmed')
+        self.arm.raw['g']=math.radians(180);again=self.state()
+        self.assertEqual(again['health']['fault'],value['health']['fault'])
+        self.assertEqual(self.arm.commands,[])
+
+    def test_serial_read_failure_is_explicit_and_never_replays_reset(self):
+        with patch.object(self.arm,'status',side_effect=OSError('synthetic serial unavailable')):
+            value=self.state()
+        self.assertIn('synthetic serial unavailable',value['feedback_error'])
+        self.assertEqual(value['health']['fault']['code'],'feedback_timeout')
+        self.assertEqual(self.arm.commands,[])
+
+    def test_active_automation_keeps_exclusive_control_of_its_feedback(self):
+        for owner in ('another-job',self.runner.value['session_id']):
+            self.service.automation_owner=owner
+            before=copy.deepcopy(self.service.pending)
+            with patch.object(self.arm,'status',side_effect=AssertionError('active worker owns serial feedback')) as read:
+                value=self.state()
+            read.assert_not_called();self.assertEqual(value['health']['automation_owner'],owner)
+            self.assertEqual(self.service.pending,before)
+            self.assertEqual(value['health']['pending'],json.loads(json.dumps(before)));self.assertEqual(self.arm.commands,[])
