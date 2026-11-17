@@ -138,6 +138,54 @@ class ColourDepth(unittest.TestCase):
             updated,*_=vision.observe(folder,self.saved,root,threading.Event(),model_review=review)
         self.assertEqual(updated['balls'],[]);self.assertFalse(updated['fresh_model_review'])
 
+    def test_locked_mouth_survives_occlusion_while_balls_are_measured_again(self):
+        initial,*_=synthetic(self.saved)
+        reference=vision.container_reference(initial)
+        positions={'red':[340,-35,-98],'blue':[290,-110,-52.6]}
+        scene,g,image,frame,*_=synthetic(self.saved,positions)
+        # Gripper touching the image edge obscures the rim. Detection would
+        # fail, but it must not be attempted again with a locked reference.
+        u,v=np.round(reference['bowl']['pixel_center']).astype(int)
+        cv2.rectangle(image,(u-12,0),(u+12,v-12),(18,18,18),-1)
+        folder=self.home/'capture';folder.mkdir();(folder/'gemini_color_intrinsics.json').write_text(json.dumps(K))
+        root=self.home/'post';root.mkdir()
+        with patch.object(vision,'load_rgbd',return_value=frame),patch.object(vision,'detect_funnel',side_effect=ValueError('rim occluded')) as detector:
+            updated,*_=vision.observe(folder,self.saved,root,threading.Event(),fast=True,bowl_reference=reference)
+        detector.assert_not_called()
+        self.assertEqual([b['color'] for b in updated['balls']],['red'])
+        np.testing.assert_allclose(updated['balls'][0]['center_robot_mm'],positions['red'],atol=1)
+        self.assertIn('blue',updated['bowl_ball_colors'])
+        self.assertEqual(updated['bowl'],initial['bowl'])
+        self.assertEqual(updated['source_trial_id'],frame['trial_id'])
+        self.assertNotEqual(updated['source_trial_id'],updated['bowl_location']['source_trial_id'])
+        self.assertEqual(updated['bowl_location']['mode'],'challenge_locked')
+        self.assertEqual(json.loads((root/'scene.json').read_text())['bowl_location'],updated['bowl_location'])
+        updated['bowl']['mouth_center_robot_mm'][0]+=100
+        self.assertEqual(reference['bowl'],initial['bowl'])
+
+    def test_locked_mouth_does_not_confirm_a_ball_by_disappearance(self):
+        scene,g,image,frame,*_=synthetic(self.saved,{})
+        folder=self.home/'capture';folder.mkdir();(folder/'gemini_color_intrinsics.json').write_text(json.dumps(K))
+        root=self.home/'post';root.mkdir()
+        with patch.object(vision,'load_rgbd',return_value=frame):
+            updated,*_=vision.observe(folder,self.saved,root,threading.Event(),fast=True,bowl_reference=vision.container_reference(scene))
+        self.assertEqual(updated['balls'],[]);self.assertEqual(updated['bowl_ball_colors'],[])
+
+    def test_new_observation_still_requires_a_measured_mouth(self):
+        scene,g,image,frame,*_=synthetic(self.saved)
+        folder=self.home/'capture';folder.mkdir();(folder/'gemini_color_intrinsics.json').write_text(json.dumps(K))
+        with patch.object(vision,'load_rgbd',return_value=frame),patch.object(vision,'detect_funnel',side_effect=ValueError('rim absent')):
+            with self.assertRaisesRegex(ValueError,'rim absent'):
+                vision.observe(folder,self.saved,self.home,threading.Event(),fast=True)
+
+    def test_camera_profile_change_invalidates_locked_pixels(self):
+        scene,g,image,frame,*_=synthetic(self.saved);reference=vision.container_reference(scene)
+        folder=self.home/'capture';folder.mkdir();intr={**K,'fx':K['fx']+1}
+        (folder/'gemini_color_intrinsics.json').write_text(json.dumps(intr))
+        with patch.object(vision,'load_rgbd',return_value=frame):
+            with self.assertRaisesRegex(ValueError,'内参或标定已变化'):
+                vision.observe(folder,self.saved,self.home,threading.Event(),fast=True,bowl_reference=reference)
+
 
 class CleanupLoop(unittest.TestCase):
     def setUp(self):
@@ -193,6 +241,65 @@ class CleanupLoop(unittest.TestCase):
             np.testing.assert_allclose([following['initial_status'][k] for k in 'xyz'],final['xyz_mm'],atol=.001)
         self.assertEqual((self.home/'.evoarm/rsi/calibrations/bench-layout-v2/session.json').read_bytes(),before)
         self.assertEqual(len(list((self.home/'.evoarm/rsi/backups').glob('*.zip'))),3)
+
+    def test_container_reference_is_shared_through_census_and_new_each_challenge(self):
+        captures=[];original=self.capture
+        def checked(*args,**kwargs):
+            captures.append(kwargs);return original(*args,**kwargs)
+        with patch.object(self.runner,'_capture',side_effect=checked):
+            self.runner.observe();self.assertIsNone(captures[-1].get('bowl_reference'))
+            references=[]
+            for _ in range(2):
+                captures.clear();self.colors=set(POSITIONS);self.placed.clear()
+                self.start();state=self.runner.snapshot()
+                self.assertEqual(state['status'],'completed',state.get('error'))
+                self.assertIsNone(captures[0].get('bowl_reference'))
+                reference=state['container_reference'];references.append(reference)
+                self.assertTrue(all(c['bowl_reference']==reference for c in captures[1:]))
+                self.assertTrue(any(c.get('source') for c in captures))
+                self.assertTrue(any(c.get('fast') is False for c in captures))
+                saved=json.loads((self.runner.root(state['session_id'])/'state.json').read_text())
+                self.assertEqual(saved['container_reference'],reference)
+            self.assertNotEqual(references[0]['source_trial_id'],references[1]['source_trial_id'])
+        self.assertEqual(self.reset_calls,[])
+
+    def test_first_drop_occluding_rim_does_not_pause_following_grabs(self):
+        measurements=[]
+        def detector(*args):
+            measurements.append(1)
+            if len(measurements)>1:raise ValueError('gripper occludes the rim after first release')
+            return copy.deepcopy(self.world['bowl'])
+        def capture(saved,folder,**kwargs):
+            positions={c:self.positions[c] for c in self.colors}
+            positions.update({c:[290,-110,-52.6] for c in self.placed})
+            scene,g,image,frame,review=synthetic(saved,positions)
+            review['table_balls']=[r for r in review['table_balls'] if r['color'] in self.colors]
+            review['bowl_ball_colors']=sorted(self.placed)
+            u,v=np.round(scene['bowl']['pixel_center']).astype(int)
+            if self.motion:cv2.rectangle(image,(u-12,0),(u+12,v-12),(18,18,18),-1)
+            recording=self.home/'recording';recording.mkdir(exist_ok=True)
+            (recording/'gemini_color_intrinsics.json').write_text(json.dumps(K))
+            folder.mkdir(parents=True,exist_ok=True)
+            with patch.object(vision,'load_rgbd',return_value=frame),patch.object(vision,'inventory',return_value=review):
+                return vision.observe(recording,saved,folder,self.runner.stop,
+                    fast=kwargs.get('fast',True),bowl_reference=kwargs.get('bowl_reference'))
+        with patch.object(self.runner,'_capture',side_effect=capture),patch.object(vision,'detect_funnel',side_effect=detector):self.start()
+        state=self.runner.snapshot()
+        self.assertEqual(state['status'],'completed',state.get('error'))
+        self.assertEqual(len(self.motion),3);self.assertEqual(len(measurements),1)
+        self.assertEqual(state['scene']['bowl_location']['mode'],'challenge_locked')
+        self.assertEqual(self.reset_calls,[])
+
+    def test_perception_failure_has_a_persisted_stage_and_event_reason(self):
+        reason='当前没有找到完整的大漏斗口沿'
+        with patch.object(self.runner,'_capture',side_effect=ValueError(reason)):self.start()
+        state=self.runner.snapshot();self.assertEqual(state['status'],'failed')
+        self.assertEqual(state['failure_phase'],'observing');self.assertEqual(state['error'],reason)
+        events=self.runner.events.after()['events']
+        self.assertEqual(events[-1]['phase'],'failed');self.assertEqual(events[-1]['message'],reason)
+        saved=json.loads((self.runner.root(state['session_id'])/'state.json').read_text())
+        self.assertEqual(saved['error'],reason);self.assertEqual(self.motion,[])
+        self.assertIsNone(self.service.automation_owner)
         for file in (self.home/'.evoarm/rsi/langfuse-outbox').glob('*.json'):
             self.assertEqual(json.loads(file.read_text())['task']['kind'],'challenge_upgrade')
 

@@ -79,15 +79,16 @@ class Challenge:
     def publish(self,phase,**values):
         with self.lock:
             previous=self.value.get('phase');self.value.update(phase=phase,**values)
-            if phase!=previous or values.get('message'):
-                self.events.emit('phase',phase=phase,attempt=self.value['attempt'],message=values.get('message'))
+            if phase!=previous or values.get('message') or values.get('error'):
+                self.events.emit('phase',phase=phase,attempt=self.value['attempt'],
+                    message=values.get('message') or values.get('error'))
             if self.value.get('session_id'):_write(self.root(self.value['session_id'])/'state.json',self.value)
 
     def guard(self,saved=None):
         if self.stop.is_set():raise RuntimeError('用户已停止挑战')
         if saved is not None and fingerprint(self.session())!=fingerprint(saved):raise RuntimeError('活动标定已变化，停止后续动作')
 
-    def _capture(self,saved,folder,*,fast=True,source=None,verified_colors=()):
+    def _capture(self,saved,folder,*,fast=True,source=None,verified_colors=(),bowl_reference=None):
         self.guard(saved)
         if source is None:
             health=client_request(Path.home(),'GET','/health')
@@ -104,7 +105,8 @@ class Challenge:
         if len(key)!=32 or any(c not in '0123456789abcdef' for c in key):raise ValueError('相机返回无效录像ID')
         folder.mkdir(parents=True,exist_ok=True)
         value=challenge_scene.observe(bench_ui.experiment_root()/key,saved,folder,self.stop,
-            lambda u:self.events.model(u,attempt=self.value['attempt'],plan_id=folder.name),fast=fast,verified_colors=verified_colors)
+            lambda u:self.events.model(u,attempt=self.value['attempt'],plan_id=folder.name),
+            fast=fast,verified_colors=verified_colors,bowl_reference=bowl_reference)
         _write(folder/'calibration-snapshot.json',saved)
         return value
 
@@ -143,9 +145,9 @@ class Challenge:
                 'started_at_unix':time.time(),'calibration_fingerprint':fingerprint(saved)}
             service.automation_owner=key;self.publish('starting')
         try:launch(lambda:self._worker(key,saved))
-        except Exception:
+        except Exception as exc:
             with service.lock:service.automation_owner=None
-            self.publish('failed',status='failed');raise
+            self.publish('failed',status='failed',error=str(exc)[:1500],failure_phase='starting');raise
         return {'started':True,'session_id':key}
 
     def cancel(self):
@@ -267,7 +269,7 @@ class Challenge:
         return grok_review.review(context,self._trial_folder(current),stop,on_update=update)
 
     def _worker(self,key,saved):
-        service=self.service_provider();confirmed=set();seen=set();tries={};cached=None
+        service=self.service_provider();confirmed=set();seen=set();tries={};cached=None;bowl_reference=None
         pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='challenge-review');review_stop=threading.Event()
         pending=None;deferred={};pol=None
         def drain():
@@ -295,7 +297,11 @@ class Challenge:
                 self.guard(saved);drain();observation=uuid.uuid4().hex;self.publish('observing')
                 if cached is not None and 0<=(time.monotonic_ns()-cached[0]['host_monotonic_ns'])/1e9<2:
                     scene,g,image=cached;observation=self.value['observation_id'];cached=None
-                else:scene,g,image=self._capture(saved,self.root(key)/'observations'/observation)
+                else:scene,g,image=self._capture(saved,self.root(key)/'observations'/observation,bowl_reference=bowl_reference)
+                if bowl_reference is None:
+                    bowl_reference=challenge_scene.container_reference(scene)
+                    self.publish('container_locked',container_reference=bowl_reference,
+                        message='已锁定本次挑战的漏斗位置；后续沿用，不因夹爪或入碗球遮挡口沿而中断。')
                 self.guard(saved);colors={b['color'] for b in scene['balls']};seen|=colors
                 confirmed|=set(scene['bowl_ball_colors'])&seen;confirmed-=colors
                 if not scene['view_clear']:
@@ -305,7 +311,7 @@ class Challenge:
                 if not scene['balls']:
                     self.publish('verifying_table',message='桌面候选已处理，正在做最后一次画面确认。')
                     observation=uuid.uuid4().hex
-                    scene,g,image=self._capture(saved,self.root(key)/'observations'/observation,fast=False)
+                    scene,g,image=self._capture(saved,self.root(key)/'observations'/observation,fast=False,bowl_reference=bowl_reference)
                     colors={b['color'] for b in scene['balls']};seen|=colors
                     confirmed|=set(scene['bowl_ball_colors'])&seen;confirmed-=colors
                     if not scene['balls'] and not scene['unresolved'] and scene['view_clear']:
@@ -320,7 +326,7 @@ class Challenge:
                     # After model latency, return to a fresh measurement.
                     observation=uuid.uuid4().hex
                     scene,g,image=self._capture(saved,self.root(key)/'observations'/observation,
-                        verified_colors={b['color'] for b in scene['balls']})
+                        verified_colors={b['color'] for b in scene['balls']},bowl_reference=bowl_reference)
                     if not scene['balls']:continue
                     colors={b['color'] for b in scene['balls']};seen|=colors;confirmed-=colors
                 self.publish('planning',scene=scene,observation_id=observation,observation_session_id=key,
@@ -336,8 +342,9 @@ class Challenge:
                     self.publish('blocked',failures=failures);raise RuntimeError('剩余球未找到完整抓放路径；未把它们计为已清空。')
                 ball,plan=choice;tries[ball['color']]=tries.get(ball['color'],0)+1
                 current=self._attempt(key,saved,scene,g,image,ball,plan,pol)
-                observation=uuid.uuid4().hex
-                cached=self._capture(saved,self.root(key)/'observations'/observation,source=current['result']['capture_trial_id'])
+                observation=uuid.uuid4().hex;self.publish('reobserving')
+                cached=self._capture(saved,self.root(key)/'observations'/observation,
+                    source=current['result']['capture_trial_id'],bowl_reference=bowl_reference)
                 post=cached[0];self.publish('reobserving',scene=post,observation_id=observation,observation_session_id=key,
                     remaining=len(post['balls'])+len(post['unresolved']))
                 still_on_table=any(b['color']==ball['color'] for b in post['balls'])
@@ -345,7 +352,8 @@ class Challenge:
                     verdict={'outcome':'placed','ball_state':'funnel','direction':'none','magnitude':'unknown',
                         'adjustment':'keep','note':'实际投放后RGB-D画面中，目标颜色位于容器开口内部，桌面未再见该球。'}
                     verdict=self._apply_review(saved,current,verdict,pol,source='rgbd')
-                    if verdict['outcome']=='placed':confirmed.add(ball['color'])
+                    if verdict['outcome']=='placed':
+                        confirmed.add(ball['color']);self.publish('reobserving',confirmed_colors=sorted(confirmed))
                 elif current['review_status']=='pending':
                     # At most one request runs, plus one latest deferred sample
                     # per colour. Do not build an unbounded model-call backlog.
@@ -354,7 +362,8 @@ class Challenge:
                         old.update(review_status='deferred',superseded_by=current['id']);self._archive(old,self._trial_folder(old));self._trial_row(old)
                     deferred[ball['color']]=current;drain()
         except Exception as exc:
-            self.publish('stopped' if self.stop.is_set() else 'failed',status='stopped' if self.stop.is_set() else 'failed',error=str(exc)[:1500])
+            self.publish('stopped' if self.stop.is_set() else 'failed',status='stopped' if self.stop.is_set() else 'failed',
+                error=str(exc)[:1500],failure_phase=self.value.get('phase'))
         finally:
             if pending and not pending[0].done():
                 current=pending[1]

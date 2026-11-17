@@ -23,7 +23,7 @@ def check(url,output):
            'torque_status':[1]*6,'pending':None,'fault':None,'automation_owner':None},'calibrated':True,
            'model':{'configured':True,'model':'DeepSeek-V4.1-Flash'},'process':{'reset':True,'events':[]},
            'challenge':{'status':'idle','phase':'idle','remaining':None,'confirmed_colors':[],'trials':[]}}
-    calls=[];errors=[]
+    calls=[];errors=[];fail_observe=False
     def route(handler):
         req=handler.request;path=req.url.split('/api',1)[1].split('?',1)[0];body=req.post_data_json if req.method=='POST' else None
         calls.append([req.method,path,body])
@@ -32,10 +32,13 @@ def check(url,output):
         if path=='/challenge/events':return handler.fulfill(content_type='text/event-stream',body=': test\n\n')
         if path=='/challenge/state':data=state
         elif path=='/challenge/observe':
+            if fail_observe:return handler.fulfill(status=409,content_type='application/json',body=json.dumps({'detail':'只读定位失败：相机暂不可用'}))
             state['challenge'].update(scene=scene,phase='ready',remaining=3,observation_session_id=session,observation_id=observation);data={'scene':scene,'robot_moved':False}
         elif path=='/challenge/start':
             assert 'declaration' in body
-            state['challenge'].update(status='running',phase='executing',session_id=session,attempt=1,target=scene['balls'][0]);data={'started':True,'session_id':session}
+            state['challenge'].update(status='running',phase='executing',session_id=session,attempt=1,target=scene['balls'][0],
+                error=None,failure_phase=None,container_reference={'bowl':scene['bowl']})
+            state['process']={'reset':True,'events':[]};data={'started':True,'session_id':session}
         elif path=='/challenge/stop':state['challenge'].update(status='stopped',phase='stopped');data={'stop_requested':True}
         else:raise AssertionError('unexpected API '+req.method+' '+path)
         handler.fulfill(content_type='application/json',body=json.dumps(data))
@@ -51,6 +54,8 @@ def check(url,output):
         page.locator('#observation summary').click();assert page.locator('#balls li').count()==3
         page.locator('#confirmed').check();assert page.locator('#start').is_enabled() # armed=false is valid.
         page.locator('#start').click();page.locator('#stop').wait_for(state='visible');assert page.locator('#start').is_disabled()
+        assert '漏斗位置已锁定' in page.locator('#containerStatus').inner_text()
+        assert page.locator('#pauseReason').is_hidden()
         page.screenshot(path=str(output/'challenge-desktop.png'),full_page=True)
         page.reload();page.locator('#stop').wait_for(state='visible');assert len([c for c in calls if c[1]=='/challenge/start'])==1
         c=state['challenge'];c.update(attempt=2,remaining=2,confirmed_colors=['red'],target=scene['balls'][1])
@@ -61,14 +66,30 @@ def check(url,output):
         page.locator('#success').wait_for(state='visible');assert not page.locator('#stop').is_visible()
         assert page.locator('#placed').inner_text()=='3';assert page.locator('#trials a').count()==3
         page.screenshot(path=str(output/'challenge-completed.png'),full_page=True)
+        reason='当前没有找到完整的大漏斗口沿；请让大开口出现在画面中后重新观察。'
+        c.update(status='failed',phase='failed',error=reason,failure_phase='observing')
+        state['process']={'reset':True,'events':[{'kind':'phase','phase':'failed','message':reason,'at_unix':1794862800}]}
+        page.locator('#pauseReason').wait_for(state='visible')
+        assert reason in page.locator('#pauseText').inner_text()
+        assert '发生阶段：观察桌面上的球' in page.locator('#pauseText').inner_text()
+        assert '已暂停' in page.locator('#readiness').inner_text()
+        assert reason in page.locator('#events').inner_text()
+        page.screenshot(path=str(output/'challenge-pause-reason.png'),full_page=True)
         # Explicit restart and stop work; page reload never starts anything.
         page.locator('#confirmed').check();page.locator('#start').click();page.locator('#stop').wait_for(state='visible');page.locator('#stop').click()
-        page.locator('#phase').filter(has_text='已停止').wait_for();assert not errors,errors
-        assert [c[1] for c in calls if c[0]=='POST']==['/challenge/observe','/challenge/start','/challenge/start','/challenge/stop']
+        page.locator('#phase').filter(has_text='已停止').wait_for()
+        assert page.locator('#pauseReason').is_hidden();assert page.locator('#error').is_hidden();assert not errors,errors
+        fail_observe=True;page.locator('#observe').click();page.locator('#error').filter(has_text='只读定位失败').wait_for()
+        page.wait_for_timeout(1700)  # State polling must not erase a failed action's explanation.
+        assert page.locator('#error').is_visible()
+        fail_observe=False;page.locator('#observe').click();page.locator('#error').wait_for(state='hidden')
+        assert [c[1] for c in calls if c[0]=='POST']==['/challenge/observe','/challenge/start','/challenge/start','/challenge/stop','/challenge/observe','/challenge/observe']
         browser.close()
     result={'hardware_called':False,'model_called':False,'browser_errors':errors,'checks':[
         'separate navigation','no size inputs','read-only preview','actual RGB-D XYZ labels','armed=false permits explicit start',
-        'continue after first and second ball','dynamic counts with no denominator or empty-check counter','reload does not replay','explicit stop']}
+        'continue after first and second ball','locked container explanation','pause reason and stage shown in controls and timeline',
+        'restart clears stale errors','polling preserves failed action explanations',
+        'dynamic counts with no denominator or empty-check counter','reload does not replay','explicit stop']}
     (output/'report.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));return result
 
 
